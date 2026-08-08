@@ -1,0 +1,12 @@
+{
+  "id": "default-strip",
+  "printSize": "2x6-strip",
+  "cellWidthPx": 600,
+  "cellHeightPx": 1800,
+  "photoSlots": [
+    { "x": 30, "y": 30, "width": 540, "height": 540 },
+    { "x": 30, "y": 600, "width": 540, "height": 540 },
+    { "x": 30, "y": 1170, "width": 540, "height": 540 }
+  ],
+  "overlayFile": null
+}

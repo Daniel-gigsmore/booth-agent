@@ -1,0 +1,41 @@
+{
+  "name": "booth-agent",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local Windows agent that owns the photobooth camera and printer and exposes them to the kiosk UI over localhost.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
+    "tray": "ts-node-dev --transpile-only src/tray/trayApp.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "service:install": "node dist/service/install.js",
+    "service:uninstall": "node dist/service/uninstall.js"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.4",
+    "chokidar": "^3.6.0",
+    "express": "^4.19.2",
+    "node-windows": "^1.0.0-beta.8",
+    "sharp": "^0.33.5",
+    "systray2": "^2.1.4",
+    "uuid": "^9.0.1",
+    "ws": "^8.18.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.13.0",
+    "@types/uuid": "^9.0.8",
+    "@types/ws": "^8.5.12",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.5.4",
+    "vitest": "^2.0.5"
+  }
+}

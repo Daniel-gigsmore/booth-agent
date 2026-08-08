@@ -1,0 +1,51 @@
+{
+  "agent": {
+    "port": 7070,
+    "sharedSecret": "change-me-to-a-long-random-string"
+  },
+  "capture": {
+    "sourcePreference": "canon",
+    "canon": {
+      "digiCamControlExePath": "C:\\Program Files (x86)\\digiCamControl\\CameraControlRemoteCmd.exe",
+      "digiCamControlHttpPort": 5513,
+      "digiCamControlHttpHost": "127.0.0.1",
+      "sessionDir": "C:\\BoothAgent\\data\\canon-session",
+      "pollIntervalMs": 1000
+    },
+    "webcam": {
+      "ffmpegPath": "ffmpeg",
+      "deviceName": "USB2.0 HD UVC WebCam",
+      "captureWidth": 1920,
+      "captureHeight": 1080
+    },
+    "fallbackThresholdMs": 3000
+  },
+  "storage": {
+    "dataDir": "C:\\BoothAgent\\data",
+    "outboxDbFileName": "outbox.db"
+  },
+  "printing": {
+    "hotFolderPath": "C:\\BoothAgent\\hotfolder",
+    "defaultSize": "4x6",
+    "secondsPerPrint": 12.4
+  },
+  "compositing": {
+    "templateDir": "C:\\BoothAgent\\templates",
+    "jpegQuality": 92,
+    "dpi": 300
+  },
+  "supabase": {
+    "url": "https://your-project.supabase.co",
+    "anonKey": "your-anon-key",
+    "storageBucket": "captures"
+  },
+  "event": {
+    "id": "your-event-id"
+  },
+  "sync": {
+    "initialBackoffMs": 2000,
+    "maxBackoffMs": 120000,
+    "backoffMultiplier": 2,
+    "batchSize": 5
+  }
+}

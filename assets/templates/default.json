@@ -1,0 +1,10 @@
+{
+  "id": "default",
+  "printSize": "4x6",
+  "cellWidthPx": 1200,
+  "cellHeightPx": 1800,
+  "photoSlots": [
+    { "x": 0, "y": 0, "width": 1200, "height": 1800 }
+  ],
+  "overlayFile": null
+}
