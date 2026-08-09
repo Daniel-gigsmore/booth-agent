@@ -13,14 +13,24 @@ export function hotFolderPathFor(basePath: string, size: PrintSize): string {
   return path.join(basePath, size);
 }
 
+/**
+ * Copies `sourceFilePath` into the size's hot folder under a name derived
+ * from `jobId`, not the source file's own basename. Multiple print jobs
+ * commonly share one composite file (reprints, "print another copy"), and
+ * naming the destination after the source would make later jobs silently
+ * overwrite earlier ones before Hot Folder Print picks them up - each job
+ * needs its own file on disk regardless of how many jobs point at the same
+ * source image.
+ */
 export async function dropIntoHotFolder(
   basePath: string,
   size: PrintSize,
+  jobId: string,
   sourceFilePath: string
 ): Promise<string> {
   const dir = hotFolderPathFor(basePath, size);
   await mkdir(dir, { recursive: true });
-  const destPath = path.join(dir, path.basename(sourceFilePath));
+  const destPath = path.join(dir, `${jobId}${path.extname(sourceFilePath)}`);
   await copyFile(sourceFilePath, destPath);
   return destPath;
 }
