@@ -17,6 +17,7 @@ export interface PrintJobPublic {
 
 interface InternalJob extends PrintJobPublic {
   enqueuedAt: number;
+  failed: boolean;
 }
 
 /**
@@ -25,10 +26,21 @@ interface InternalJob extends PrintJobPublic {
  * folder happens on a serialized background chain so prints still land in
  * the hot folder in the same order they were requested, without the caller
  * ever waiting on that I/O.
+ *
+ * Separately, `pending`/queue-position bookkeeping models the physical
+ * printer as a serial device: dropping a file into the hot folder takes
+ * milliseconds, but the DNP itself takes ~secondsPerPrint to actually
+ * produce it, and we get no completion signal back from the Hot Folder
+ * Print utility. A job is kept "pending" (and counted toward later jobs'
+ * queue position/estimated wait) for that simulated duration, tracked via
+ * `printerFreeAt` - a running total of when the real printer should be
+ * done with everything queued ahead of it - independent of the (much
+ * faster) file-drop chain below.
  */
 export class PrintQueue {
   private pending: InternalJob[] = [];
   private processingChain: Promise<void> = Promise.resolve();
+  private printerFreeAt = 0;
 
   constructor(
     private readonly hotFolderPath: string,
@@ -39,8 +51,11 @@ export class PrintQueue {
 
   enqueue(captureId: string, size: PrintSize, compositeFilePath: string): PrintJobPublic {
     const jobId = uuidv4();
+    const now = Date.now();
+    const printDurationMs = this.secondsPerPrint * 1000;
+    this.printerFreeAt = Math.max(this.printerFreeAt, now) + printDurationMs;
+    const estimatedWaitMs = this.printerFreeAt - now;
     const queuePosition = this.pending.length + 1;
-    const estimatedWaitMs = queuePosition * this.secondsPerPrint * 1000;
 
     const job: InternalJob = {
       jobId,
@@ -48,7 +63,8 @@ export class PrintQueue {
       size,
       queuePosition,
       estimatedWaitMs,
-      enqueuedAt: Date.now(),
+      enqueuedAt: now,
+      failed: false,
     };
     this.pending.push(job);
     this.outbox.insertPrintJob({ id: jobId, captureId, size, filePath: compositeFilePath });
@@ -61,21 +77,30 @@ export class PrintQueue {
       estimatedWaitMs,
     });
 
-    // Chained, not awaited: enqueue() returns before this runs.
+    // Actual hand-off to the hot folder: immediate and ordered, never held up
+    // by the simulated print duration below - the real printer should start
+    // on it as soon as possible.
     this.processingChain = this.processingChain
-      .then(() => dropIntoHotFolder(this.hotFolderPath, size, compositeFilePath))
+      .then(() => dropIntoHotFolder(this.hotFolderPath, size, jobId, compositeFilePath))
       .then(() => {
         this.outbox.markPrintDropped(jobId);
-        this.removeFromPending(jobId);
-        this.eventBus.emit({ type: "print-completed", jobId });
       })
       .catch((err: unknown) => {
         const message = err instanceof Error ? err.message : String(err);
         log.error(`Failed to drop print job ${jobId} into hot folder`, err);
         this.outbox.markPrintFailed(jobId);
+        job.failed = true;
         this.removeFromPending(jobId);
         this.eventBus.emit({ type: "error", scope: "print-queue", message });
       });
+
+    // Queue bookkeeping only: leaves `pending` once the printer would
+    // realistically have finished this job.
+    setTimeout(() => {
+      if (job.failed) return;
+      this.removeFromPending(jobId);
+      this.eventBus.emit({ type: "print-completed", jobId });
+    }, estimatedWaitMs);
 
     return { jobId, captureId, size, queuePosition, estimatedWaitMs };
   }
