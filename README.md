@@ -90,22 +90,31 @@ npm run build
 
 ## DNP Hot Folder Print setup
 
-DNP's **Hot Folder Print** utility watches one or more folders and prints whatever image lands in them, using the print size/layout configured for that folder. Because print size (4x6 vs. 2x6-strip) is a per-hot-folder setting in that utility (not something you can encode in a filename), the agent uses **one subfolder per print size** under the configured `printing.hotFolderPath`:
+DNP's **Hot Folder Print (HFP)** utility watches folders and prints whatever image lands in them; each watched folder is tied to a Windows printer queue and named after the output size it produces (DNP's own docs give `4 x 6`, `5 x 7`, `6 x 8`, etc. as examples). Because print size is a property of *which folder/queue* a file lands in, not something encodable in a filename, the agent uses **one subfolder per print size** under the configured `printing.hotFolderPath`:
 
 ```
 <hotFolderPath>/4x6/
 <hotFolderPath>/2x6-strip/
 ```
 
+**How the 2x6 strip actually gets cut.** The DS-RX1HS's strip-cutting is a *printer driver* feature, not an HFP folder setting: the driver can cut a printed 4x6 sheet into two separate 2x6 strips automatically ("2 inch cut"). Since `/composite` already renders the full 4x6 sheet with both strips pre-laid-out side by side (per the acceptance criteria), the agent's job is just to get that sheet cut in half - so `2x6-strip` should route to a printer queue with the driver's cutter enabled, while `4x6` must route to one with it disabled (otherwise a real single-photo 4x6 print gets sliced in two).
+
 Setup:
 1. Install DNP Hot Folder Print and confirm it can print a test image to the DS-RX1HS directly (outside the agent) first.
-2. In Hot Folder Print, create **two** watched-folder profiles:
-   - one pointed at `<hotFolderPath>\4x6`, print size **4x6**, single image per sheet
-   - one pointed at `<hotFolderPath>\2x6-strip`, print size **4x6 media, 2x6 layout / "print two-up"** (exact wording depends on the Hot Folder Print version - look for the 2x6-on-4x6 / strip-cut layout option)
-3. Set `printing.hotFolderPath` in `booth.config.json` to the parent folder (e.g. `C:\BoothAgent\hotfolder`) - the agent creates the two subfolders itself on first print.
-4. Confirm both Hot Folder Print profiles are running (they usually start with Windows, or start them alongside the tray app).
+2. In **Control Panel → Devices and Printers**, add the DS-RX1HS a **second time** (same driver/port, different queue name - e.g. "DNP DS-RX1HS - Strip Cut") so you have two independent printer queues for the one physical printer:
+   - queue 1 (e.g. "DNP DS-RX1HS"): default settings, cutter **disabled** - used for whole 4x6 photos.
+   - queue 2 ("...- Strip Cut"): right-click → **Printing Preferences → Advanced/Layout tab** → Paper Size **`PR (4x6)`** (the portrait-safe 4x6 variant) → Printer Features → **"2 inch cut" → Enable**. Requires printer firmware **1.10+** and driver **1.1.0.0+** - check `Printing Preferences → About`/firmware page and update if older.
+3. In Hot Folder Print, create **two** watched-folder profiles: one pointed at `<hotFolderPath>\4x6` targeting queue 1, one pointed at `<hotFolderPath>\2x6-strip` targeting queue 2.
+4. Set `printing.hotFolderPath` in `booth.config.json` to the parent folder (e.g. `C:\BoothAgent\hotfolder`) - the agent creates the two subfolders itself on first print.
+5. Confirm both Hot Folder Print profiles are running (they usually start with Windows, or start them alongside the tray app).
+6. Print one real test job through each folder before the event - confirm the `2x6-strip` folder actually comes out as two separated strips, not one uncut sheet.
 
 `GET /health` reports `hotFolder.writable`, checked against the parent `hotFolderPath` (a Denied-permission or full/disconnected drive shows up there immediately).
+
+Sources for the driver-level cutter behavior (Hot Folder Print's own per-folder UI wasn't independently confirmed, since I don't have the installed utility in front of me - verify step 3 against your actual HFP version before the event):
+- [DNP's Hot Folder Print product page](https://www.dnpphoto.com/hot-folder-print) - folder-per-output-size naming, "2x6\" prints for photo booth style prints" as a listed feature
+- [Imaging Spectrum: How to print 2x6 photo booth strips with a DNP DS40 or DNP RX1](https://imagingspectrum.com/blogs/blog/how-to-print-2x6-photo-booth-strips-with-a-dnp-ds40-or-dnp-rx1-photo-printer) - Paper Size `PR (4x6)` + "2 inch cut" enable steps
+- [Imaging Spectrum: 2x6 Photo Strips added to DNP DSRX1](https://imagingspectrum.com/blogs/blog/photobooth-2x6-strips-added-to-dnp-dsrx1-photo-printer) - firmware 1.10+ / driver 1.1.0.0+ requirement
 
 ## Running
 
