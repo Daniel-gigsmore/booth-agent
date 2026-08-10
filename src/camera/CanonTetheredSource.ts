@@ -1,4 +1,4 @@
-import { mkdir } from "node:fs/promises";
+import { mkdir, open } from "node:fs/promises";
 import { stat } from "node:fs/promises";
 import path from "node:path";
 import { v4 as uuidv4 } from "uuid";
@@ -16,8 +16,16 @@ const CAPTURE_POLL_INTERVAL_MS = 250;
 const CAPTURE_POLL_TIMEOUT_MS = 10000;
 const LIVEVIEW_FETCH_TIMEOUT_MS = 1500;
 
-/** The main digiCamControl session process; its window title carries live connection status. */
+/** The main digiCamControl session process. Its mere existence is a prerequisite for a healthy Canon path. */
 const GUI_PROCESS_NAME = "CameraControl.exe";
+
+/**
+ * digiCamControl's own event log - observed at this path across every
+ * install on this machine. Its "Camera is connected" / "Camera
+ * disconnected" lines are the ONLY reliable live connection signal found
+ * (see isHealthy() below for why the window title isn't one).
+ */
+const APP_LOG_PATH = "C:\\ProgramData\\digiCamControl\\Log\\app.log";
 
 /**
  * Drives a tethered Canon EOS R100 via digiCamControl rather than a direct
@@ -43,17 +51,30 @@ const GUI_PROCESS_NAME = "CameraControl.exe";
  *      lands at <dir>\<name>.jpg a few seconds later, so capture() polls for
  *      that file rather than treating the command's own completion as done.
  *      There is no "list connected cameras" command in this CLI's vocabulary
- *      (confirmed via `/c "list cmds"`) - connection status instead comes
- *      from the GUI process's window title (see isHealthy()/getModel()).
+ *      (confirmed via `/c "list cmds"`).
  *   2. The WebServer plugin (enable in digiCamControl > Settings > WebServer,
  *      default port 5513) - serves the current live-view frame as a plain
  *      JPEG at /liveview.jpg, which we poll for the MJPEG preview.
  *
- * IMPORTANT: command names and the window-title format have already drifted
- * once from what generic digiCamControl documentation suggests. Re-verify
- * against your installed build (`CameraControlRemoteCmd.exe /c "list cmds"`,
- * and `tasklist /FI "IMAGENAME eq CameraControl.exe" /V`) if either changes
- * again - this file is the only place that knowledge lives.
+ * Connection health does NOT come from the CLI or the GUI's window title.
+ * The window title looked like a clean signal ("digiCamControl - <model>
+ * (<serial>)" once connected) and an earlier version of this file used it -
+ * until live testing caught it going stale: the title sat on the
+ * no-camera-suffix state while the camera was genuinely connected and
+ * successfully taking pictures through the GUI. digiCamControl's own event
+ * log doesn't have that problem - it logs an unambiguous "===========Camera
+ * is connected==============" / "...disconnected==============" line on
+ * every real state change - so isHealthy() tails that instead (see
+ * APP_LOG_PATH). A log line alone isn't enough on its own, though: if the
+ * GUI process is killed outright there's no further log activity at all, so
+ * isHealthy() also checks the process is still running as a first gate.
+ *
+ * IMPORTANT: command names, the app log's path, and its line format have
+ * already drifted/surprised once each. Re-verify against your installed
+ * build (`CameraControlRemoteCmd.exe /c "list cmds"`, and tail
+ * `C:\ProgramData\digiCamControl\Log\app.log` while connecting/
+ * disconnecting the camera) if anything changes - this file is the only
+ * place that knowledge lives.
  */
 export class CanonTetheredSource implements CameraSource {
   readonly kind = "canon" as const;
@@ -63,6 +84,9 @@ export class CanonTetheredSource implements CameraSource {
   private readonly liveviewUrl: string;
   private initialized = false;
   private lastKnownModel: string | null = null;
+  private lastKnownConnected = false;
+  /** Byte offset already consumed from APP_LOG_PATH; makes each health check O(new log growth), not O(log size). */
+  private logReadOffset = 0;
 
   constructor(config: BoothConfig["capture"]["canon"]) {
     this.exePath = config.digiCamControlExePath;
@@ -82,29 +106,60 @@ export class CanonTetheredSource implements CameraSource {
 
   async isHealthy(): Promise<boolean> {
     try {
-      const result = await execFile(
-        "tasklist",
-        ["/FI", `IMAGENAME eq ${GUI_PROCESS_NAME}`, "/V", "/FO", "CSV", "/NH"],
-        { timeoutMs: HEALTH_CHECK_TIMEOUT_MS }
-      );
-      if (result.code !== 0) return false;
-
-      // CSV, last column is Window Title; digiCamControl sets it to
-      // "digiCamControl - <model> (<serial>)" once a camera is connected,
-      // and to just "digiCamControl" (or similar, no " - ") when idle.
-      const line = result.stdout.trim().split(/\r?\n/).pop();
-      if (!line || !line.includes(GUI_PROCESS_NAME)) return false;
-
-      const fields = line.split('","').map((f) => f.replace(/^"|"$/g, ""));
-      const windowTitle = fields[fields.length - 1] ?? "";
-      const match = /digiCamControl - (.+?) \(/.exec(windowTitle);
-      if (!match?.[1]) return false;
-
-      this.lastKnownModel = match[1];
-      return true;
+      const processRunning = await this.isGuiProcessRunning();
+      if (!processRunning) {
+        this.lastKnownConnected = false;
+        this.lastKnownModel = null;
+        return false;
+      }
+      await this.tailAppLog();
+      return this.lastKnownConnected;
     } catch (err) {
       log.debug("Canon health check failed", err);
       return false;
+    }
+  }
+
+  private async isGuiProcessRunning(): Promise<boolean> {
+    const result = await execFile(
+      "tasklist",
+      ["/FI", `IMAGENAME eq ${GUI_PROCESS_NAME}`, "/FO", "CSV", "/NH"],
+      { timeoutMs: HEALTH_CHECK_TIMEOUT_MS }
+    );
+    return result.code === 0 && result.stdout.includes(GUI_PROCESS_NAME);
+  }
+
+  /** Reads only the log bytes appended since the last check and updates connection state from them. */
+  private async tailAppLog(): Promise<void> {
+    const stats = await stat(APP_LOG_PATH).catch(() => null);
+    if (!stats) return; // log not created yet; keep prior known state
+    if (stats.size < this.logReadOffset) this.logReadOffset = 0; // rotated/truncated
+
+    if (stats.size === this.logReadOffset) return; // nothing new
+
+    const handle = await open(APP_LOG_PATH, "r");
+    try {
+      const length = stats.size - this.logReadOffset;
+      const buffer = Buffer.alloc(length);
+      await handle.read(buffer, 0, length, this.logReadOffset);
+      this.logReadOffset = stats.size;
+
+      for (const line of buffer.toString("utf-8").split(/\r?\n/)) {
+        if (line.includes("Camera is connected")) {
+          this.lastKnownConnected = true;
+        } else if (line.includes("Camera disconnected")) {
+          this.lastKnownConnected = false;
+          this.lastKnownModel = null;
+        } else if (this.lastKnownConnected) {
+          // Only trust a "Name :" line while we believe we're connected -
+          // digiCamControl also logs one right after a disconnect (the last
+          // known device's name), which would otherwise resurrect a stale model.
+          const match = / - Name :(.+)$/.exec(line);
+          if (match?.[1]) this.lastKnownModel = match[1].trim();
+        }
+      }
+    } finally {
+      await handle.close();
     }
   }
 
