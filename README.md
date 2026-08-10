@@ -54,21 +54,27 @@ booth-agent uses Node's **built-in `node:sqlite`** module rather than `better-sq
 
 Canon's own EDSDK is a native C SDK. Using it from Node means maintaining a compiled N-API/FFI addon, tying the agent to a specific Canon developer-program agreement, and rebuilding that binary on every Node/Windows update - a lot of fragile surface area for a single in-house booth with one person maintaining it.
 
-Instead, `CanonTetheredSource` (`src/camera/CanonTetheredSource.ts`) drives the R100 through **[digiCamControl](https://digicamcontrol.com/)**, a free, actively maintained Windows app with broad EOS support, via two of its stable remote-control surfaces:
+Instead, `CanonTetheredSource` (`src/camera/CanonTetheredSource.ts`) drives the R100 through **[digiCamControl](https://digicamcontrol.com/)**, a free, actively maintained Windows app with broad EOS support, via two of its stable remote-control surfaces. This has been verified against a real tethered R100 and digiCamControl 2.1.7.0 (an earlier draft of this doc guessed at the command syntax before that test; what's below is what actually works):
 
-1. **`CameraControlRemoteCmd.exe`** (ships with digiCamControl) - a small CLI that talks to an already-running `digiCamControl.exe` session over local IPC. Used for:
-   - connection/health checks (`/c list` - lists connected cameras; empty output means disconnected)
-   - triggering a capture (`/filename <path> /capture`)
-2. **The WebServer plugin** (`digiCamControl` → Settings → WebServer, default port `5513`) - serves the current live-view frame as a plain JPEG at `GET /liveview.jpg`, which the agent polls for the MJPEG preview stream.
+1. **`CameraControlRemoteCmd.exe`** (ships with digiCamControl) - a small CLI that talks to an already-running `CameraControl.exe` (the digiCamControl GUI) session over local IPC.
+   - **Capture** is three separate commands, each returning immediately - the shutter + USB transfer happens asynchronously in the GUI process, so `capture()` polls the destination folder for the file rather than treating the command's own return as "done":
+     ```
+     CameraControlRemoteCmd.exe /c "set session.folder <dir>"
+     CameraControlRemoteCmd.exe /c "set session.filenametemplate <name>"
+     CameraControlRemoteCmd.exe /c Capture
+     ```
+     The result lands at `<dir>\<name>.jpg`. Run `CameraControlRemoteCmd.exe /c "list cmds"` against your build to confirm `Capture` is still the right verb - it's case-sensitive and there is **no** "list connected cameras" command in this CLI (an earlier version of this doc assumed one).
+   - **Connection/health checks** don't go through the CLI at all - there's nothing in its command vocabulary for it. Instead, `isHealthy()` shells out to `tasklist /FI "IMAGENAME eq CameraControl.exe" /V` and parses the window title, which digiCamControl sets to `digiCamControl - <model> (<serial>)` once a camera is connected (and to something without a model suffix when idle). This also doubles as where `getModel()` gets the camera name for `/health`.
+2. **The WebServer plugin** (`digiCamControl` → Settings → WebServer, default port `5513`) - serves the current live-view frame as a plain JPEG at `GET /liveview.jpg`, which the agent polls for the MJPEG preview stream. (Not yet verified live against real hardware - unlike the capture/health-check path above, this is still the original documented behavior, untested.)
 
 All of this is isolated behind `CanonTetheredSource` - the rest of the app has no idea digiCamControl exists.
 
-**Before going live**, verify `CameraControlRemoteCmd.exe /help` against your installed digiCamControl build: its exact flag names have drifted across releases, and the two command arrays in `CanonTetheredSource.ts` (`["/c", "list"]` and `["/filename", ..., "/capture"]`) are the only place that needs adjusting if they differ.
+**Before going live**, re-verify `CameraControlRemoteCmd.exe /c "list cmds"` and the `tasklist` window-title format against your installed build if you're on a different digiCamControl version - both have already drifted once from generic documentation, and the relevant code is entirely inside `CanonTetheredSource.ts`.
 
 **Setup:**
-1. Install digiCamControl on the mini-PC and confirm it can see the R100 tethered over USB (open the GUI once, verify live view works).
+1. Install digiCamControl on the mini-PC and confirm it can see the R100 tethered over USB - launch `CameraControl.exe` once and check its window title picks up the camera model.
 2. Settings → WebServer → enable, port `5513` (or your choice - update `capture.canon.digiCamControlHttpPort` in config to match).
-3. Leave `digiCamControl.exe` running (it can run minimized/in the tray) - `CameraControlRemoteCmd.exe` needs a live session to talk to.
+3. Leave `CameraControl.exe` running (it can run minimized) - `CameraControlRemoteCmd.exe` needs a live session to talk to.
 4. Set `capture.canon.digiCamControlExePath` in `booth.config.json` to the full path of `CameraControlRemoteCmd.exe` (typically `C:\Program Files (x86)\digiCamControl\CameraControlRemoteCmd.exe`).
 
 ## Setup
