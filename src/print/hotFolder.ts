@@ -3,14 +3,30 @@ import path from "node:path";
 import { PrintSize } from "../config/schema";
 
 /**
- * DNP's Hot Folder Print utility is configured per print size/layout - one
- * watched folder per output profile - so a size-specific subfolder is used
- * rather than trying to encode size in the filename. Point one Hot Folder
- * Print instance at <hotFolderPath>/4x6 and another at
- * <hotFolderPath>/2x6-strip (see README for the exact utility setup).
+ * DNP Hot Folder Print (verified against the current v3.6.37 Blazor-based
+ * rewrite, live, against a physical DS-RX1HS) doesn't accept an arbitrary
+ * user-chosen watched folder the way the classic version's documentation
+ * describes - it watches a fixed set of folders under its own install
+ * directory, one per print profile:
+ *   - "s4x6"   - whole 4x6 photo, printed uncut
+ *   - "s6x2_2" - a 4x6 sheet with the printer's cutter engaged, producing
+ *                two separate 2x6 strips. This is the target for our
+ *                "2x6-strip" printSize: the compositor already renders the
+ *                full two-up 4x6 sheet (two identical strips side by side),
+ *                and HFP/the printer do the physical cut.
+ * Point `printing.hotFolderPath` at that install's Prints folder (typically
+ * `C:\DNP\HotFolderPrint\Prints`) - these "s..." names are this rewrite's
+ * own internal scheme, not a documented public API, so re-verify them
+ * against `<hotFolderPath>\..\Logs\log-<date>.txt` (look for "Print ...:"
+ * lines) if you're on a different HFP version.
  */
+const HFP_FOLDER_BY_SIZE: Record<PrintSize, string> = {
+  "4x6": "s4x6",
+  "2x6-strip": "s6x2_2",
+};
+
 export function hotFolderPathFor(basePath: string, size: PrintSize): string {
-  return path.join(basePath, size);
+  return path.join(basePath, HFP_FOLDER_BY_SIZE[size]);
 }
 
 /**
