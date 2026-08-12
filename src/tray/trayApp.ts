@@ -1,6 +1,6 @@
 import path from "node:path";
 import { spawn } from "node:child_process";
-import SysTray from "systray2";
+import SysTray, { MenuItem } from "systray2";
 import { ConfigStore } from "../config/config";
 import { renderStatusIconBase64, TrayStatusColor } from "./icon";
 import { createLogger } from "../util/logger";
@@ -19,20 +19,36 @@ async function main(): Promise<void> {
   const configStore = ConfigStore.load(configPath);
   configStore.watch();
 
+  // These item objects are created ONCE and reused (mutated in place) on every
+  // poll, never replaced, since systray2 stamps a numeric __id onto each item
+  // at construction and relies on that __id to route clicks back - replacing
+  // the array each update (as an earlier version of this file did) means the
+  // new objects never get an __id. That's a real bug and worth keeping this
+  // fix for, but it is NOT sufficient to make tray menu clicks reliable: an
+  // isolated repro with a direct synchronous file write inside the click
+  // handler showed zero clicks registering even with this fix applied, and
+  // even on a menu that had never been updated at all (i.e. no __id staleness
+  // possible). That points to the underlying issue being in systray2's native
+  // Windows binary itself, not in how this file manages menu items. See
+  // "Known limitations" in README.md - treat the tray as status-only; don't
+  // depend on its menu actions firing.
+  const titleItem: MenuItem = { title: "Booth Agent", tooltip: "", enabled: false };
+  const statusItem: MenuItem = { title: "Checking status...", tooltip: "", enabled: false };
+  const openFolderItem: MenuItem = {
+    title: "Open Data Folder",
+    tooltip: "Open the local capture/outbox folder",
+    enabled: true,
+  };
+  const quitItem: MenuItem = { title: "Quit tray (agent keeps running)", tooltip: "", enabled: true };
+  const items: MenuItem[] = [titleItem, SysTray.separator, statusItem, SysTray.separator, openFolderItem, quitItem];
+
   const initialIcon = await renderStatusIconBase64("gray");
   const systray = new SysTray({
     menu: {
       icon: initialIcon,
       title: "Booth Agent",
       tooltip: "Booth Agent - starting...",
-      items: [
-        { title: "Booth Agent", tooltip: "", enabled: false },
-        SysTray.separator,
-        { title: "Checking status...", tooltip: "", enabled: false },
-        SysTray.separator,
-        { title: "Open Data Folder", tooltip: "Open the local capture/outbox folder", enabled: true },
-        { title: "Quit tray (agent keeps running)", tooltip: "", enabled: true },
-      ],
+      items,
     },
     debug: false,
   });
@@ -80,6 +96,7 @@ async function main(): Promise<void> {
       log.debug("Health poll failed", err);
     }
 
+    statusItem.title = statusLine;
     const icon = await renderStatusIconBase64(color);
     await systray.sendAction({
       type: "update-menu",
@@ -87,14 +104,7 @@ async function main(): Promise<void> {
         icon,
         title: "Booth Agent",
         tooltip: statusLine,
-        items: [
-          { title: "Booth Agent", tooltip: "", enabled: false },
-          SysTray.separator,
-          { title: statusLine, tooltip: "", enabled: false },
-          SysTray.separator,
-          { title: "Open Data Folder", tooltip: "Open the local capture/outbox folder", enabled: true },
-          { title: "Quit tray (agent keeps running)", tooltip: "", enabled: true },
-        ],
+        items,
       },
     });
   };
