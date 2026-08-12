@@ -57,7 +57,7 @@ describe("PrintQueue", () => {
     const queue = makeQueue(0.01); // fast, so the test doesn't have to wait long
     const jobs = [1, 2, 3, 4, 5].map(() => queue.enqueue("capture-1", "4x6", sourceFilePath));
 
-    const dir = path.join(hotFolderBase, "4x6");
+    const dir = path.join(hotFolderBase, "s4x6"); // HFP's real folder name for 4x6, see hotFolder.ts
     await waitFor(async () => {
       const files = await readdir(dir).catch(() => []);
       return files.length >= 5;

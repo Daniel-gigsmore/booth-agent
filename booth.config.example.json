@@ -25,7 +25,7 @@
     "outboxDbFileName": "outbox.db"
   },
   "printing": {
-    "hotFolderPath": "C:\\BoothAgent\\hotfolder",
+    "hotFolderPath": "C:\\DNP\\HotFolderPrint\\Prints",
     "defaultSize": "4x6",
     "secondsPerPrint": 12.4
   },

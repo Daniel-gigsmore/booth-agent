@@ -96,31 +96,32 @@ npm run build
 
 ## DNP Hot Folder Print setup
 
-DNP's **Hot Folder Print (HFP)** utility watches folders and prints whatever image lands in them; each watched folder is tied to a Windows printer queue and named after the output size it produces (DNP's own docs give `4 x 6`, `5 x 7`, `6 x 8`, etc. as examples). Because print size is a property of *which folder/queue* a file lands in, not something encodable in a filename, the agent uses **one subfolder per print size** under the configured `printing.hotFolderPath`:
+This section was rewritten after installing the actual utility and running real prints through it end to end (agent `/capture` → `/composite` → `/print` → physical DS-RX1HS output) - the previous version of this doc guessed at a driver-queue-based setup that turned out not to match how the software actually works. Everything below is verified, not inferred from generic docs.
+
+**What you're installing.** The current DNP Hot Folder Print (v3.6.37 at time of writing) is a modern rewrite - a Blazor/WebView2-based app, not the older classic utility most third-party writeups describe. Get it from DNP's official downloads page ([dnpphoto.com/hot-folder-print](https://www.dnpphoto.com/hot-folder-print) → downloads search), not a third-party mirror. It installs to a fixed location, `C:\DNP\HotFolderPrint\`, not Program Files.
+
+**It does not take an arbitrary watched folder.** Unlike what DNP's own generic documentation and older versions suggest, this version watches a **fixed set of folders under its own install directory** - there's no "point it at any folder you like" option that actually took effect in testing. The relevant ones, confirmed live by dropping a real file in and watching `Logs\log-<date>.txt` record it being picked up, cropped, and sent to the printer:
 
 ```
-<hotFolderPath>/4x6/
-<hotFolderPath>/2x6-strip/
+C:\DNP\HotFolderPrint\Prints\s4x6\    - whole 4x6 photo, printed uncut
+C:\DNP\HotFolderPrint\Prints\s6x2_2\  - a 4x6 sheet with the cutter engaged,
+                                         producing two separate 2x6 strips
 ```
 
-**How the 2x6 strip actually gets cut.** The DS-RX1HS's strip-cutting is a *printer driver* feature, not an HFP folder setting: the driver can cut a printed 4x6 sheet into two separate 2x6 strips automatically ("2 inch cut"). Since `/composite` already renders the full 4x6 sheet with both strips pre-laid-out side by side (per the acceptance criteria), the agent's job is just to get that sheet cut in half - so `2x6-strip` should route to a printer queue with the driver's cutter enabled, while `4x6` must route to one with it disabled (otherwise a real single-photo 4x6 print gets sliced in two).
+`s6x2_2` is the one that matters for `printSize: "2x6-strip"`: the compositor already renders the full two-up 4x6 sheet (two identical strips side by side per the acceptance criteria), and dropping that into `s6x2_2` gets the physical cutter to separate it into two individual strips automatically - confirmed on real paper. `s4x6` prints the sheet as-is.
 
-Setup:
-1. Install DNP Hot Folder Print and confirm it can print a test image to the DS-RX1HS directly (outside the agent) first.
-2. In **Control Panel → Devices and Printers**, add the DS-RX1HS a **second time** (same driver/port, different queue name - e.g. "DNP DS-RX1HS - Strip Cut") so you have two independent printer queues for the one physical printer:
-   - queue 1 (e.g. "DNP DS-RX1HS"): default settings, cutter **disabled** - used for whole 4x6 photos.
-   - queue 2 ("...- Strip Cut"): right-click → **Printing Preferences → Advanced/Layout tab** → Paper Size **`PR (4x6)`** (the portrait-safe 4x6 variant) → Printer Features → **"2 inch cut" → Enable**. Requires printer firmware **1.10+** and driver **1.1.0.0+** - check `Printing Preferences → About`/firmware page and update if older.
-3. In Hot Folder Print, create **two** watched-folder profiles: one pointed at `<hotFolderPath>\4x6` targeting queue 1, one pointed at `<hotFolderPath>\2x6-strip` targeting queue 2.
-4. Set `printing.hotFolderPath` in `booth.config.json` to the parent folder (e.g. `C:\BoothAgent\hotfolder`) - the agent creates the two subfolders itself on first print.
-5. Confirm both Hot Folder Print profiles are running (they usually start with Windows, or start them alongside the tray app).
-6. Print one real test job through each folder before the event - confirm the `2x6-strip` folder actually comes out as two separated strips, not one uncut sheet.
+These `s...` names are this rewrite's own internal scheme, not a documented public API, and are exactly the kind of thing to re-verify if you're on a different HFP version - the mapping lives in one place, `hotFolderPathFor()` in `src/print/hotFolder.ts`.
 
-`GET /health` reports `hotFolder.writable`, checked against the parent `hotFolderPath` (a Denied-permission or full/disconnected drive shows up there immediately).
+**Setup:**
+1. Install DNP Hot Folder Print from the official downloads page. The installer can silently succeed while looking stuck on a repeat launch - if `msiexec` seems hung, check whether it actually already installed via `Get-ItemProperty HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\* | Where DisplayName -match HotFolder` before assuming it's frozen.
+2. Launch `C:\DNP\HotFolderPrint\HotFolderPrint.exe` once and confirm it sees the printer - check `C:\DNP\HotFolderPrint\Logs\printer_status.txt`, which should show `"Status": "STATUS_OK"` and the right model.
+3. Set `printing.hotFolderPath` in `booth.config.json` to `C:\DNP\HotFolderPrint\Prints` - the agent writes into the `s4x6`/`s6x2_2` subfolders itself, it doesn't need them pre-created.
+4. Leave `HotFolderPrint.exe` running (start it alongside the tray app, or add it to Windows startup) - like digiCamControl, it needs to be alive to pick anything up.
+5. Print one real test job through each size before the event - confirm `s6x2_2` actually comes out as two separated strips, not one uncut sheet.
 
-Sources for the driver-level cutter behavior (Hot Folder Print's own per-folder UI wasn't independently confirmed, since I don't have the installed utility in front of me - verify step 3 against your actual HFP version before the event):
-- [DNP's Hot Folder Print product page](https://www.dnpphoto.com/hot-folder-print) - folder-per-output-size naming, "2x6\" prints for photo booth style prints" as a listed feature
-- [Imaging Spectrum: How to print 2x6 photo booth strips with a DNP DS40 or DNP RX1](https://imagingspectrum.com/blogs/blog/how-to-print-2x6-photo-booth-strips-with-a-dnp-ds40-or-dnp-rx1-photo-printer) - Paper Size `PR (4x6)` + "2 inch cut" enable steps
-- [Imaging Spectrum: 2x6 Photo Strips added to DNP DSRX1](https://imagingspectrum.com/blogs/blog/photobooth-2x6-strips-added-to-dnp-dsrx1-photo-printer) - firmware 1.10+ / driver 1.1.0.0+ requirement
+**Known risk, not yet resolved:** this version phones home on startup and periodically (`app-shieldv2-prod.azurewebsites.net`, `dnpphoto.com`) and logs occasional `Lost connection.... The system will reconnect automatically.` messages. Printing itself worked fine during testing regardless, but whether it *keeps* working through an extended, fully offline stretch (the exact scenario this whole agent is built around) hasn't been tested. Test with the network disabled before relying on this for a real event.
+
+`GET /health` reports `hotFolder.writable`, checked against the configured `hotFolderPath` root (a denied-permission or full/disconnected drive shows up there immediately).
 
 ## Running
 
@@ -164,7 +165,7 @@ See `booth.config.example.json` for the full shape (validated by `src/config/sch
 |---|---|
 | `agent.sharedSecret` | Required on every request as `Authorization: Bearer <secret>` (or `?token=` for `<img>`/WS clients that can't set headers). Loopback binding is the real security boundary; this just stops other local processes from poking the agent by accident. |
 | `capture.sourcePreference` | `"canon"` or `"webcam"` - which one the manager prefers when both are healthy. |
-| `printing.hotFolderPath` | Parent folder; `4x6/` and `2x6-strip/` subfolders are created under it (see above). |
+| `printing.hotFolderPath` | HFP's `Prints` folder (typically `C:\DNP\HotFolderPrint\Prints`); the agent writes into its `s4x6`/`s6x2_2` subfolders (see above). |
 | `compositing.templateDir` | Where `<templateId>.json` template files and their overlay PNGs live. See `assets/templates/default.json` (4x6) and `assets/templates/default-strip.json` (2x6-strip, 3 stacked photo slots) for the shape. |
 | `event.id` | The single event this deployment is wired to (single-tenant). |
 
@@ -230,5 +231,6 @@ Every line must show `127.0.0.1:7070`, never `0.0.0.0:7070`.
 ## Known limitations
 
 - **Webcam live view frame rate is low.** `WebcamSource.getLiveviewFrame()` spawns a fresh `ffmpeg` process per frame (no disk round-trip, but no persistent stream either), which caps preview smoothness to a few fps. Fine for a booth preview; if a smoother webcam live view is needed later, replace it with a persistent `ffmpeg` process demuxing an MJPEG stream and parsing frame boundaries, still entirely inside `WebcamSource.ts`.
-- **digiCamControl CLI flags may need adjusting per version** - see the callout above.
+- **digiCamControl and Hot Folder Print's exact commands/folder names are version-pinned, not documented public APIs.** Both were verified live (digiCamControl 2.1.7.0, Hot Folder Print 3.6.37) against real hardware, and both already turned out to differ from what generic vendor docs describe. Re-verify against your installed versions if either changes - see the callouts in the Canon and DNP sections above for exactly how.
+- **Hot Folder Print's offline behavior is unverified.** It phones home on startup and periodically (`app-shieldv2-prod.azurewebsites.net`, `dnpphoto.com`) and has logged transient `Lost connection...` messages during testing on a normally-connected network. Printing worked fine in that testing, but a real extended-offline test (network disabled, printing continues for the full stretch) hasn't been done - do this before trusting it for an event, since offline operation is the entire point of this agent.
 - **Supabase `captures` table column mapping is a best guess.** `src/supabase/supabaseClient.ts`'s `toCaptureRecord()` was written to a plausible schema without direct access to the live Supabase project from this environment. Verify/adjust the column names there against the real table before go-live - it's the only function that needs to change.
