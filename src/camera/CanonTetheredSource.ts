@@ -82,7 +82,7 @@ export class CanonTetheredSource implements CameraSource {
   private readonly exePath: string;
   private readonly sessionDir: string;
   private readonly liveviewUrl: string;
-  private initialized = false;
+  private readonly liveViewStartUrl: string;
   private lastKnownModel: string | null = null;
   private lastKnownConnected = false;
   /** Byte offset already consumed from APP_LOG_PATH; makes each health check O(new log growth), not O(log size). */
@@ -91,17 +91,18 @@ export class CanonTetheredSource implements CameraSource {
   constructor(config: BoothConfig["capture"]["canon"]) {
     this.exePath = config.digiCamControlExePath;
     this.sessionDir = config.sessionDir;
-    this.liveviewUrl = `http://${config.digiCamControlHttpHost}:${config.digiCamControlHttpPort}/liveview.jpg`;
+    const webBase = `http://${config.digiCamControlHttpHost}:${config.digiCamControlHttpPort}`;
+    this.liveviewUrl = `${webBase}/liveview.jpg`;
+    this.liveViewStartUrl = `${webBase}/liveview.html?CMD=LiveViewWnd_Show`;
   }
 
   async initialize(): Promise<boolean> {
     await mkdir(this.sessionDir, { recursive: true });
-    this.initialized = await this.isHealthy();
-    return this.initialized;
+    return this.isHealthy();
   }
 
   async shutdown(): Promise<void> {
-    this.initialized = false;
+    // No persistent handle is held between calls; nothing to release.
   }
 
   async isHealthy(): Promise<boolean> {
@@ -219,8 +220,43 @@ export class CanonTetheredSource implements CameraSource {
     throw new Error(`Canon capture timed out waiting for ${filePath}`);
   }
 
+  // Deliberately does not gate on a locally-cached "initialized" flag - an
+  // earlier version did, and it latched false forever once the very first
+  // initialize() call happened to run before digiCamControl/the camera were
+  // ready, even after CameraManager's health poll correctly detected the
+  // reconnect and switched `active` back to canon (confirmed live: the app's
+  // own /health reported canonConnected: true while this method still
+  // returned null on every call, until the whole process was restarted).
+  // CameraManager.getLiveviewFrame() already gates on the live `active`
+  // state before calling in here, so this method just attempts the fetch and
+  // lets the timeout/catch below report failure - the same pattern capture()
+  // already uses.
   async getLiveviewFrame(): Promise<Buffer | null> {
-    if (!this.initialized) return null;
+    const frame = await this.fetchLiveviewFrame();
+    if (frame && frame.length > 0) return frame;
+    // digiCamControl's WebServer serves HTTP 200 with an EMPTY body from
+    // /liveview.jpg until live view has been explicitly started at least once
+    // per digiCamControl session (confirmed live - there's no dedicated
+    // "start" verb in CameraControlRemoteCmd.exe, but a plain GET to this URL
+    // has the same effect; it's what digiCamControl's own web remote does
+    // when you click "Live"). Triggering this from the reconnect-detected log
+    // line instead of here was tried and confirmed unreliable live - a race
+    // against the WebServer's own startup meant the trigger could fire before
+    // it was listening, with no retry. Doing it lazily here instead is
+    // self-healing regardless of that timing: every poll tick that comes back
+    // empty tries once, so it recovers on the very next tick once the
+    // WebServer is actually ready.
+    await this.startLiveView();
+    const retried = await this.fetchLiveviewFrame();
+    // An empty (but non-null) Buffer is truthy, so surfacing it as-is here
+    // would slip past CameraManager's `if (!frame) return null` gate and put
+    // a zero-length frame in the MJPEG stream. Normalize to null so callers
+    // only ever see "got a frame" or "didn't" - the same contract as before
+    // this method could produce something in between.
+    return retried && retried.length > 0 ? retried : null;
+  }
+
+  private async fetchLiveviewFrame(): Promise<Buffer | null> {
     try {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), LIVEVIEW_FETCH_TIMEOUT_MS);
@@ -235,6 +271,21 @@ export class CanonTetheredSource implements CameraSource {
     } catch (err) {
       log.debug("Canon live view frame fetch failed", err);
       return null;
+    }
+  }
+
+  /** Best-effort; a failure here just means the caller's retry comes back empty too and tries again next tick. */
+  private async startLiveView(): Promise<void> {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), LIVEVIEW_FETCH_TIMEOUT_MS);
+      try {
+        await fetch(this.liveViewStartUrl, { signal: controller.signal });
+      } finally {
+        clearTimeout(timer);
+      }
+    } catch (err) {
+      log.debug("Failed to auto-start Canon live view", err);
     }
   }
 }
