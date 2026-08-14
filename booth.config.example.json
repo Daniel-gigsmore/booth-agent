@@ -36,7 +36,7 @@
   },
   "supabase": {
     "url": "https://your-project.supabase.co",
-    "anonKey": "your-anon-key",
+    "serviceRoleKey": "your-service-role-key",
     "storageBucket": "captures"
   },
   "event": {
