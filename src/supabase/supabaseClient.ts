@@ -11,6 +11,27 @@ export function createSupabaseClient(config: BoothConfig["supabase"]): SupabaseC
 }
 
 /**
+ * supabase-js wraps a failed fetch in its own error type (e.g.
+ * StorageUnknownError), which flattens the real cause down to just
+ * `.message` ("fetch failed" - undici's generic wrapper message) while the
+ * actual reason (ECONNRESET, ENOTFOUND, UNABLE_TO_VERIFY_LEAF_SIGNATURE,
+ * etc.) sits several levels deeper, alternating between `.originalError`
+ * (supabase-js's own nesting) and `.cause` (undici's). Walk both until
+ * nothing's left to unwrap, so callers can attach the actual bottom-most
+ * error as `cause` instead of the message-only wrapper.
+ */
+function unwrapError(err: unknown): unknown {
+  let current = err;
+  for (;;) {
+    if (!current || typeof current !== "object") return current;
+    const next = (current as { cause?: unknown; originalError?: unknown }).cause ??
+      (current as { cause?: unknown; originalError?: unknown }).originalError;
+    if (!next) return current;
+    current = next;
+  }
+}
+
+/**
  * Column mapping into the `captures` table - see
  * supabase/migrations/20260814000000_captures.sql for the schema this
  * targets (verified live against the real project: id uuid, event_id text,
@@ -51,13 +72,13 @@ export async function uploadCaptureToSupabase(
       upsert: true, // idempotent: a retried upload after a crash overwrites the same key
     });
   if (uploadError) {
-    throw new Error(`Supabase Storage upload failed: ${uploadError.message}`);
+    throw new Error(`Supabase Storage upload failed: ${uploadError.message}`, { cause: unwrapError(uploadError) });
   }
 
   const record = toCaptureRecord(row, objectKey);
   const { error: dbError } = await client.from("captures").upsert(record, { onConflict: "id" });
   if (dbError) {
-    throw new Error(`Supabase captures upsert failed: ${dbError.message}`);
+    throw new Error(`Supabase captures upsert failed: ${dbError.message}`, { cause: unwrapError(dbError) });
   }
 
   return { storagePath: objectKey };

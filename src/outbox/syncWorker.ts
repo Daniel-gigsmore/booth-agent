@@ -76,6 +76,7 @@ export class SyncWorker {
       log.info(`Synced capture ${row.id}`);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      const cause = err instanceof Error ? err.cause : undefined;
       this.consecutiveFailures += 1;
       const attemptNumber = row.sync_attempts + 1;
       const delay = Math.min(
@@ -84,7 +85,14 @@ export class SyncWorker {
       );
       const nextAttemptAt = new Date(Date.now() + delay).toISOString();
       this.store.markFailed(row.id, message, nextAttemptAt);
-      log.warn(`Sync failed for capture ${row.id}, retrying in ${delay}ms`, message);
+      log.warn(`Sync failed for capture ${row.id}, retrying in ${delay}ms`, {
+        message,
+        causeName: cause instanceof Error ? cause.name : undefined,
+        causeMessage: cause instanceof Error ? cause.message : undefined,
+        causeCode: (cause as NodeJS.ErrnoException | undefined)?.code,
+        causeErrno: (cause as NodeJS.ErrnoException | undefined)?.errno,
+        causeSyscall: (cause as NodeJS.ErrnoException | undefined)?.syscall,
+      });
     }
   }
 
