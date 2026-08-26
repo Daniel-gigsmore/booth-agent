@@ -1,7 +1,7 @@
 import { access, stat, constants } from "node:fs/promises";
 import path from "node:path";
 import { BoothConfig } from "../config/schema";
-import { hotFolderPathFor } from "../print/hotFolder";
+import { hotFolderPathFor, isHotFolderWritable } from "../print/hotFolder";
 import {
   readPrinterStatus,
   defaultPrinterStatusPath,
@@ -212,12 +212,14 @@ async function checkStorage(config: BoothConfig): Promise<PreflightCheck[]> {
   const results: PreflightCheck[] = [];
   const dataDir = config.storage.dataDir;
 
-  try {
-    await access(dataDir, constants.W_OK);
-    results.push(ok("storage.dataDir", dataDir));
-  } catch {
-    results.push(fail("storage.dataDir", `not writable: ${dataDir}`));
-  }
+  // fs.access(W_OK) on a Windows directory can report success even when the
+  // directory is not actually writable (ACLs, and the read-only attribute
+  // meaning nothing for directories). The only reliable check is to try.
+  results.push(
+    (await isHotFolderWritable(dataDir))
+      ? ok("storage.dataDir", dataDir)
+      : fail("storage.dataDir", `not writable: ${dataDir}`)
+  );
 
   const disk = await getDiskSpace(dataDir);
   if (!disk) {
