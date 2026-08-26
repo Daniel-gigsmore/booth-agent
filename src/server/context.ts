@@ -12,6 +12,10 @@ export interface AgentContext {
   cameraManager: CameraManager;
   outboxStore: OutboxStore;
   printQueue: PrintQueue;
-  /** Result of the boot-time preflight, exposed at GET /health/preflight. */
+  /**
+   * Most recent preflight result. Starts as the boot-time run and is replaced
+   * by POST /health/preflight - the boot run is necessarily pessimistic about
+   * anything that starts after this service does (HFP, the printer).
+   */
   preflight: PreflightResult;
 }

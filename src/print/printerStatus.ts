@@ -44,6 +44,8 @@ const MEDIA_KEYS = [
   "life",
   "paperremaining",
 ];
+/** Confirmed live against the real status file: `"MediaType": "4x6"`. */
+const MEDIA_TYPE_KEYS = ["mediatype", "media", "papertype", "printsize"];
 
 /** Status strings HFP reports for a printer that is ready to print. */
 const HEALTHY_STATUS_VALUES = ["status_ok", "ok", "ready", "idle"];
@@ -58,6 +60,8 @@ export interface PrinterStatus {
   model: string | null;
   /** Prints left on the current media roll, when HFP reports it. */
   mediaRemaining: number | null;
+  /** Media size physically loaded, e.g. "4x6", when HFP reports it. */
+  mediaType: string | null;
   /** mtime of the status file - i.e. when HFP last wrote anything. */
   lastUpdatedAt: string | null;
   /** How long ago that was. Large values mean HFP itself is not running. */
@@ -100,6 +104,7 @@ export async function readPrinterStatus(
     status: null,
     model: null,
     mediaRemaining: null,
+    mediaType: null,
     lastUpdatedAt: null,
     staleMs: null,
     error: null,
@@ -140,6 +145,7 @@ export async function readPrinterStatus(
   const status = asString(pick(record, STATUS_KEYS));
   const model = asString(pick(record, MODEL_KEYS));
   const mediaRemaining = asNumber(pick(record, MEDIA_KEYS));
+  const mediaType = asString(pick(record, MEDIA_TYPE_KEYS));
 
   if (staleMs > staleAfterMs) {
     return {
@@ -147,6 +153,7 @@ export async function readPrinterStatus(
       status,
       model,
       mediaRemaining,
+      mediaType,
       lastUpdatedAt,
       staleMs,
       raw: parsed,
@@ -163,6 +170,7 @@ export async function readPrinterStatus(
       ...base,
       model,
       mediaRemaining,
+      mediaType,
       lastUpdatedAt,
       staleMs,
       raw: parsed,
@@ -177,6 +185,7 @@ export async function readPrinterStatus(
     status,
     model,
     mediaRemaining,
+    mediaType,
     lastUpdatedAt,
     staleMs,
     error: null,
