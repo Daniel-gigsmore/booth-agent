@@ -39,6 +39,8 @@ export interface HealthThresholds {
   lowMediaWarnPrints: number;
   /** Outbox backlog that suggests sync is not keeping up, not just offline. */
   outboxBacklogWarn: number;
+  /** Media size the templates are built for, e.g. "4x6". */
+  expectedMediaType: string;
 }
 
 export interface HealthInputs {
@@ -121,6 +123,23 @@ export function buildHealthReport(inputs: HealthInputs): HealthReport {
       level: "warn",
       code: "media-low",
       message: `About ${printer.mediaRemaining} prints left on this roll - have the spare ready.`,
+    });
+  }
+
+  // Independent of the reachable/ok/low-media chain above (not an else-if):
+  // a mismatch is only checkable once the printer is otherwise trusted, but
+  // when it applies it's just as real a problem as running low, and both can
+  // be true at once - the wrong roll can also be a nearly-empty one.
+  if (
+    printer.reachable &&
+    printer.ok &&
+    printer.mediaType !== null &&
+    printer.mediaType.trim().toLowerCase() !== thresholds.expectedMediaType.trim().toLowerCase()
+  ) {
+    alerts.push({
+      level: "error",
+      code: "media-type-mismatch",
+      message: `Printer has "${printer.mediaType}" loaded but templates are built for "${thresholds.expectedMediaType}" - prints will come out wrong.`,
     });
   }
 

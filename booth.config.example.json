@@ -29,8 +29,9 @@
     "hotFolderPath": "C:\\DNP\\HotFolderPrint\\Prints",
     "defaultSize": "4x6",
     "secondsPerPrint": 12.4,
-    "printerStatusStaleMs": 120000,
-    "lowMediaWarnPrints": 30
+    "printerStatusStaleMs": 15000,
+    "lowMediaWarnPrints": 30,
+    "expectedMediaType": "4x6"
   },
   "compositing": {
     "templateDir": "C:\\BoothAgent\\templates",

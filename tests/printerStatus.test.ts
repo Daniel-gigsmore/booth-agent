@@ -42,12 +42,13 @@ describe("defaultPrinterStatusPath", () => {
 });
 
 describe("readPrinterStatus", () => {
-  it("reports a healthy printer with its model and remaining media", async () => {
+  it("reports a healthy printer with its model, remaining media, and media type", async () => {
     await write(
       JSON.stringify({
         Status: "STATUS_OK",
         Model: "DS-RX1HS",
         MediaRemaining: 412,
+        MediaType: "4x6",
       })
     );
 
@@ -61,6 +62,7 @@ describe("readPrinterStatus", () => {
     expect(status.status).toBe("STATUS_OK");
     expect(status.model).toBe("DS-RX1HS");
     expect(status.mediaRemaining).toBe(412);
+    expect(status.mediaType).toBe("4x6");
     expect(status.error).toBeNull();
   });
 
@@ -152,6 +154,7 @@ describe("buildHealthReport print severity", () => {
       lowDiskWarnBytes: 10 * 1024 ** 3,
       lowMediaWarnPrints: 30,
       outboxBacklogWarn: 50,
+      expectedMediaType: "4x6",
     },
   };
 
@@ -161,6 +164,7 @@ describe("buildHealthReport print severity", () => {
     status: "STATUS_OK",
     model: "DS-RX1HS",
     mediaRemaining: 400,
+    mediaType: "4x6",
     lastUpdatedAt: new Date().toISOString(),
     staleMs: 0,
     error: null,
@@ -190,6 +194,33 @@ describe("buildHealthReport print severity", () => {
     });
     expect(report.overall).toBe("warn");
     expect(report.alerts.map((a) => a.code)).toContain("media-low");
+  });
+
+  it("goes red when the wrong media is loaded, independent of low-media", () => {
+    const report = buildHealthReport({
+      ...baseInputs,
+      printer: { ...healthyPrinter, mediaType: "2x6" },
+    });
+    expect(report.overall).toBe("error");
+    expect(report.alerts.map((a) => a.code)).toContain("media-type-mismatch");
+  });
+
+  it("flags a media mismatch even when the roll is also running low", () => {
+    const report = buildHealthReport({
+      ...baseInputs,
+      printer: { ...healthyPrinter, mediaType: "2x6", mediaRemaining: 12 },
+    });
+    expect(report.alerts.map((a) => a.code)).toEqual(
+      expect.arrayContaining(["media-type-mismatch", "media-low"])
+    );
+  });
+
+  it("does not flag a mismatch when HFP does not report a media type at all", () => {
+    const report = buildHealthReport({
+      ...baseInputs,
+      printer: { ...healthyPrinter, mediaType: null },
+    });
+    expect(report.alerts.map((a) => a.code)).not.toContain("media-type-mismatch");
   });
 
   /**

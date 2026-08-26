@@ -11,6 +11,7 @@ import { originalsDir, compositesDir, aiDownloadsDir } from "../util/paths";
 import { isHotFolderWritable } from "../print/hotFolder";
 import { readPrinterStatus, defaultPrinterStatusPath } from "../print/printerStatus";
 import { buildHealthReport } from "../health/healthReport";
+import { runPreflight, logPreflight } from "../startup/preflight";
 import { getDiskSpace } from "../util/disk";
 import { createLogger } from "../util/logger";
 
@@ -77,6 +78,7 @@ export function buildRouter(ctx: AgentContext): Router {
           lowDiskWarnBytes: config.storage.lowDiskWarnBytes,
           lowMediaWarnPrints: config.printing.lowMediaWarnPrints,
           outboxBacklogWarn: config.sync.backlogWarnCount,
+          expectedMediaType: config.printing.expectedMediaType,
         },
       })
     );
@@ -89,6 +91,25 @@ export function buildRouter(ctx: AgentContext): Router {
    */
   router.get("/health/preflight", (_req: Request, res: Response) => {
     res.json(ctx.preflight);
+  });
+
+  /**
+   * Re-run preflight now and replace the stored result.
+   *
+   * The boot-time run is structurally pessimistic: this service starts as
+   * LocalSystem at boot, while HotFolderPrint.exe and the printer only come up
+   * later in the interactive session, so anything depending on them reads as
+   * unverifiable at boot. This is the endpoint the operator hits once the
+   * booth is actually set up - camera plugged in, printer on, HFP running -
+   * to get the answer that means something.
+   *
+   * Belongs in the pre-event runbook: set everything up, POST this, expect ok.
+   */
+  router.post("/health/preflight", async (_req: Request, res: Response) => {
+    const result = await runPreflight(ctx.configStore.current);
+    logPreflight(result);
+    ctx.preflight = result;
+    res.json(result);
   });
 
   router.get("/liveview", async (req: Request, res: Response) => {
