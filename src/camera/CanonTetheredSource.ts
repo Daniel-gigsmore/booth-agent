@@ -25,7 +25,7 @@ const GUI_PROCESS_NAME = "CameraControl.exe";
  * disconnected" lines are the ONLY reliable live connection signal found
  * (see isHealthy() below for why the window title isn't one).
  */
-const APP_LOG_PATH = "C:\\ProgramData\\digiCamControl\\Log\\app.log";
+export const APP_LOG_PATH = "C:\\ProgramData\\digiCamControl\\Log\\app.log";
 
 /**
  * Drives a tethered Canon EOS R100 via digiCamControl rather than a direct

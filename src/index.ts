@@ -12,6 +12,7 @@ import { PrintQueue } from "./print/printQueue";
 import { buildHttpApp } from "./server/http";
 import { attachEventsWebSocket } from "./server/ws";
 import { AgentContext } from "./server/context";
+import { runPreflight, logPreflight } from "./startup/preflight";
 import { createLogger } from "./util/logger";
 
 const log = createLogger("index");
@@ -23,6 +24,16 @@ async function main(): Promise<void> {
 
   const eventBus = new EventBus();
   const config = configStore.current;
+
+  // Before anything else touches hardware: verify the external dependencies
+  // this agent cannot control (digiCamControl, Hot Folder Print, the printer,
+  // disk, config placeholders). Deliberately non-blocking - a booth that
+  // refuses to boot is worse than one that boots loudly broken, since the
+  // operator can still run webcam-only or fix the printer while it serves
+  // captures. The result is logged as a banner and served at
+  // GET /health/preflight.
+  const preflight = await runPreflight(config);
+  logPreflight(preflight);
 
   const canonSource = new CanonTetheredSource(config.capture.canon);
   const webcamSource = new WebcamSource(config.capture.webcam);
@@ -58,6 +69,7 @@ async function main(): Promise<void> {
     cameraManager,
     outboxStore,
     printQueue,
+    preflight,
   };
 
   // Reconcile the pieces that can change without a restart when booth.config.json is edited.

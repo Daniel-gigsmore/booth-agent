@@ -1,5 +1,5 @@
 import type { DatabaseSync } from "./db";
-import { CaptureRow, NewCapture, SyncStatus, SyncSummary } from "./types";
+import { CaptureRow, NewCapture, PrintJobRow, SyncStatus, SyncSummary } from "./types";
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -119,5 +119,36 @@ export class OutboxStore {
 
   markPrintFailed(id: string): void {
     this.db.prepare(`UPDATE print_jobs SET status = 'failed' WHERE id = ?`).run(id);
+  }
+
+  getPrintJobById(id: string): PrintJobRow | undefined {
+    const row = this.db.prepare(`SELECT * FROM print_jobs WHERE id = ?`).get(id);
+    return row as unknown as PrintJobRow | undefined;
+  }
+
+  /**
+   * Most recent print job for a capture. Reprints are usually asked for as
+   * "print that one again" while the guest is still standing there, so the
+   * operator has a capture in front of them, not a job id.
+   */
+  getLatestPrintJobForCapture(captureId: string): PrintJobRow | undefined {
+    const row = this.db
+      .prepare(
+        `SELECT * FROM print_jobs WHERE capture_id = ? ORDER BY queued_at DESC, rowid DESC LIMIT 1`
+      )
+      .get(captureId);
+    return row as unknown as PrintJobRow | undefined;
+  }
+
+  /**
+   * Recent print history, newest first. This is what an operator scans after
+   * a media change to work out which prints were dropped into the hot folder
+   * while the printer had no paper and therefore never physically came out.
+   */
+  getRecentPrintJobs(limit: number): PrintJobRow[] {
+    const rows = this.db
+      .prepare(`SELECT * FROM print_jobs ORDER BY queued_at DESC, rowid DESC LIMIT ?`)
+      .all(limit);
+    return rows as unknown as PrintJobRow[];
   }
 }
