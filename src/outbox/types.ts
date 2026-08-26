@@ -30,3 +30,15 @@ export interface SyncSummary {
   lastSyncAt: string | null;
   lastError: string | null;
 }
+
+export type PrintJobStatus = "queued" | "dropped" | "failed";
+
+export interface PrintJobRow {
+  id: string;
+  capture_id: string;
+  size: string;
+  file_path: string;
+  status: PrintJobStatus;
+  queued_at: string;
+  dropped_at: string | null;
+}

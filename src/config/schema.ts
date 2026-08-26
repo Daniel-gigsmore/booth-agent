@@ -31,11 +31,24 @@ export const BoothConfigSchema = z.object({
   storage: z.object({
     dataDir: z.string(),
     outboxDbFileName: z.string().default("outbox.db"),
+    // ~300 guests x (2 originals + 1 composite) is roughly 6GB per event, so
+    // the default leaves room for a full event after the warning fires.
+    lowDiskWarnBytes: z.number().int().positive().default(10 * 1024 ** 3),
   }),
   printing: z.object({
     hotFolderPath: z.string(),
     defaultSize: PrintSizeSchema.default("4x6"),
     secondsPerPrint: z.number().positive().default(12.4),
+    // Hot Folder Print writes its own status file to Logs\\printer_status.txt
+    // alongside the Prints folder. Derived from hotFolderPath when unset -
+    // only set this if a future HFP version moves it.
+    printerStatusPath: z.string().optional(),
+    // A killed HotFolderPrint.exe leaves its last STATUS_OK on disk forever,
+    // so status older than this is treated as unknown rather than as good
+    // news. Confirm HFP's real write cadence on the booth PC and tune.
+    printerStatusStaleMs: z.number().int().positive().default(120000),
+    // Prints left on the roll before the operator is told to fetch a spare.
+    lowMediaWarnPrints: z.number().int().nonnegative().default(30),
   }),
   compositing: z.object({
     templateDir: z.string(),
@@ -56,6 +69,10 @@ export const BoothConfigSchema = z.object({
     id: z.string(),
   }),
   sync: z.object({
+    // Backlog size that turns into a /health warning. Being offline is an
+    // expected, survivable state, so this is a nudge to check the network -
+    // never an error.
+    backlogWarnCount: z.number().int().positive().default(50),
     initialBackoffMs: z.number().int().positive().default(2000),
     maxBackoffMs: z.number().int().positive().default(120000),
     backoffMultiplier: z.number().positive().default(2),

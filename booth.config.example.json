@@ -22,12 +22,15 @@
   },
   "storage": {
     "dataDir": "C:\\BoothAgent\\data",
-    "outboxDbFileName": "outbox.db"
+    "outboxDbFileName": "outbox.db",
+    "lowDiskWarnBytes": 10737418240
   },
   "printing": {
     "hotFolderPath": "C:\\DNP\\HotFolderPrint\\Prints",
     "defaultSize": "4x6",
-    "secondsPerPrint": 12.4
+    "secondsPerPrint": 12.4,
+    "printerStatusStaleMs": 120000,
+    "lowMediaWarnPrints": 30
   },
   "compositing": {
     "templateDir": "C:\\BoothAgent\\templates",
@@ -43,6 +46,7 @@
     "id": "your-event-id"
   },
   "sync": {
+    "backlogWarnCount": 50,
     "initialBackoffMs": 2000,
     "maxBackoffMs": 120000,
     "backoffMultiplier": 2,
