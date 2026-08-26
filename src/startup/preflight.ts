@@ -6,7 +6,7 @@ import {
   readPrinterStatus,
   defaultPrinterStatusPath,
 } from "../print/printerStatus";
-import { APP_LOG_PATH } from "../camera/CanonTetheredSource";
+import { APP_LOG_PATH, isDigiCamControlRunning } from "../camera/CanonTetheredSource";
 import { getDiskSpace } from "../util/disk";
 import { createLogger } from "../util/logger";
 
@@ -69,8 +69,12 @@ export async function runPreflight(config: BoothConfig): Promise<PreflightResult
   checks.push(checkSharedSecret(config));
   checks.push(...(await checkCanon(config)));
   checks.push(await checkWebcam(config));
-  checks.push(...(await checkHotFolders(config)));
-  checks.push(await checkPrinter(config));
+
+  // Printer first: whether it is reachable decides how to read a missing
+  // hot-folder subfolder (real rename vs HFP simply not up yet).
+  const printer = await checkPrinter(config);
+  checks.push(printer.check);
+  checks.push(...(await checkHotFolders(config, printer.reachable)));
   checks.push(...(await checkStorage(config)));
   checks.push(await checkTemplates(config));
 
@@ -118,27 +122,30 @@ async function checkCanon(config: BoothConfig): Promise<PreflightCheck[]> {
     );
   }
 
-  // The app log is how isHealthy() decides whether the camera is connected.
-  // A missing log means digiCamControl has never run on this machine; a very
-  // old one means it is not running now - and in that state the agent cannot
-  // tell a disconnected camera from a dead digiCamControl.
-  const logStats = await stat(APP_LOG_PATH).catch(() => null);
-  if (!logStats) {
+  // isHealthy() only needs the app log's mtime as a fallback because it
+  // separately trusts a *persisted* connected flag, re-derived from *new* log
+  // lines since the last poll - a camera that's stayed connected without
+  // interruption can leave the log arbitrarily stale without that meaning
+  // anything is wrong, since digiCamControl only appends a line on state
+  // *transitions*. A one-shot preflight check has no such history, so log
+  // mtime alone is not a safe signal here either - confirmed live: a camera
+  // connected for 25+ minutes with zero new log lines, GUI process fully
+  // alive throughout. Check the process directly instead, same as isHealthy()
+  // does as its own first gate.
+  const guiRunning = await isDigiCamControlRunning();
+  if (!guiRunning) {
     results.push(
-      level(
-        "canon.appLog",
-        `digiCamControl log not found at ${APP_LOG_PATH} - launch CameraControl.exe at least once`
-      )
+      level("canon.appLog", "CameraControl.exe is not running - launch it before the event")
     );
   } else {
-    const ageMinutes = Math.round((Date.now() - logStats.mtimeMs) / 60000);
+    const logStats = await stat(APP_LOG_PATH).catch(() => null);
     results.push(
-      ageMinutes > 10
-        ? level(
+      logStats
+        ? ok("canon.appLog", "CameraControl.exe running, digiCamControl log present")
+        : warn(
             "canon.appLog",
-            `digiCamControl log last written ${ageMinutes} min ago - CameraControl.exe is probably not running`
+            `CameraControl.exe is running but its log was never created at ${APP_LOG_PATH} - has a camera ever been connected on this install?`
           )
-        : ok("canon.appLog", `digiCamControl log is live (${ageMinutes} min old)`)
     );
   }
 
@@ -163,8 +170,32 @@ async function checkWebcam(config: BoothConfig): Promise<PreflightCheck> {
  * happily create a folder with the old name that nothing is watching - files
  * land, `/print` returns 202, and nothing ever prints. Checking that the
  * folders already exist (created by HFP, not by us) catches that rename.
+ *
+ * ---------------------------------------------------------------------------
+ * Why this check is conditional on the printer
+ * ---------------------------------------------------------------------------
+ * HFP creates these subfolders when it starts and detects the printer - it
+ * does not ship them. That produces a guaranteed startup race: this agent is a
+ * Windows service running as LocalSystem from boot, while HotFolderPrint.exe
+ * lives in the interactive user session and cannot start until someone logs
+ * in. HFP is therefore *always* later than preflight.
+ *
+ * Observed on the booth PC: preflight ran at 13:30 local and reported both
+ * folders missing; HFP created them at 14:06 once it came up. Nothing was
+ * wrong - the check simply ran too early.
+ *
+ * Reporting that as a hard failure on every single boot is worse than not
+ * checking at all: it is a warning the operator can never act on, and the
+ * second time they see it they stop reading preflight altogether. So when the
+ * printer is not reachable the folders are reported as unverifiable (warn),
+ * and only a *reachable* printer with missing folders is treated as the real
+ * rename signal this check exists to catch. Re-run via POST /health/preflight
+ * once everything is up to get the meaningful answer.
  */
-async function checkHotFolders(config: BoothConfig): Promise<PreflightCheck[]> {
+async function checkHotFolders(
+  config: BoothConfig,
+  printerReachable: boolean
+): Promise<PreflightCheck[]> {
   const results: PreflightCheck[] = [];
   const root = config.printing.hotFolderPath;
 
@@ -172,16 +203,33 @@ async function checkHotFolders(config: BoothConfig): Promise<PreflightCheck[]> {
     results.push(fail("print.hotFolder", `hot folder root does not exist: ${root}`));
     return results;
   }
-  results.push(ok("print.hotFolder", root));
+
+  // Windows cannot be trusted to answer "is this writable" from permission
+  // bits alone, so probe it the same way the print path does.
+  results.push(
+    (await isHotFolderWritable(root))
+      ? ok("print.hotFolder", root)
+      : fail("print.hotFolder", `hot folder root is not writable: ${root}`)
+  );
 
   for (const size of ["4x6", "2x6-strip"] as const) {
     const dir = hotFolderPathFor(root, size);
+    const name = path.basename(dir);
+
+    if (await exists(dir)) {
+      results.push(ok(`print.hotFolder.${size}`, name));
+      continue;
+    }
+
     results.push(
-      (await exists(dir))
-        ? ok(`print.hotFolder.${size}`, path.basename(dir))
-        : fail(
+      printerReachable
+        ? fail(
             `print.hotFolder.${size}`,
-            `${path.basename(dir)} does not exist under ${root} - Hot Folder Print may have renamed its profile folders; check HFP and update HFP_FOLDER_BY_SIZE in src/print/hotFolder.ts`
+            `${name} does not exist under ${root} even though the printer is online - Hot Folder Print may have renamed its profile folders; check HFP and update HFP_FOLDER_BY_SIZE in src/print/hotFolder.ts`
+          )
+        : warn(
+            `print.hotFolder.${size}`,
+            `${name} not present yet - HotFolderPrint.exe creates it once it starts and sees the printer. Re-run POST /health/preflight after HFP is up.`
           )
     );
   }
@@ -189,7 +237,9 @@ async function checkHotFolders(config: BoothConfig): Promise<PreflightCheck[]> {
   return results;
 }
 
-async function checkPrinter(config: BoothConfig): Promise<PreflightCheck> {
+async function checkPrinter(
+  config: BoothConfig
+): Promise<{ check: PreflightCheck; reachable: boolean }> {
   const status = await readPrinterStatus({
     statusFilePath:
       config.printing.printerStatusPath ??
@@ -198,14 +248,29 @@ async function checkPrinter(config: BoothConfig): Promise<PreflightCheck> {
   });
 
   if (!status.reachable) {
-    return fail("print.printer", status.error ?? "printer status unavailable");
+    // Same startup race as the hot folders: HFP writes this file, and HFP is
+    // not up yet at boot. Not actionable until the operator can act on it.
+    return {
+      check: warn("print.printer", status.error ?? "printer status unavailable"),
+      reachable: false,
+    };
   }
   if (!status.ok) {
-    return fail("print.printer", `printer reports "${status.status}"`);
+    return {
+      check: fail("print.printer", `printer reports "${status.status}"`),
+      reachable: true,
+    };
   }
   const media =
     status.mediaRemaining !== null ? `, ~${status.mediaRemaining} prints left` : "";
-  return ok("print.printer", `${status.model ?? "printer"} ${status.status}${media}`);
+  const type = status.mediaType ? ` ${status.mediaType}` : "";
+  return {
+    check: ok(
+      "print.printer",
+      `${status.model ?? "printer"} ${status.status}${type}${media}`
+    ),
+    reachable: true,
+  };
 }
 
 async function checkStorage(config: BoothConfig): Promise<PreflightCheck[]> {
