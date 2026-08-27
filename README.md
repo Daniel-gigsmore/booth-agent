@@ -164,7 +164,7 @@ npm install
 npm run build
 .\install\install-service.ps1
 ```
-This registers a service named `BoothAgent` (via `node-windows`, which wraps `sc.exe`) that runs `node dist\index.js`, starts on boot, and restarts on crash. Check it with `Get-Service BoothAgent` or `services.msc`.
+This registers a service (via `node-windows`, which wraps `sc.exe`) that runs `node dist\index.js`, starts on boot, and restarts on crash. `BoothAgent` is only the service's **DisplayName** - the actual service **Name** is `boothagent.exe`, and that's what `Get-Service`/`Restart-Service`/`Stop-Service` should be given: `Restart-Service boothagent.exe`, not `Restart-Service BoothAgent`. Alternatively, use `services.msc` and look for it listed as "BoothAgent".
 
 To remove it:
 ```powershell
@@ -233,7 +233,7 @@ Run `npm test` first for the automated coverage (outbox sync worker offline→on
 
 **Crash/restart resumption**
 1. Take several captures while offline so they queue up.
-2. Kill the agent process (or `Stop-Service BoothAgent`) mid-sync.
+2. Kill the agent process (or `Stop-Service boothagent.exe`) mid-sync.
 3. Restart it. `SyncWorker` resets anything stuck in `'uploading'` back to `'pending'` on startup (`OutboxStore.resetStuckUploads()`) and resumes - confirm nothing duplicates in Supabase and nothing gets lost (`outbox.queueDepth` eventually reaches 0).
 
 **Loopback-only binding**
