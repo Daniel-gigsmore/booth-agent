@@ -36,4 +36,5 @@ node dist\service\install.js
 Pop-Location
 
 Write-Host ""
-Write-Host "Done. Check services.msc for 'BoothAgent', or run: Get-Service BoothAgent"
+Write-Host "Done. Check services.msc for 'BoothAgent', or run: Get-Service boothagent.exe"
+Write-Host "(BoothAgent is the service's DisplayName - Get-Service/Restart-Service/Stop-Service need the actual Name, boothagent.exe.)"
