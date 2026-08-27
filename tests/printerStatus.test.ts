@@ -42,13 +42,14 @@ describe("defaultPrinterStatusPath", () => {
 });
 
 describe("readPrinterStatus", () => {
-  it("reports a healthy printer with its model, remaining media, and media type", async () => {
+  it("reports a healthy printer with its model, remaining media, media type, and serial", async () => {
     await write(
       JSON.stringify({
         Status: "STATUS_OK",
         Model: "DS-RX1HS",
         MediaRemaining: 412,
         MediaType: "4x6",
+        SerialNumber: "CB2D63218295",
       })
     );
 
@@ -63,6 +64,7 @@ describe("readPrinterStatus", () => {
     expect(status.model).toBe("DS-RX1HS");
     expect(status.mediaRemaining).toBe(412);
     expect(status.mediaType).toBe("4x6");
+    expect(status.serialNumber).toBe("CB2D63218295");
     expect(status.error).toBeNull();
   });
 
@@ -165,6 +167,7 @@ describe("buildHealthReport print severity", () => {
     model: "DS-RX1HS",
     mediaRemaining: 400,
     mediaType: "4x6",
+    serialNumber: "CB2D63218295",
     lastUpdatedAt: new Date().toISOString(),
     staleMs: 0,
     error: null,
