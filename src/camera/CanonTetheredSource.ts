@@ -20,6 +20,27 @@ const LIVEVIEW_FETCH_TIMEOUT_MS = 1500;
 const GUI_PROCESS_NAME = "CameraControl.exe";
 
 /**
+ * Whether CameraControl.exe (the digiCamControl GUI) is currently running.
+ * Exported for src/startup/preflight.ts: isHealthy() below only needs this as
+ * a first gate because it separately trusts a *persisted* `lastKnownConnected`
+ * flag, re-derived only from *new* app-log lines since the last poll - so a
+ * camera that's stayed connected without interruption can leave the log
+ * arbitrarily stale without that meaning anything is wrong. A one-shot
+ * preflight check has no such history to fall back on, so log mtime alone is
+ * not a safe signal there either - confirmed live: a camera connected for
+ * 25+ minutes with zero new log lines, GUI process fully alive throughout.
+ * The process actually running is the signal that holds up in both cases.
+ */
+export async function isDigiCamControlRunning(): Promise<boolean> {
+  const result = await execFile(
+    "tasklist",
+    ["/FI", `IMAGENAME eq ${GUI_PROCESS_NAME}`, "/FO", "CSV", "/NH"],
+    { timeoutMs: HEALTH_CHECK_TIMEOUT_MS }
+  );
+  return result.code === 0 && result.stdout.includes(GUI_PROCESS_NAME);
+}
+
+/**
  * digiCamControl's own event log - observed at this path across every
  * install on this machine. Its "Camera is connected" / "Camera
  * disconnected" lines are the ONLY reliable live connection signal found
@@ -107,7 +128,7 @@ export class CanonTetheredSource implements CameraSource {
 
   async isHealthy(): Promise<boolean> {
     try {
-      const processRunning = await this.isGuiProcessRunning();
+      const processRunning = await isDigiCamControlRunning();
       if (!processRunning) {
         this.lastKnownConnected = false;
         this.lastKnownModel = null;
@@ -119,15 +140,6 @@ export class CanonTetheredSource implements CameraSource {
       log.debug("Canon health check failed", err);
       return false;
     }
-  }
-
-  private async isGuiProcessRunning(): Promise<boolean> {
-    const result = await execFile(
-      "tasklist",
-      ["/FI", `IMAGENAME eq ${GUI_PROCESS_NAME}`, "/FO", "CSV", "/NH"],
-      { timeoutMs: HEALTH_CHECK_TIMEOUT_MS }
-    );
-    return result.code === 0 && result.stdout.includes(GUI_PROCESS_NAME);
   }
 
   /** Reads only the log bytes appended since the last check and updates connection state from them. */
