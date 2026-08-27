@@ -46,10 +46,14 @@ export const BoothConfigSchema = z.object({
     // A killed HotFolderPrint.exe leaves its last STATUS_OK on disk forever,
     // so status older than this is treated as unknown rather than as good
     // news. Confirm HFP's real write cadence on the booth PC and tune.
-    // Measured on the booth PC: HFP rewrites printer_status.txt roughly every
-    // 300ms, so 15s is ~50x headroom while detecting a dead HFP 8x faster than
-    // the original 2min guess.
-    printerStatusStaleMs: z.number().int().positive().default(15000),
+    // A prior "every ~300ms" measurement here was wrong for the idle case -
+    // that number was very likely observed during active printing, not idle.
+    // Re-measured properly: polled the real file's LastWriteTime every 500ms
+    // for a full 60s while idle, max observed gap 20.11s. 60s gives ~3x
+    // headroom over that while still detecting a genuinely dead HFP well
+    // within a single event, rather than the original 2min guess or the
+    // too-tight 15s that followed the first (wrong) measurement.
+    printerStatusStaleMs: z.number().int().positive().default(60000),
     // Prints left on the roll before the operator is told to fetch a spare.
     lowMediaWarnPrints: z.number().int().nonnegative().default(30),
     // Media size the templates are built for; compared against what HFP
