@@ -115,32 +115,31 @@ export function buildHealthReport(inputs: HealthInputs): HealthReport {
       code: "printer-not-ok",
       message: `Printer reports "${printer.status}" - check media, ribbon and the printer's own display.`,
     });
-  } else if (
-    printer.mediaRemaining !== null &&
-    printer.mediaRemaining <= thresholds.lowMediaWarnPrints
-  ) {
-    alerts.push({
-      level: "warn",
-      code: "media-low",
-      message: `About ${printer.mediaRemaining} prints left on this roll - have the spare ready.`,
-    });
-  }
+  } else {
+    // Wrong media loaded is another silent failure: the file copy succeeds,
+    // HFP accepts it, and nothing usable comes out. HFP reports the loaded
+    // media size, so this is cheap to catch before a guest is waiting.
+    if (
+      printer.mediaType !== null &&
+      printer.mediaType.toLowerCase() !== thresholds.expectedMediaType.toLowerCase()
+    ) {
+      alerts.push({
+        level: "error",
+        code: "media-type-mismatch",
+        message: `Printer has ${printer.mediaType} media loaded but templates are built for ${thresholds.expectedMediaType} - prints will come out wrong.`,
+      });
+    }
 
-  // Independent of the reachable/ok/low-media chain above (not an else-if):
-  // a mismatch is only checkable once the printer is otherwise trusted, but
-  // when it applies it's just as real a problem as running low, and both can
-  // be true at once - the wrong roll can also be a nearly-empty one.
-  if (
-    printer.reachable &&
-    printer.ok &&
-    printer.mediaType !== null &&
-    printer.mediaType.trim().toLowerCase() !== thresholds.expectedMediaType.trim().toLowerCase()
-  ) {
-    alerts.push({
-      level: "error",
-      code: "media-type-mismatch",
-      message: `Printer has "${printer.mediaType}" loaded but templates are built for "${thresholds.expectedMediaType}" - prints will come out wrong.`,
-    });
+    if (
+      printer.mediaRemaining !== null &&
+      printer.mediaRemaining <= thresholds.lowMediaWarnPrints
+    ) {
+      alerts.push({
+        level: "warn",
+        code: "media-low",
+        message: `About ${printer.mediaRemaining} prints left on this roll - have the spare ready.`,
+      });
+    }
   }
 
   // --- Storage ------------------------------------------------------------
