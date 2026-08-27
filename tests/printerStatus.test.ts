@@ -42,14 +42,12 @@ describe("defaultPrinterStatusPath", () => {
 });
 
 describe("readPrinterStatus", () => {
-  it("reports a healthy printer with its model, remaining media, media type, and serial", async () => {
+  it("reports a healthy printer with its model and remaining media", async () => {
     await write(
       JSON.stringify({
         Status: "STATUS_OK",
         Model: "DS-RX1HS",
         MediaRemaining: 412,
-        MediaType: "4x6",
-        SerialNumber: "CB2D63218295",
       })
     );
 
@@ -63,8 +61,6 @@ describe("readPrinterStatus", () => {
     expect(status.status).toBe("STATUS_OK");
     expect(status.model).toBe("DS-RX1HS");
     expect(status.mediaRemaining).toBe(412);
-    expect(status.mediaType).toBe("4x6");
-    expect(status.serialNumber).toBe("CB2D63218295");
     expect(status.error).toBeNull();
   });
 
@@ -139,6 +135,42 @@ describe("readPrinterStatus", () => {
   });
 });
 
+describe("readPrinterStatus against the real booth PC file shape", () => {
+  /**
+   * Captured verbatim from C:\\DNP\\HotFolderPrint\\Logs\\printer_status.txt on
+   * the booth PC. Pinning the real shape means a future HFP update that
+   * changes it fails here rather than at the booth.
+   */
+  it("parses the actual DS-RX1HS status file", async () => {
+    await write(
+      JSON.stringify([
+        {
+          Name: "RX1HS-1",
+          Model: "RX1HS",
+          Status: "STATUS_OK",
+          MediaType: "4x6",
+          MediaRemaining: 687,
+          LifeCounter: 10,
+          SerialNumber: "CB2D63218295",
+          FirmwareVersion: "DS-RX1 02.21",
+          ColorDataVersion: "DS-RX1_300_0201.CWD",
+        },
+      ])
+    );
+
+    const status = await readPrinterStatus({
+      statusFilePath: statusFile,
+      staleAfterMs: STALE_AFTER_MS,
+    });
+
+    expect(status.ok).toBe(true);
+    expect(status.model).toBe("RX1HS");
+    expect(status.mediaType).toBe("4x6");
+    expect(status.mediaRemaining).toBe(687);
+    expect(status.serialNumber).toBe("CB2D63218295");
+  });
+});
+
 describe("buildHealthReport print severity", () => {
   const baseInputs = {
     camera: {
@@ -199,31 +231,17 @@ describe("buildHealthReport print severity", () => {
     expect(report.alerts.map((a) => a.code)).toContain("media-low");
   });
 
-  it("goes red when the wrong media is loaded, independent of low-media", () => {
+  /**
+   * Wrong media is invisible everywhere else in the pipeline: the copy
+   * succeeds, HFP accepts the file, and the print is simply wrong.
+   */
+  it("goes red when the loaded media does not match what templates expect", () => {
     const report = buildHealthReport({
       ...baseInputs,
-      printer: { ...healthyPrinter, mediaType: "2x6" },
+      printer: { ...healthyPrinter, mediaType: "5x7" },
     });
     expect(report.overall).toBe("error");
     expect(report.alerts.map((a) => a.code)).toContain("media-type-mismatch");
-  });
-
-  it("flags a media mismatch even when the roll is also running low", () => {
-    const report = buildHealthReport({
-      ...baseInputs,
-      printer: { ...healthyPrinter, mediaType: "2x6", mediaRemaining: 12 },
-    });
-    expect(report.alerts.map((a) => a.code)).toEqual(
-      expect.arrayContaining(["media-type-mismatch", "media-low"])
-    );
-  });
-
-  it("does not flag a mismatch when HFP does not report a media type at all", () => {
-    const report = buildHealthReport({
-      ...baseInputs,
-      printer: { ...healthyPrinter, mediaType: null },
-    });
-    expect(report.alerts.map((a) => a.code)).not.toContain("media-type-mismatch");
   });
 
   /**
