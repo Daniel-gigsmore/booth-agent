@@ -199,7 +199,7 @@ All endpoints require `Authorization: Bearer <sharedSecret>` (or `?token=`).
 
 ## Testing the acceptance criteria
 
-Run `npm test` first for the automated coverage (outbox sync worker offline→online behavior, 2x6 strip compositor output, camera fallback/recovery timing) - `npm run build` then `npm test` (or `npm run test:watch`). The rest below are manual, on the real hardware.
+Run `npm test` first for the automated coverage (outbox sync worker offline→online behavior, 2x6 strip compositor output, camera fallback/recovery timing, hot-folder write atomicity and print-job crash recovery, webcam capture/live-view device serialization) - `npm run build` then `npm test` (or `npm run test:watch`). The rest below are manual, on the real hardware.
 
 **Canon unplug/replug fallback**
 1. Start the agent with `capture.sourcePreference: "canon"`, Canon tethered and digiCamControl running.
@@ -235,6 +235,7 @@ Run `npm test` first for the automated coverage (outbox sync worker offline→on
 1. Take several captures while offline so they queue up.
 2. Kill the agent process (or `Stop-Service boothagent.exe`) mid-sync.
 3. Restart it. `SyncWorker` resets anything stuck in `'uploading'` back to `'pending'` on startup (`OutboxStore.resetStuckUploads()`) and resumes - confirm nothing duplicates in Supabase and nothing gets lost (`outbox.queueDepth` eventually reaches 0).
+4. Separately, queue a print (`POST /print`) and kill the agent before the drop into the hot folder can be confirmed. On restart, `OutboxStore.resolveInterruptedPrintJobs()` marks any job still `'queued'` as `'failed'` rather than silently reprinting it - whether the file actually landed before the crash can't be determined after the fact, so the operator has to make that call, not the agent. A clean shutdown (`Stop-Service` completing normally) instead drains in-flight print jobs via `PrintQueue.stop()`, so a planned restart should find nothing left for recovery to resolve.
 
 **Loopback-only binding**
 ```powershell
