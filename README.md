@@ -192,14 +192,14 @@ All endpoints require `Authorization: Bearer <sharedSecret>` (or `?token=`).
 - `GET /health` - camera (active source, model, both sources' connection state), hot folder writability, disk free/total, outbox queue depth/last sync/last error.
 - `GET /liveview` - MJPEG multipart stream (`multipart/x-mixed-replace`), Canon live view when active, webcam otherwise.
 - `POST /capture` - triggers a capture on the active source. Returns `{ captureId, filePath, width, height, source, takenAt }`.
-- `POST /composite` - body `{ captureId, templateId, printSize?, aiOutputUrl? }`. Applies the named template; if `aiOutputUrl` is given, downloads that image first and composites from it instead of the original capture (this is the "AI output pulled back down from Supabase" path). Returns the print-ready file path.
+- `POST /composite` - body `{ captureId, templateId, printSize?, aiOutputUrl? }`. Applies the named template; if `aiOutputUrl` is given, downloads that image first and composites from it instead of the original capture (this is the "AI output pulled back down from Supabase" path). `aiOutputUrl` must be on the same origin as `supabase.url` - `assertAllowedAiOutputOrigin()` in `src/server/routes.ts` rejects anything else, since a client-supplied URL fetched with no restriction would otherwise let anyone with the shared secret point the agent's `fetch()` at internal/loopback addresses it has no reason to reach. `templateId` is similarly restricted to `[A-Za-z0-9_-]+` (see `SAFE_TEMPLATE_ID` in `src/compositor/template.ts`) so it can't be used to read files outside `compositing.templateDir` via `../` traversal. Returns the print-ready file path.
 - `POST /print` - body `{ captureId, size? }`. Requires the capture to have been composited first. Returns `{ jobId, queuePosition, estimatedWaitMs }` immediately.
 - `GET /print/queue` - pending jobs with live-recomputed queue position and estimated wait (`secondsPerPrint` × position).
 - `WS /events` - `capture-taken`, `sync-status`, `print-queued`, `print-completed`, `camera-disconnected`, `camera-fallback`, `camera-recovered`, `error`. Connect with `ws://127.0.0.1:7070/events?token=<sharedSecret>`.
 
 ## Testing the acceptance criteria
 
-Run `npm test` first for the automated coverage (outbox sync worker offline→online behavior, 2x6 strip compositor output, camera fallback/recovery timing, hot-folder write atomicity and print-job crash recovery, webcam capture/live-view device serialization) - `npm run build` then `npm test` (or `npm run test:watch`). The rest below are manual, on the real hardware.
+Run `npm test` first for the automated coverage (outbox sync worker offline→online behavior, 2x6 strip compositor output, camera fallback/recovery timing, hot-folder write atomicity and print-job crash recovery, webcam capture/live-view device serialization, templateId/aiOutputUrl input validation, timing-safe shared-secret comparison) - `npm run build` then `npm test` (or `npm run test:watch`). The rest below are manual, on the real hardware.
 
 **Canon unplug/replug fallback**
 1. Start the agent with `capture.sourcePreference: "canon"`, Canon tethered and digiCamControl running.
