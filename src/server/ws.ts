@@ -2,6 +2,7 @@ import { Server as HttpServer, IncomingMessage } from "node:http";
 import { WebSocketServer, WebSocket } from "ws";
 import { URL } from "node:url";
 import { AgentContext } from "./context";
+import { isValidSecret } from "./auth";
 import { createLogger } from "../util/logger";
 
 const log = createLogger("server:ws");
@@ -17,7 +18,7 @@ export function attachEventsWebSocket(httpServer: HttpServer, ctx: AgentContext)
       return;
     }
     const token = url.searchParams.get("token") ?? undefined;
-    if (token !== ctx.configStore.current.agent.sharedSecret) {
+    if (!isValidSecret(ctx.configStore.current.agent.sharedSecret, token)) {
       socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
       socket.destroy();
       return;
