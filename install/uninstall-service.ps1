@@ -13,4 +13,11 @@ if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdenti
 
 Push-Location $RepoRoot
 node dist\service\uninstall.js
+# $ErrorActionPreference = "Stop" doesn't apply to a native command's exit
+# code - a failed uninstall would otherwise fall through silently.
+$uninstallExitCode = $LASTEXITCODE
 Pop-Location
+if ($uninstallExitCode -ne 0) {
+    Write-Error "Service uninstall failed (node dist\service\uninstall.js exited $uninstallExitCode) - see output above."
+    exit 1
+}
