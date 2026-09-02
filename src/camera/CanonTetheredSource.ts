@@ -6,6 +6,7 @@ import sharp from "sharp";
 import { CameraSource, CaptureResult } from "./CameraSource";
 import { BoothConfig } from "../config/schema";
 import { execFile } from "../util/exec";
+import { AsyncMutex } from "../util/mutex";
 import { createLogger } from "../util/logger";
 
 const log = createLogger("camera:canon");
@@ -108,6 +109,14 @@ export class CanonTetheredSource implements CameraSource {
   private lastKnownConnected = false;
   /** Byte offset already consumed from APP_LOG_PATH; makes each health check O(new log growth), not O(log size). */
   private logReadOffset = 0;
+  // capture() is three sequential remote commands against one shared
+  // digiCamControl session (set folder, set filename, then Capture) - not
+  // atomic as a group. Two overlapping /capture requests (a double-tap, a
+  // client retry) could interleave their command sequences, so one guest's
+  // shutter fires under the other's filenametemplate and waitForFile() times
+  // out waiting for a file that landed under a different name. Serialized
+  // for the same reason WebcamSource locks its device access.
+  private readonly captureLock = new AsyncMutex();
 
   constructor(config: BoothConfig["capture"]["canon"]) {
     this.exePath = config.digiCamControlExePath;
@@ -181,6 +190,10 @@ export class CanonTetheredSource implements CameraSource {
   }
 
   async capture(destDir: string): Promise<CaptureResult> {
+    return this.captureLock.run(() => this.captureExclusive(destDir));
+  }
+
+  private async captureExclusive(destDir: string): Promise<CaptureResult> {
     await mkdir(destDir, { recursive: true });
     const baseName = `canon-${uuidv4()}`;
     const filePath = path.join(destDir, `${baseName}.jpg`);
