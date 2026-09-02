@@ -32,7 +32,21 @@ export const EventTemplateSchema = z.object({
 
 export type EventTemplate = z.infer<typeof EventTemplateSchema>;
 
+/**
+ * templateId reaches here straight from a client request body (POST
+ * /composite). Without this, `${templateId}.json` joined onto templateDir is
+ * a path-traversal file-read primitive - a templateId of
+ * "../../../../whatever" resolves outside templateDir entirely, since
+ * path.join doesn't stop at the root it started from. Templates only ever
+ * need a flat, simple name (see assets/templates/*.json), so this rejects
+ * anything containing a path separator or "..".
+ */
+const SAFE_TEMPLATE_ID = /^[A-Za-z0-9_-]+$/;
+
 export function loadTemplate(templateDir: string, templateId: string): EventTemplate {
+  if (!SAFE_TEMPLATE_ID.test(templateId)) {
+    throw new Error(`Invalid templateId "${templateId}" - must contain only letters, digits, "-" or "_"`);
+  }
   const filePath = path.join(templateDir, `${templateId}.json`);
   const raw = readFileSync(filePath, "utf-8");
   const parsed = EventTemplateSchema.parse(JSON.parse(raw));
