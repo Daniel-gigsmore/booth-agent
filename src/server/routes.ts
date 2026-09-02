@@ -199,7 +199,7 @@ export function buildRouter(ctx: AgentContext): Router {
 
     try {
       const sourceImagePath = aiOutputUrl
-        ? await downloadAiOutput(aiOutputUrl, aiDownloadsDir(config))
+        ? await downloadAiOutput(aiOutputUrl, aiDownloadsDir(config), config.supabase.url)
         : row.original_path;
 
       const template = loadTemplate(config.compositing.templateDir, templateId);
@@ -324,7 +324,24 @@ export function buildRouter(ctx: AgentContext): Router {
   return router;
 }
 
-async function downloadAiOutput(url: string, destDir: string): Promise<string> {
+/**
+ * aiOutputUrl is client-supplied (POST /composite) and is only ever supposed
+ * to point at this project's own Supabase transform-image Edge Function
+ * output - see the architecture note in README.md. Without an origin check,
+ * a client with the shared secret could point the agent's fetch() at any
+ * URL, including internal/loopback addresses it has no reason to reach -
+ * this is what actually enforces "download, don't fetch arbitrary URLs".
+ */
+export function assertAllowedAiOutputOrigin(url: string, allowedOriginUrl: string): void {
+  const origin = new URL(url).origin;
+  const allowedOrigin = new URL(allowedOriginUrl).origin;
+  if (origin !== allowedOrigin) {
+    throw new Error(`aiOutputUrl must be hosted on ${allowedOrigin}, got ${origin}`);
+  }
+}
+
+async function downloadAiOutput(url: string, destDir: string, allowedOriginUrl: string): Promise<string> {
+  assertAllowedAiOutputOrigin(url, allowedOriginUrl);
   const response = await fetch(url);
   if (!response.ok) {
     throw new Error(`Failed to download AI output (${response.status}): ${url}`);
