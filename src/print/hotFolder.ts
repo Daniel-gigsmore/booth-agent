@@ -1,4 +1,4 @@
-import { mkdir, copyFile, writeFile, unlink } from "node:fs/promises";
+import { mkdir, copyFile, rename, writeFile, unlink } from "node:fs/promises";
 import path from "node:path";
 import { PrintSize } from "../config/schema";
 
@@ -47,7 +47,14 @@ export async function dropIntoHotFolder(
   const dir = hotFolderPathFor(basePath, size);
   await mkdir(dir, { recursive: true });
   const destPath = path.join(dir, `${jobId}${path.extname(sourceFilePath)}`);
-  await copyFile(sourceFilePath, destPath);
+  const tempPath = path.join(dir, `.${jobId}.tmp`);
+  try {
+    await copyFile(sourceFilePath, tempPath);
+    await rename(tempPath, destPath);
+  } catch (err) {
+    await unlink(tempPath).catch(() => {});
+    throw err;
+  }
   return destPath;
 }
 

@@ -105,6 +105,11 @@ export class PrintQueue {
     return { jobId, captureId, size, queuePosition, estimatedWaitMs };
   }
 
+  /** Awaits the in-flight hot-folder drop chain so a clean shutdown leaves no job stuck 'queued' for resolveInterruptedPrintJobs() to find on restart. */
+  async stop(): Promise<void> {
+    await this.processingChain;
+  }
+
   getQueue(): PrintJobPublic[] {
     return this.pending.map((job, index) => ({
       jobId: job.jobId,

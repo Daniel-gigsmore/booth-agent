@@ -47,6 +47,11 @@ async function main(): Promise<void> {
   const db = openOutboxDb(config.storage.dataDir, config.storage.outboxDbFileName);
   const outboxStore = new OutboxStore(db);
 
+  const interruptedPrintJobs = outboxStore.resolveInterruptedPrintJobs();
+  if (interruptedPrintJobs.length > 0) {
+    log.warn(`Marked ${interruptedPrintJobs.length} print job(s) failed after an unclean shutdown`);
+  }
+
   const supabaseClient = createSupabaseClient(config.supabase);
   const syncWorker = new SyncWorker(
     outboxStore,
@@ -87,6 +92,7 @@ async function main(): Promise<void> {
     log.info(`Received ${signal}, shutting down`);
     httpServer.close();
     syncWorker.stop();
+    await printQueue.stop();
     await cameraManager.stop();
     await configStore.stop();
     db.close();

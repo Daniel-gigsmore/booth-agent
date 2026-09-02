@@ -126,6 +126,24 @@ export class OutboxStore {
     return row as unknown as PrintJobRow | undefined;
   }
 
+  getQueuedPrintJobs(): PrintJobRow[] {
+    const rows = this.db.prepare(`SELECT * FROM print_jobs WHERE status = 'queued'`).all();
+    return rows as unknown as PrintJobRow[];
+  }
+
+  /**
+   * Jobs still 'queued' on startup were mid-flight when the process died -
+   * whether the file actually landed in the hot folder before the crash
+   * can't be determined after the fact, so these are marked failed rather
+   * than silently reprinted or left ambiguous. Mirrors resetStuckUploads()
+   * for the outbox sync path.
+   */
+  resolveInterruptedPrintJobs(): PrintJobRow[] {
+    const interrupted = this.getQueuedPrintJobs();
+    this.db.prepare(`UPDATE print_jobs SET status = 'failed' WHERE status = 'queued'`).run();
+    return interrupted;
+  }
+
   /**
    * Most recent print job for a capture. Reprints are usually asked for as
    * "print that one again" while the guest is still standing there, so the

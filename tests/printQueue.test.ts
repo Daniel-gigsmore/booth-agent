@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtemp, rm, writeFile, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -10,13 +10,18 @@ import { EventBus } from "../src/events/eventBus";
 let hotFolderBase: string;
 let sourceFilePath: string;
 
-beforeAll(async () => {
+// Each test gets its own hot-folder dir - PrintQueue's drop chain runs on a
+// background promise chain, and jobs from one test can still be landing on
+// disk (or, correctly, sitting behind an unrelated queue's serialized chain)
+// when the next test starts. Sharing one directory across tests via
+// beforeAll let that leak silently for a while; give each test a clean one.
+beforeEach(async () => {
   hotFolderBase = await mkdtemp(path.join(tmpdir(), "booth-agent-printq-"));
   sourceFilePath = path.join(hotFolderBase, "composite.jpg");
   await writeFile(sourceFilePath, "fake composite bytes");
 });
 
-afterAll(async () => {
+afterEach(async () => {
   await rm(hotFolderBase, { recursive: true, force: true });
 });
 
@@ -43,7 +48,7 @@ async function waitFor(predicate: () => Promise<boolean> | boolean, timeoutMs = 
 }
 
 describe("PrintQueue", () => {
-  it("assigns increasing queue positions and wait estimates across rapid back-to-back prints", () => {
+  it("assigns increasing queue positions and wait estimates across rapid back-to-back prints", async () => {
     const queue = makeQueue(10); // 10s/print, long enough that nothing drains mid-test
     const jobs = [1, 2, 3, 4, 5].map(() => queue.enqueue("capture-1", "4x6", sourceFilePath));
 
@@ -51,6 +56,11 @@ describe("PrintQueue", () => {
     for (let i = 1; i < jobs.length; i++) {
       expect(jobs[i]!.estimatedWaitMs).toBeGreaterThan(jobs[i - 1]!.estimatedWaitMs);
     }
+
+    // Drain this queue's hot-folder drops before the next test runs - they
+    // share hotFolderBase, and an un-awaited drop here would otherwise leak
+    // extra files into the next test's directory listing.
+    await queue.stop();
   });
 
   it("gives every job its own file in the hot folder, even when they share one composite", async () => {
@@ -60,7 +70,10 @@ describe("PrintQueue", () => {
     const dir = path.join(hotFolderBase, "s4x6"); // HFP's real folder name for 4x6, see hotFolder.ts
     await waitFor(async () => {
       const files = await readdir(dir).catch(() => []);
-      return files.length >= 5;
+      // dropIntoHotFolder stages each drop through a dot-prefixed .tmp file
+      // before the atomic rename to its final name - only count finished
+      // .jpg files, or this resolves early on a job still mid-rename.
+      return files.filter((f) => f.endsWith(".jpg")).length >= 5;
     });
 
     const files = await readdir(dir);
