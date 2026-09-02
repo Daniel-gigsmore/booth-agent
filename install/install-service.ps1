@@ -28,12 +28,26 @@ if (-not (Test-Path $DistEntry)) {
     Write-Host "dist\ not found - building first..."
     Push-Location $RepoRoot
     npm run build
+    # $ErrorActionPreference = "Stop" only governs PowerShell cmdlets/exceptions -
+    # it does NOT stop the script when a native command like npm exits non-zero,
+    # so a failed build would otherwise fall straight through to installing
+    # whatever (possibly stale, possibly absent) dist\ already exists.
+    $buildExitCode = $LASTEXITCODE
     Pop-Location
+    if ($buildExitCode -ne 0) {
+        Write-Error "npm run build failed (exit $buildExitCode) - fix the build before installing the service."
+        exit 1
+    }
 }
 
 Push-Location $RepoRoot
 node dist\service\install.js
+$installExitCode = $LASTEXITCODE
 Pop-Location
+if ($installExitCode -ne 0) {
+    Write-Error "Service install failed (node dist\service\install.js exited $installExitCode) - see output above. Not printing 'Done'."
+    exit 1
+}
 
 Write-Host ""
 Write-Host "Done. Check services.msc for 'BoothAgent', or run: Get-Service boothagent.exe"
