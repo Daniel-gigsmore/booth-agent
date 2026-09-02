@@ -6,6 +6,7 @@ import sharp from "sharp";
 import { CameraSource, CaptureResult } from "./CameraSource";
 import { BoothConfig } from "../config/schema";
 import { execFile } from "../util/exec";
+import { AsyncMutex } from "../util/mutex";
 import { createLogger } from "../util/logger";
 
 const log = createLogger("camera:webcam");
@@ -27,6 +28,13 @@ export class WebcamSource implements CameraSource {
   private readonly deviceName: string;
   private readonly width: number;
   private readonly height: number;
+  // capture() and getLiveviewFrame() each open the dshow device exclusively;
+  // a UVC webcam only tolerates one such open at a time, so without this
+  // lock a live-view poll racing a shutter press produced a "device busy"
+  // failure on whichever call lost. isHealthy() deliberately isn't
+  // serialized through this - list_devices only enumerates, it never opens
+  // the device, so it can't contend with either.
+  private readonly deviceLock = new AsyncMutex();
 
   constructor(config: BoothConfig["capture"]["webcam"]) {
     this.ffmpegPath = config.ffmpegPath;
@@ -65,6 +73,10 @@ export class WebcamSource implements CameraSource {
   }
 
   async capture(destDir: string): Promise<CaptureResult> {
+    return this.deviceLock.run(() => this.captureExclusive(destDir));
+  }
+
+  private async captureExclusive(destDir: string): Promise<CaptureResult> {
     await mkdir(destDir, { recursive: true });
     const fileName = `webcam-${uuidv4()}.jpg`;
     const filePath = path.join(destDir, fileName);
@@ -99,6 +111,10 @@ export class WebcamSource implements CameraSource {
   }
 
   async getLiveviewFrame(): Promise<Buffer | null> {
+    return this.deviceLock.run(() => this.getLiveviewFrameExclusive());
+  }
+
+  private async getLiveviewFrameExclusive(): Promise<Buffer | null> {
     // Grabs a single frame and streams it out over stdout as MJPEG, avoiding
     // a disk round-trip per preview tick. Spawning ffmpeg per frame caps the
     // achievable preview frame rate (a few fps) - acceptable for a booth
