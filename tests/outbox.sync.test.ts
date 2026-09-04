@@ -3,9 +3,9 @@ import { createInMemoryOutboxDb } from "../src/outbox/db";
 import { OutboxStore } from "../src/outbox/outboxStore";
 import { SyncWorker } from "../src/outbox/syncWorker";
 import { EventBus } from "../src/events/eventBus";
-import { CaptureRow } from "../src/outbox/types";
+import { UploadFn } from "../src/outbox/syncWorker";
 
-function makeWorker(uploadFn: (row: CaptureRow) => Promise<{ storagePath: string }>) {
+function makeWorker(uploadFn: UploadFn) {
   const db = createInMemoryOutboxDb();
   const store = new OutboxStore(db);
   const eventBus = new EventBus();
@@ -39,7 +39,7 @@ describe("SyncWorker offline -> online", () => {
     let online = false;
     const { store, worker } = makeWorker(async (row) => {
       if (!online) throw new Error("network unreachable");
-      return { storagePath: `bucket/${row.id}.jpg` };
+      return { storagePath: `bucket/${row.id}.jpg`, sourcePath: row.original_path };
     });
 
     insertCaptures(store, 3);
@@ -59,7 +59,7 @@ describe("SyncWorker offline -> online", () => {
       uploadCalls += 1;
       if (!online) throw new Error("network unreachable");
       uploaded.push(row.id);
-      return { storagePath: `bucket/${row.id}.jpg` };
+      return { storagePath: `bucket/${row.id}.jpg`, sourcePath: row.original_path };
     });
 
     const ids = insertCaptures(store, 20);
@@ -88,7 +88,7 @@ describe("SyncWorker offline -> online", () => {
     let uploadCalls = 0;
     const { store, worker } = makeWorker(async (row) => {
       uploadCalls += 1;
-      return { storagePath: `bucket/${row.id}.jpg` };
+      return { storagePath: `bucket/${row.id}.jpg`, sourcePath: row.original_path };
     });
 
     const [firstId] = insertCaptures(store, 1);
@@ -112,7 +112,7 @@ describe("SyncWorker offline -> online", () => {
       store,
       async (row) => {
         uploadCalls += 1;
-        return { storagePath: `bucket/${row.id}.jpg` };
+        return { storagePath: `bucket/${row.id}.jpg`, sourcePath: row.original_path };
       },
       { initialBackoffMs: 10, maxBackoffMs: 50, backoffMultiplier: 2, batchSize: 10 },
       eventBus

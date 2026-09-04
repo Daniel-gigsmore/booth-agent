@@ -13,6 +13,8 @@ export interface SyncStatusEvent {
   queueDepth: number;
   lastSyncAt: string | null;
   lastError: string | null;
+  /** Captures given up on. Not part of queueDepth - they need a human, not time. */
+  abandonedCount: number;
   online: boolean;
 }
 

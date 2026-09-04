@@ -169,6 +169,18 @@ export function buildHealthReport(inputs: HealthInputs): HealthReport {
     });
   }
 
+  // Distinct from a backlog on purpose. A backlog clears itself when the
+  // network comes back; these never will, and folding them into queueDepth
+  // would leave the backlog warning permanently on - training the operator
+  // to ignore the one warning that means "the network is still down".
+  if (outbox.abandonedCount > 0) {
+    alerts.push({
+      level: "warn",
+      code: "outbox-abandoned",
+      message: `${outbox.abandonedCount} capture(s) can never be uploaded - their local files are missing. See GET /sync/abandoned.`,
+    });
+  }
+
   return {
     overall: highestLevel(alerts),
     alerts,

@@ -1,9 +1,11 @@
 import { Router, Request, Response } from "express";
 import { access, mkdir, writeFile } from "node:fs/promises";
+import { once } from "node:events";
 import path from "node:path";
 import { v4 as uuidv4 } from "uuid";
 import { z } from "zod";
 import { AgentContext } from "./context";
+import { asyncHandler } from "./asyncHandler";
 import { PrintSizeSchema } from "../config/schema";
 import { loadTemplate, resolveOverlayPath } from "../compositor/template";
 import { renderComposite } from "../compositor/compositor";
@@ -49,7 +51,7 @@ const ReprintRequestSchema = z
 export function buildRouter(ctx: AgentContext): Router {
   const router = Router();
 
-  router.get("/health", async (_req: Request, res: Response) => {
+  router.get("/health", asyncHandler(async (_req: Request, res: Response) => {
     const config = ctx.configStore.current;
     const cameraStatus = ctx.cameraManager.getStatus();
     const [hotFolderWritable, diskSpace, printerStatus] = await Promise.all([
@@ -82,7 +84,7 @@ export function buildRouter(ctx: AgentContext): Router {
         },
       })
     );
-  });
+  }));
 
   /**
    * The boot-time preflight result, kept verbatim from startup. Useful from a
@@ -105,14 +107,14 @@ export function buildRouter(ctx: AgentContext): Router {
    *
    * Belongs in the pre-event runbook: set everything up, POST this, expect ok.
    */
-  router.post("/health/preflight", async (_req: Request, res: Response) => {
+  router.post("/health/preflight", asyncHandler(async (_req: Request, res: Response) => {
     const result = await runPreflight(ctx.configStore.current);
     logPreflight(result);
     ctx.preflight = result;
     res.json(result);
-  });
+  }));
 
-  router.get("/liveview", async (req: Request, res: Response) => {
+  router.get("/liveview", asyncHandler(async (req: Request, res: Response) => {
     const boundary = "boothagentframe";
     res.writeHead(200, {
       "Content-Type": `multipart/x-mixed-replace; boundary=${boundary}`,
@@ -125,24 +127,43 @@ export function buildRouter(ctx: AgentContext): Router {
     req.on("close", () => {
       closed = true;
     });
+    // A socket reset mid-write emits on the response. With no listener that
+    // becomes an uncaught 'error' event, which is a process-level crash, not
+    // a failed request - and a kiosk browser dropping an MJPEG stream is a
+    // completely routine thing to happen.
+    res.on("error", () => {
+      closed = true;
+    });
 
-    while (!closed) {
-      const result = await ctx.cameraManager.getLiveviewFrame();
-      if (result) {
-        const header =
-          `--${boundary}\r\n` +
-          `Content-Type: image/jpeg\r\n` +
-          `Content-Length: ${result.frame.length}\r\n\r\n`;
-        res.write(header);
-        res.write(result.frame);
-        res.write("\r\n");
+    // The stream is open-ended, so this is the one handler that has to clean
+    // up after itself: without the finally the connection is left half-open
+    // on any throw, and the response never ends.
+    try {
+      while (!closed && !res.writableEnded && !res.destroyed) {
+        const result = await ctx.cameraManager.getLiveviewFrame();
+        if (result) {
+          const header =
+            `--${boundary}\r\n` +
+            `Content-Type: image/jpeg\r\n` +
+            `Content-Length: ${result.frame.length}\r\n\r\n`;
+          res.write(header);
+          res.write(result.frame);
+          // write() returning false means the kernel buffer is full - i.e.
+          // the client is consuming frames slower than we produce them.
+          // Pushing on regardless queues JPEGs in memory for as long as that
+          // client stays connected, so wait for it to catch up instead.
+          if (!res.write("\r\n")) {
+            await once(res, "drain");
+          }
+        }
+        await new Promise((resolve) => setTimeout(resolve, 150));
       }
-      await new Promise((resolve) => setTimeout(resolve, 150));
+    } finally {
+      if (!res.writableEnded) res.end();
     }
-    res.end();
-  });
+  }));
 
-  router.post("/capture", async (_req: Request, res: Response) => {
+  router.post("/capture", asyncHandler(async (_req: Request, res: Response) => {
     const config = ctx.configStore.current;
     try {
       const captureId = uuidv4();
@@ -179,9 +200,9 @@ export function buildRouter(ctx: AgentContext): Router {
       ctx.eventBus.emit({ type: "error", scope: "capture", message });
       res.status(503).json({ error: message });
     }
-  });
+  }));
 
-  router.post("/composite", async (req: Request, res: Response) => {
+  router.post("/composite", asyncHandler(async (req: Request, res: Response) => {
     const config = ctx.configStore.current;
     const parsed = CompositeRequestSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -229,7 +250,7 @@ export function buildRouter(ctx: AgentContext): Router {
       ctx.eventBus.emit({ type: "error", scope: "composite", message });
       res.status(400).json({ error: message });
     }
-  });
+  }));
 
   router.post("/print", (req: Request, res: Response) => {
     const config = ctx.configStore.current;
@@ -274,7 +295,7 @@ export function buildRouter(ctx: AgentContext): Router {
     res.json({ jobs: ctx.outboxStore.getRecentPrintJobs(limit) });
   });
 
-  router.post("/print/reprint", async (req: Request, res: Response) => {
+  router.post("/print/reprint", asyncHandler(async (req: Request, res: Response) => {
     const config = ctx.configStore.current;
     const parsed = ReprintRequestSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -319,6 +340,38 @@ export function buildRouter(ctx: AgentContext): Router {
       `Reprinting capture ${original.capture_id} (${copies} cop${copies === 1 ? "y" : "ies"}, ${size}) from job ${original.id}`
     );
     res.status(202).json({ captureId: original.capture_id, reprintedFrom: original.id, jobs });
+  }));
+
+  /**
+   * Captures the sync worker has given up on. Abandonment is deliberately a
+   * quiet state in /health (one warn line, one number) rather than a growing
+   * error, so this is where the detail lives: which captures, and why.
+   */
+  router.get("/sync/abandoned", (_req: Request, res: Response) => {
+    const rows = ctx.outboxStore.getAbandoned();
+    res.json({
+      count: rows.length,
+      captures: rows.map((row) => ({
+        captureId: row.id,
+        eventId: row.event_id,
+        takenAt: row.taken_at,
+        expectedFile: row.composite_path ?? row.original_path,
+        lastError: row.last_error,
+        abandonedAt: row.sync_abandoned_at,
+      })),
+    });
+  });
+
+  /**
+   * Puts every abandoned capture back in the queue. Abandonment must not be a
+   * one-way door: the realistic cause is that the files were somewhere else
+   * all along (a moved data dir, an unmounted drive), and once that is fixed
+   * the rows are perfectly uploadable again.
+   */
+  router.post("/sync/abandoned/retry", (_req: Request, res: Response) => {
+    const requeued = ctx.outboxStore.retryAbandoned();
+    log.info(`Re-queued ${requeued} abandoned capture(s) for sync`);
+    res.json({ requeued });
   });
 
   return router;
