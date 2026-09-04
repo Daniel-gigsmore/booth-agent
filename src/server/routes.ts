@@ -1,11 +1,11 @@
 import { Router, Request, Response } from "express";
 import { access, mkdir, writeFile } from "node:fs/promises";
-import { once } from "node:events";
 import path from "node:path";
 import { v4 as uuidv4 } from "uuid";
 import { z } from "zod";
 import { AgentContext } from "./context";
 import { asyncHandler } from "./asyncHandler";
+import { writeBackpressureAware } from "./streamWrite";
 import { PrintSizeSchema } from "../config/schema";
 import { loadTemplate, resolveOverlayPath } from "../compositor/template";
 import { renderComposite } from "../compositor/compositor";
@@ -151,10 +151,11 @@ export function buildRouter(ctx: AgentContext): Router {
           // write() returning false means the kernel buffer is full - i.e.
           // the client is consuming frames slower than we produce them.
           // Pushing on regardless queues JPEGs in memory for as long as that
-          // client stays connected, so wait for it to catch up instead.
-          if (!res.write("\r\n")) {
-            await once(res, "drain");
-          }
+          // client stays connected, so wait for it to catch up instead - see
+          // writeBackpressureAware() for why this can't just await "drain".
+          // The while loop's own !res.destroyed check is what ends the loop
+          // once this unblocks via a client disconnect.
+          await writeBackpressureAware(res, "\r\n");
         }
         await new Promise((resolve) => setTimeout(resolve, 150));
       }
