@@ -45,12 +45,21 @@ const OLD_SCHEMA = `
 `;
 
 let dir: string;
+// node:sqlite holds an open file handle until .close(). POSIX allows
+// unlinking an open file, so this was invisible wherever the patch this
+// test came in on was run - but on Windows an open handle blocks deleting
+// its containing directory (EPERM), which is exactly what rmSync below
+// does on every test. Each test that opens a db via openOutboxDb() must
+// record it here so afterEach can close it before cleanup runs.
+let openDb: ReturnType<typeof openOutboxDb> | undefined;
 
 beforeEach(() => {
   dir = mkdtempSync(path.join(tmpdir(), "booth-migration-"));
 });
 
 afterEach(() => {
+  openDb?.close();
+  openDb = undefined;
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -86,7 +95,8 @@ describe("upgrading an existing outbox.db", () => {
       { id: "old-pending", composite: null, status: "pending" },
     ]);
 
-    const store = new OutboxStore(openOutboxDb(dir, "outbox.db"));
+    openDb = openOutboxDb(dir, "outbox.db");
+    const store = new OutboxStore(openDb);
     // Only the never-composited synced row is provably done, and it stays done.
     expect(store.getById("old-plain")?.synced_source_path).toBe("/data/originals/old-plain.jpg");
     expect(store.getBatchDue(10).map((r) => r.id)).toEqual(["old-pending"]);
@@ -95,7 +105,8 @@ describe("upgrading an existing outbox.db", () => {
   it("re-queues the captures the old code stranded: synced as original, composite never sent", () => {
     seedOldDb([{ id: "old-victim", composite: "/data/composites/c1.jpg", status: "synced" }]);
 
-    const store = new OutboxStore(openOutboxDb(dir, "outbox.db"));
+    openDb = openOutboxDb(dir, "outbox.db");
+    const store = new OutboxStore(openDb);
     expect(store.getBatchDue(10).map((r) => r.id)).toEqual(["old-victim"]);
     expect(store.getSyncSummary().queueDepth).toBe(1);
   });
@@ -104,7 +115,8 @@ describe("upgrading an existing outbox.db", () => {
     seedOldDb([{ id: "old-1", composite: null, status: "synced" }]);
 
     openOutboxDb(dir, "outbox.db").close();
-    const store = new OutboxStore(openOutboxDb(dir, "outbox.db"));
+    openDb = openOutboxDb(dir, "outbox.db");
+    const store = new OutboxStore(openDb);
     expect(store.getById("old-1")?.synced_source_path).toBe("/data/originals/old-1.jpg");
     expect(store.getBatchDue(10)).toHaveLength(0);
   });
