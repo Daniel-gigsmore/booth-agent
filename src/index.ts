@@ -17,6 +17,30 @@ import { createLogger } from "./util/logger";
 
 const log = createLogger("index");
 
+/**
+ * A booth PC has nobody watching a console. Node's default for both of these
+ * is to terminate the process, which mid-event means the queue stops, the
+ * kiosk's WebSocket drops, and a guest is left standing there - over a fault
+ * that may have had nothing to do with capturing or printing.
+ *
+ * The trade is real and worth stating: continuing past an uncaught exception
+ * can leave in-memory state inconsistent. It is acceptable *here* because the
+ * state that matters is not in memory - a capture is in SQLite and on disk
+ * before /capture responds, and a print job is recorded before the file copy
+ * starts - so the worst case is losing the one request that failed. Anything
+ * that genuinely corrupts the process still gets restarted by node-windows.
+ *
+ * These are a backstop, not a substitute for handling errors at the source:
+ * every route is wrapped in asyncHandler(), which is what should catch a
+ * failing request. Anything arriving here is a bug, so it is logged at error.
+ */
+process.on("unhandledRejection", (reason) => {
+  log.error("Unhandled promise rejection - continuing", reason);
+});
+process.on("uncaughtException", (err) => {
+  log.error("Uncaught exception - continuing", err);
+});
+
 async function main(): Promise<void> {
   const configPath = process.env["BOOTH_CONFIG_PATH"] ?? path.resolve(process.cwd(), "booth.config.json");
   const configStore = ConfigStore.load(configPath);

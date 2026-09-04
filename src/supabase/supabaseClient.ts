@@ -2,6 +2,7 @@ import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { BoothConfig } from "../config/schema";
+import { PermanentSyncError, isMissingFileError } from "../outbox/errors";
 import { CaptureRow } from "../outbox/types";
 
 export function createSupabaseClient(config: BoothConfig["supabase"]): SupabaseClient {
@@ -60,9 +61,27 @@ export async function uploadCaptureToSupabase(
   client: SupabaseClient,
   config: BoothConfig["supabase"],
   row: CaptureRow
-): Promise<{ storagePath: string }> {
+): Promise<{ storagePath: string; sourcePath: string }> {
   const uploadSourcePath = row.composite_path ?? row.original_path;
-  const fileBuffer = await readFile(uploadSourcePath);
+
+  // A capture whose file is gone is the one failure mode that waiting cannot
+  // fix, so it is reported as permanent and the sync worker abandons the row
+  // rather than retrying it every two minutes until the machine is rebuilt.
+  // Every other error - and that includes the entire network is down - stays
+  // retryable with no attempt cap.
+  let fileBuffer: Buffer;
+  try {
+    fileBuffer = await readFile(uploadSourcePath);
+  } catch (err) {
+    if (isMissingFileError(err)) {
+      throw new PermanentSyncError(
+        `capture file is no longer readable at ${uploadSourcePath}`,
+        { cause: err }
+      );
+    }
+    throw err;
+  }
+
   const objectKey = `${row.event_id}/${row.id}${path.extname(uploadSourcePath)}`;
 
   const { error: uploadError } = await client.storage
@@ -81,5 +100,5 @@ export async function uploadCaptureToSupabase(
     throw new Error(`Supabase captures upsert failed: ${dbError.message}`, { cause: unwrapError(dbError) });
   }
 
-  return { storagePath: objectKey };
+  return { storagePath: objectKey, sourcePath: uploadSourcePath };
 }

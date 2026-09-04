@@ -1,4 +1,5 @@
 import { OutboxStore } from "./outboxStore";
+import { PermanentSyncError } from "./errors";
 import { CaptureRow } from "./types";
 import { EventBus } from "../events/eventBus";
 import { createLogger } from "../util/logger";
@@ -13,7 +14,13 @@ export interface SyncWorkerConfig {
   tickIntervalMs?: number;
 }
 
-export type UploadFn = (row: CaptureRow) => Promise<{ storagePath: string }>;
+/**
+ * Returns the storage key written AND the local file that was uploaded to get
+ * there. The second value is not bookkeeping: the row can gain a composite
+ * while this upload is in flight, so "what did we actually send" is the only
+ * thing that can tell the next pass whether the row is finished.
+ */
+export type UploadFn = (row: CaptureRow) => Promise<{ storagePath: string; sourcePath: string }>;
 
 /**
  * Polls the outbox for due rows and uploads them, backing off exponentially
@@ -70,13 +77,34 @@ export class SyncWorker {
   private async syncOne(row: CaptureRow): Promise<void> {
     this.store.markUploading(row.id);
     try {
-      const { storagePath } = await this.uploadFn(row);
-      this.store.markSynced(row.id, storagePath);
+      const { storagePath, sourcePath } = await this.uploadFn(row);
+      this.store.markSynced(row.id, storagePath, sourcePath);
       this.consecutiveFailures = 0;
       log.info(`Synced capture ${row.id}`);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       const cause = err instanceof Error ? err.cause : undefined;
+
+      // Retrying this one forever would never succeed, and would hold
+      // queueDepth above zero and lastError populated for the life of the
+      // deployment - a permanent warning the operator can do nothing about,
+      // which is how they learn to stop reading warnings. Take it out of the
+      // queue and report it as its own thing instead.
+      //
+      // Note this does NOT increment consecutiveFailures: one missing file
+      // says nothing about the network, and flipping `online` to false over
+      // it would misreport a perfectly healthy connection.
+      if (err instanceof PermanentSyncError) {
+        this.store.markAbandoned(row.id, message);
+        log.error(`Giving up on capture ${row.id}: ${message}`);
+        this.eventBus.emit({
+          type: "error",
+          scope: "sync",
+          message: `capture ${row.id} can never be uploaded: ${message}`,
+        });
+        return;
+      }
+
       this.consecutiveFailures += 1;
       const attemptNumber = row.sync_attempts + 1;
       const delay = Math.min(
@@ -103,6 +131,7 @@ export class SyncWorker {
       queueDepth: summary.queueDepth,
       lastSyncAt: summary.lastSyncAt,
       lastError: summary.lastError,
+      abandonedCount: summary.abandonedCount,
       online: this.consecutiveFailures === 0,
     });
   }

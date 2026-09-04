@@ -182,7 +182,7 @@ describe("buildHealthReport print severity", () => {
     },
     hotFolder: { path: "C:\\DNP\\HotFolderPrint\\Prints", writable: true },
     disk: { freeBytes: 200 * 1024 ** 3, totalBytes: 512 * 1024 ** 3 },
-    outbox: { queueDepth: 0, lastSyncAt: null, lastError: null },
+    outbox: { queueDepth: 0, lastSyncAt: null, lastError: null, abandonedCount: 0 },
     eventId: "gigsmore-launch-2026",
     thresholds: {
       lowDiskWarnBytes: 10 * 1024 ** 3,
@@ -252,7 +252,7 @@ describe("buildHealthReport print severity", () => {
     const report = buildHealthReport({
       ...baseInputs,
       printer: healthyPrinter,
-      outbox: { queueDepth: 300, lastSyncAt: null, lastError: "network down" },
+      outbox: { queueDepth: 300, lastSyncAt: null, lastError: "network down", abandonedCount: 0 },
     });
     expect(report.overall).toBe("warn");
     expect(report.alerts.map((a) => a.code)).toContain("outbox-backlog");

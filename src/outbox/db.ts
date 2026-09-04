@@ -53,7 +53,9 @@ function migrate(db: DatabaseSync): void {
       next_attempt_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
       last_error TEXT,
       synced_at TEXT,
-      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+      synced_source_path TEXT,
+      sync_abandoned_at TEXT
     );
 
     CREATE INDEX IF NOT EXISTS idx_captures_sync_status
@@ -69,4 +71,36 @@ function migrate(db: DatabaseSync): void {
       dropped_at TEXT
     );
   `);
+
+  // The CREATE TABLE above is IF NOT EXISTS, so it does nothing at all on a
+  // booth PC that already has an outbox.db from a previous version - any
+  // column added to it later has to arrive this way instead. Additive and
+  // idempotent by design: no table rebuild, so the print_jobs foreign key
+  // into captures is never disturbed.
+  ensureColumn(db, "captures", "synced_source_path", "TEXT");
+  ensureColumn(db, "captures", "sync_abandoned_at", "TEXT");
+
+  // Existing rows predate synced_source_path and have it NULL, and nothing on
+  // disk records which file they actually uploaded (storage_path is the same
+  // key either way). Only one case can be resolved from what is stored: a
+  // synced row that was never composited can only have uploaded its original,
+  // so mark it finished. A synced row that DOES have a composite is left NULL
+  // on purpose - that is exactly the population this fix exists for, and NULL
+  // reads as "re-upload the composite", which repairs them on the first sync
+  // pass after the upgrade. Rows that had already uploaded their composite
+  // (the offline path, where the drain happened after compositing) are
+  // re-uploaded once too; the storage key is unchanged and the upsert
+  // overwrites the same object with identical bytes.
+  db.exec(`
+    UPDATE captures
+    SET synced_source_path = original_path
+    WHERE sync_status = 'synced' AND synced_source_path IS NULL AND composite_path IS NULL
+  `);
+}
+
+/** Adds a column only if the table doesn't already have it. */
+function ensureColumn(db: DatabaseSync, table: string, column: string, definition: string): void {
+  const columns = db.prepare(`PRAGMA table_info(${table})`).all() as unknown as Array<{ name: string }>;
+  if (columns.some((c) => c.name === column)) return;
+  db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
 }

@@ -45,6 +45,10 @@ Nothing here is multi-tenant; it's wired to one event (`event.id` in config) at 
 
 A capture is durable the instant the file lands on disk: `POST /capture` writes the JPEG, then inserts a row into `data/outbox.db` (`sync_status = 'pending'`) *before* responding. Nothing about printing or the UI depends on the network. A background `SyncWorker` polls for due rows, uploads the print-ready (or original) file to Supabase Storage and upserts the `captures` row, and on failure reschedules with exponential backoff (`sync.initialBackoffMs` → `sync.maxBackoffMs`, capped multiplier `sync.backoffMultiplier`). Uploads are idempotent: the storage object key and the Postgres upsert are both keyed on the capture's local UUID, so a retry after a crash overwrites the same object/row instead of duplicating it. On startup, any row left in `'uploading'` from a previous crash is reset to `'pending'` and retried - see `OutboxStore.resetStuckUploads()`.
 
+A row is finished when the file **currently** in Supabase Storage is the file we would send now, not when it has synced once. That distinction matters because `/capture` inserts the row and the sync worker can claim it within a tick or two - online, that is long before the guest has picked a template and `/composite` has produced the print-ready image. Tracking only `sync_status` meant the row was declared done at that moment, so on any capture taken with a working network the branded composite and its `print_size` never reached Supabase; only the raw original did. (It looked correct offline, which is the one ordering where compositing always finishes first.) `OutboxStore` now records `synced_source_path` - the local file that actually went up - and re-queues the row when it differs from `composite_path`. The storage key is unchanged between the two, so the second upload overwrites the same object rather than creating a duplicate.
+
+Failures split two ways. Anything that could succeed later - the network being down, Supabase unreachable, a 5xx - retries forever with no attempt cap, because being offline for an entire event is a supported state and an attempt count would punish a perfectly healthy capture for a long outage. A failure that can never succeed by waiting (the local file is gone: `PermanentSyncError`) abandons the row instead, so it stops holding `queueDepth` above zero and pinning `lastError` to `/health` for the life of the deployment. Abandoned rows are reported as their own `/health` warning and listed at `GET /sync/abandoned`; `POST /sync/abandoned/retry` puts them all back in the queue once whatever made the files unreachable is fixed.
+
 booth-agent uses Node's **built-in `node:sqlite`** module rather than `better-sqlite3` or any other native npm package. That was a deliberate choice: `better-sqlite3` needs a native addon compiled against the exact Node ABI (Visual Studio Build Tools + Windows SDK on the machine), which is one more thing that can silently break when the mini-PC's Node version changes or a rebuild happens without full build tools installed. `node:sqlite` ships inside Node itself - zero native compilation, zero ABI risk. It requires **Node 22.5+**.
 
 ### Printing
@@ -195,6 +199,11 @@ All endpoints require `Authorization: Bearer <sharedSecret>` (or `?token=`).
 - `POST /composite` - body `{ captureId, templateId, printSize?, aiOutputUrl? }`. Applies the named template; if `aiOutputUrl` is given, downloads that image first and composites from it instead of the original capture (this is the "AI output pulled back down from Supabase" path). `aiOutputUrl` must be on the same origin as `supabase.url` - `assertAllowedAiOutputOrigin()` in `src/server/routes.ts` rejects anything else, since a client-supplied URL fetched with no restriction would otherwise let anyone with the shared secret point the agent's `fetch()` at internal/loopback addresses it has no reason to reach. `templateId` is similarly restricted to `[A-Za-z0-9_-]+` (see `SAFE_TEMPLATE_ID` in `src/compositor/template.ts`) so it can't be used to read files outside `compositing.templateDir` via `../` traversal. Returns the print-ready file path.
 - `POST /print` - body `{ captureId, size? }`. Requires the capture to have been composited first. Returns `{ jobId, queuePosition, estimatedWaitMs }` immediately.
 - `GET /print/queue` - pending jobs with live-recomputed queue position and estimated wait (`secondsPerPrint` × position).
+- `GET /print/history` - recent print jobs, newest first (`?limit=`, default 20, max 200). After a media change this is how you find jobs that were dropped into the hot folder while the printer had no paper.
+- `POST /print/reprint` - body `{ jobId | captureId, size?, copies? }` (exactly one of `jobId`/`captureId`). Re-queues an existing composite; `409` if that file is no longer on disk.
+- `GET /health/preflight` - the stored preflight result. `POST /health/preflight` re-runs it and replaces the stored one; run this once the booth is actually set up, since the boot-time run is necessarily pessimistic about anything that starts after this service does.
+- `GET /sync/abandoned` - captures the sync worker gave up on, with the file it expected and why it failed.
+- `POST /sync/abandoned/retry` - put all of them back in the queue. Returns `{ requeued }`.
 - `WS /events` - `capture-taken`, `sync-status`, `print-queued`, `print-completed`, `camera-disconnected`, `camera-fallback`, `camera-recovered`, `error`. Connect with `ws://127.0.0.1:7070/events?token=<sharedSecret>`.
 
 ## Testing the acceptance criteria
@@ -226,6 +235,20 @@ Run `npm test` first for the automated coverage (outbox sync worker offline→on
 2. Open the output file: it must be a single 1200×1800px (4in×6in @300dpi) image. The left half (0-600px) and right half (600-1200px) should be visually identical strips, right-side up.
 3. `npm test` also covers this pixel-for-pixel (`tests/compositor.strip.test.ts`).
 
+**Composite actually reaches Supabase (the online ordering)**
+
+1. With the network **up**, `POST /capture` and wait ~5s - long enough for the sync worker to push the original.
+2. `POST /composite` for that capture.
+3. Within a couple of ticks, `/health` `outbox.queueDepth` should go to 1 and back to 0.
+4. In Supabase Storage, the object for that capture id must be the **templated** image, and its `captures` row must have `print_size` set. Before this was fixed it stayed the raw original with a null `print_size`.
+5. `npm test` covers this ordering both ways round in `tests/outbox.composite.sync.test.ts`.
+
+**Abandoned captures**
+
+1. Take a capture offline so it queues, then delete its file from `data\originals`.
+2. Reconnect. That row should move to abandoned rather than retrying forever: `/health` shows an `outbox-abandoned` warn, `queueDepth` excludes it, and `GET /sync/abandoned` lists it.
+3. `POST /sync/abandoned/retry` should put it back in the queue (and, with the file still missing, abandon it again on the next attempt).
+
 **`/health` accuracy**
 - Full disk: fill the data volume (or point `storage.dataDir` at a near-full drive) and confirm `disk.freeBytes` reflects it.
 - Unwritable hot folder: point `printing.hotFolderPath` at a read-only location (or revoke write ACLs) and confirm `hotFolder.writable: false`.
@@ -244,6 +267,8 @@ netstat -ano | findstr :7070
 Every line must show `127.0.0.1:7070`, never `0.0.0.0:7070`.
 
 ## Known limitations
+
+- **Upgrading an existing booth PC re-uploads some history once.** The schema block is `CREATE TABLE IF NOT EXISTS`, so `synced_source_path` and `sync_abandoned_at` arrive on an existing `data\outbox.db` via `ALTER TABLE` (`ensureColumn()` in `src/outbox/db.ts` - additive and idempotent, no table rebuild, so the `print_jobs` foreign key is never disturbed). Nothing on disk records which file a pre-upgrade row actually uploaded, so only rows that were never composited can be marked finished; every already-synced row that *has* a composite is re-uploaded once on the first sync pass after the upgrade. That is the intended repair for captures stranded by the bug above, and it is harmless for the rest - same storage key, same bytes. Expect a one-time burst proportional to past events, so do the upgrade on a connection you don't mind using, not at a venue.
 
 - **Webcam live view frame rate is low.** `WebcamSource.getLiveviewFrame()` spawns a fresh `ffmpeg` process per frame (no disk round-trip, but no persistent stream either), which caps preview smoothness to a few fps. Fine for a booth preview; if a smoother webcam live view is needed later, replace it with a persistent `ffmpeg` process demuxing an MJPEG stream and parsing frame boundaries, still entirely inside `WebcamSource.ts`. `capture()` and `getLiveviewFrame()` are serialized through an internal `AsyncMutex` (see `src/util/mutex.ts`) since both open the same dshow device exclusively - a guest pressing the shutter while a live-view poll is mid-flight used to race for the device and could fail with "device busy"; now the shutter press simply waits its turn (at most one in-flight frame grab, capped by `LIVEVIEW_TIMEOUT_MS`).
 - **`CanonTetheredSource.capture()` is similarly serialized**, for a different reason: it's three sequential `CameraControlRemoteCmd.exe` calls against one shared digiCamControl session (set folder, set filename, then `Capture`), not atomic as a group. Two overlapping `/capture` requests could otherwise interleave their command sequences - one guest's shutter firing under the other's `filenametemplate` - so it shares the same `AsyncMutex` pattern (its own instance, scoped to capture only; Canon live view goes over a separate HTTP surface with no such exclusivity to race).
