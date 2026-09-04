@@ -7,8 +7,12 @@ on:
     branches: [master]
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
+  test-matrix:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
@@ -21,3 +25,15 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+
+  # Branch protection requires a status check literally named "test" - a
+  # matrix job reports as "test-matrix (ubuntu-latest)" /
+  # "test-matrix (windows-latest)" instead, which the rule wouldn't
+  # recognize. This gate depends on every matrix combination, so it only
+  # goes green once both platforms pass, and it's what stays wired into
+  # branch protection instead of the matrix job itself.
+  test:
+    needs: test-matrix
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "All CI matrix jobs passed."
