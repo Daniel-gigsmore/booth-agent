@@ -237,6 +237,27 @@ export class OutboxStore {
     return row as unknown as PrintJobRow | undefined;
   }
 
+  /**
+   * Dropped jobs whose file has not yet been seen to leave the hot folder.
+   * Oldest first, so a caller reporting "the oldest is N minutes old" does not
+   * have to re-sort. Bounded in practice because each job leaves this set
+   * permanently once its file is confirmed gone.
+   */
+  getUnconsumedDroppedPrintJobs(): PrintJobRow[] {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM print_jobs
+         WHERE status = 'dropped' AND consumed_at IS NULL
+         ORDER BY dropped_at ASC, rowid ASC`
+      )
+      .all();
+    return rows as unknown as PrintJobRow[];
+  }
+
+  markPrintJobConsumed(id: string, at: string): void {
+    this.db.prepare(`UPDATE print_jobs SET consumed_at = ? WHERE id = ?`).run(at, id);
+  }
+
   getQueuedPrintJobs(): PrintJobRow[] {
     const rows = this.db.prepare(`SELECT * FROM print_jobs WHERE status = 'queued'`).all();
     return rows as unknown as PrintJobRow[];

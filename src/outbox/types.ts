@@ -59,4 +59,10 @@ export interface PrintJobRow {
   status: PrintJobStatus;
   queued_at: string;
   dropped_at: string | null;
+  /**
+   * When the file was confirmed gone from the hot folder - HFP consumes a file
+   * by moving it, so disappearance is the only honest evidence that a print
+   * was actually claimed. NULL while still unconfirmed.
+   */
+  consumed_at: string | null;
 }

@@ -254,6 +254,7 @@ describe("buildHealthReport print severity", () => {
       webcamConnected: true,
       preference: "canon" as const,
     },
+    stalledPrints: { count: 0, oldestDroppedAt: null, oldestAgeSeconds: null, files: [] },
     hotFolder: { path: "C:\\DNP\\HotFolderPrint\\Prints", writable: true },
     disk: { freeBytes: 200 * 1024 ** 3, totalBytes: 512 * 1024 ** 3 },
     outbox: { queueDepth: 0, lastSyncAt: null, lastError: null, abandonedCount: 0 },

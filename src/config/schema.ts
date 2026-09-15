@@ -58,6 +58,12 @@ export const BoothConfigSchema = z.object({
     // within a single event, rather than the original 2min guess or the
     // too-tight 15s that followed the first (wrong) measurement.
     printerStatusStaleMs: z.number().int().positive().default(60000),
+    // How long a file may sit in the hot folder before it counts as stalled.
+    // HFP claims a file by moving it, normally within a second or two; it does
+    // not wait for the print to finish, so this does not need to cover print
+    // time. 120s is far past any normal pickup while still catching a stall
+    // within a couple of guests rather than at the end of the event.
+    hotFolderStallSeconds: z.number().int().positive().default(120),
     // Prints left on the roll before the operator is told to fetch a spare.
     lowMediaWarnPrints: z.number().int().nonnegative().default(30),
     // Media size the templates are built for; compared against what HFP

@@ -194,6 +194,7 @@ See `booth.config.example.json` for the full shape (validated by `src/config/sch
 | `agent.allowedOrigins` | Origins allowed to make cross-origin requests to the agent - the kiosk UI's own origin, when it isn't served from `127.0.0.1` itself (e.g. a dev server on another port, or a kiosk browser pointed at a hostname). Empty (`[]`) by default: CORS is opt-in per deployment. Without the kiosk's origin listed here, its `Authorization`-bearing requests never get past the browser's own CORS preflight - the agent itself stays healthy and answering, but DevTools reports a CORS error and `fetch()` calls fail, while `<img src="/liveview?token=">` keeps working since images aren't subject to CORS. See `src/server/cors.ts`. |
 | `capture.sourcePreference` | `"canon"` or `"webcam"` - which one the manager prefers when both are healthy. |
 | `printing.hotFolderPath` | HFP's `Prints` folder (typically `C:\DNP\HotFolderPrint\Prints`); the agent writes into its `s4x6`/`s6x2_2` subfolders (see above). |
+| `printing.hotFolderStallSeconds` | How long a dropped file may sit in the hot folder before `/health` reports `hot-folder-stalled`. Default 120s. HFP claims a file by moving it, normally within a second or two, and doesn't wait for the print to finish - so this doesn't need to cover print time. |
 | `compositing.templateDir` | Where `<templateId>.json` template files and their overlay PNGs live. See `assets/templates/default.json` (4x6) and `assets/templates/default-strip.json` (2x6-strip, 3 stacked photo slots) for the shape. |
 | `event.id` | The single event this deployment is wired to (single-tenant). |
 
@@ -244,6 +245,15 @@ Run `npm test` first for the automated coverage (outbox sync worker offline→on
 1. `POST /composite` with `printSize: "2x6-strip"` and `templateId: "default-strip"`.
 2. Open the output file: it must be a single 1200×1800px (4in×6in @300dpi) image. The left half (0-600px) and right half (600-1200px) should be visually identical strips, right-side up.
 3. `npm test` also covers this pixel-for-pixel (`tests/compositor.strip.test.ts`).
+
+**Prints are physically coming out, not just being dropped**
+
+The one failure where every other signal stays green: the copy into the hot folder succeeds, HFP keeps its status file warm so the printer reports `STATUS_OK`, `print-completed` fires off a timer so the kiosk tells the guest their photo is ready - and nothing comes out. Seen in practice when HFP re-initialised and began watching a `<size>\<printer>-<n>\` subfolder instead of the folder the agent drops into, and separately when the HFP window was closed while its background pieces kept writing status.
+
+1. `POST /print`, then watch the file appear in `Prints\s4x6\` and disappear within a second or two. HFP claims a file by moving it, so disappearance is the only honest evidence it was picked up.
+2. If it's still there after `printing.hotFolderStallSeconds`, `/health` reports `hot-folder-stalled` at error level with the count, how long the oldest has waited, and the paths.
+3. To reproduce deliberately: close the HFP window, drop a print, and confirm `/health` goes red within the threshold while `printer.ok` stays `true`.
+4. `mediaRemaining` is the independent cross-check - it only moves when paper physically feeds.
 
 **Composite actually reaches Supabase (the online ordering)**
 
