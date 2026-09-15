@@ -29,6 +29,7 @@ const CompositeRequestSchema = z.object({
 const PrintRequestSchema = z.object({
   captureId: z.string().min(1),
   size: PrintSizeSchema.optional(),
+  copies: z.number().int().min(1).max(5).default(1),
 });
 
 /**
@@ -260,7 +261,7 @@ export function buildRouter(ctx: AgentContext): Router {
       res.status(400).json({ error: parsed.error.message });
       return;
     }
-    const { captureId } = parsed.data;
+    const { captureId, copies } = parsed.data;
     const size = parsed.data.size ?? config.printing.defaultSize;
 
     const row = ctx.outboxStore.getById(captureId);
@@ -273,8 +274,20 @@ export function buildRouter(ctx: AgentContext): Router {
       return;
     }
 
-    const job = ctx.printQueue.enqueue(captureId, size, row.composite_path);
-    res.status(202).json(job);
+    const jobs = [];
+    for (let i = 0; i < copies; i += 1) {
+      jobs.push(ctx.printQueue.enqueue(captureId, size, row.composite_path));
+    }
+
+    // Keep the single-job response shape for the common copies=1 case so
+    // existing callers (kiosk UI) reading `jobId`/`queuePosition` directly
+    // off the body don't break; only multi-copy requests get the `jobs` array,
+    // matching /print/reprint's shape for the same multi-copy case.
+    if (copies === 1) {
+      res.status(202).json(jobs[0]);
+    } else {
+      res.status(202).json({ captureId, jobs });
+    }
   });
 
   router.get("/print/queue", (_req: Request, res: Response) => {
