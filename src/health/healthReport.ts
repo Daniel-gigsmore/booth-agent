@@ -2,6 +2,7 @@ import { CameraManagerStatus } from "../camera/CameraManager";
 import { PrinterStatus } from "../print/printerStatus";
 import { DiskSpace } from "../util/disk";
 import { SyncSummary } from "../outbox/types";
+import { StalledPrints } from "../print/hotFolderStall";
 
 /**
  * `/health` used to return raw facts and leave the judgement to whoever read
@@ -46,6 +47,8 @@ export interface HealthThresholds {
 export interface HealthInputs {
   camera: CameraManagerStatus;
   hotFolder: { path: string; writable: boolean };
+  /** Dropped files HFP has not claimed. See reconcileHotFolderDrops(). */
+  stalledPrints: StalledPrints;
   printer: PrinterStatus;
   disk: DiskSpace | null;
   outbox: SyncSummary;
@@ -65,6 +68,7 @@ export interface HealthReport {
     preference: string;
   };
   hotFolder: { path: string; writable: boolean };
+  stalledPrints: StalledPrints;
   printer: PrinterStatus;
   disk: DiskSpace | null;
   outbox: SyncSummary;
@@ -72,7 +76,7 @@ export interface HealthReport {
 }
 
 export function buildHealthReport(inputs: HealthInputs): HealthReport {
-  const { camera, hotFolder, printer, disk, outbox, eventId, thresholds } = inputs;
+  const { camera, hotFolder, stalledPrints, printer, disk, outbox, eventId, thresholds } = inputs;
   const alerts: HealthAlert[] = [];
 
   // --- Capture ------------------------------------------------------------
@@ -98,6 +102,24 @@ export function buildHealthReport(inputs: HealthInputs): HealthReport {
       level: "error",
       code: "hot-folder-unwritable",
       message: `Cannot write to the hot folder (${hotFolder.path}) - nothing will print.`,
+    });
+  }
+
+  // Deliberately its own alert rather than folded into printer-unreachable.
+  // The two have different causes and different fixes, and this one is the
+  // only signal that exists at all when HFP looks healthy but has stopped
+  // watching the folder the agent drops into - every other check stays green
+  // while nothing physically prints.
+  if (stalledPrints.count > 0) {
+    const minutes = Math.max(1, Math.round((stalledPrints.oldestAgeSeconds ?? 0) / 60));
+    alerts.push({
+      level: "error",
+      code: "hot-folder-stalled",
+      message:
+        `${stalledPrints.count} print file(s) are still sitting in the hot folder, the oldest for ` +
+        `${minutes} minute(s) - HotFolderPrint has not claimed them and nothing is coming out. ` +
+        `Check the HFP window is open and watching ${hotFolder.path}, including whether it has ` +
+        `switched to a per-printer subfolder.`,
     });
   }
 
@@ -193,6 +215,7 @@ export function buildHealthReport(inputs: HealthInputs): HealthReport {
       preference: camera.preference,
     },
     hotFolder,
+    stalledPrints,
     printer,
     disk,
     outbox,

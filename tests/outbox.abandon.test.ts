@@ -116,6 +116,7 @@ describe("abandoning captures that can never sync", () => {
     const report = buildHealthReport({
       camera: healthyCamera,
       hotFolder: { path: "C:\\DNP\\HotFolderPrint\\Prints", writable: true },
+      stalledPrints: { count: 0, oldestDroppedAt: null, oldestAgeSeconds: null, files: [] },
       printer: healthyPrinter,
       disk: { freeBytes: 500 * 1024 ** 3, totalBytes: 1000 * 1024 ** 3 },
       outbox: { queueDepth: 0, lastSyncAt: null, lastError: null, abandonedCount: 2 },

@@ -79,6 +79,11 @@ function migrate(db: DatabaseSync): void {
   // into captures is never disturbed.
   ensureColumn(db, "captures", "synced_source_path", "TEXT");
   ensureColumn(db, "captures", "sync_abandoned_at", "TEXT");
+  // When the dropped file was confirmed gone from the hot folder, i.e. HFP
+  // actually claimed it. NULL means "not confirmed yet" - the state a stalled
+  // print sits in forever. Left NULL on existing rows on purpose: they are
+  // re-checked once after the upgrade, find their files long gone, and settle.
+  ensureColumn(db, "print_jobs", "consumed_at", "TEXT");
 
   // Existing rows predate synced_source_path and have it NULL, and nothing on
   // disk records which file they actually uploaded (storage_path is the same

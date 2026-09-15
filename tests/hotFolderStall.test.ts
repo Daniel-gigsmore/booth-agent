@@ -1,0 +1,197 @@
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { mkdtempSync, rmSync, writeFileSync, unlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { createInMemoryOutboxDb } from "../src/outbox/db";
+import { OutboxStore } from "../src/outbox/outboxStore";
+import { reconcileHotFolderDrops, NO_STALLED_PRINTS } from "../src/print/hotFolderStall";
+import { buildHealthReport } from "../src/health/healthReport";
+import { CameraManagerStatus } from "../src/camera/CameraManager";
+import { PrinterStatus } from "../src/print/printerStatus";
+
+/**
+ * The failure this guards against is the one where every other signal stays
+ * green: the copy into the hot folder succeeds, HFP keeps its status file
+ * warm so the printer reports STATUS_OK, print-completed fires off a timer so
+ * the kiosk tells the guest their photo is ready - and nothing comes out.
+ */
+let dir: string;
+let store: OutboxStore;
+let db: ReturnType<typeof createInMemoryOutboxDb>;
+
+const MINUTE = 60_000;
+
+beforeEach(() => {
+  dir = mkdtempSync(path.join(tmpdir(), "booth-hotfolder-"));
+  db = createInMemoryOutboxDb();
+  store = new OutboxStore(db);
+});
+
+afterEach(() => {
+  rmSync(dir, { recursive: true, force: true });
+});
+
+/** Drops a job whose file exists on disk, as printQueue does. */
+function drop(id: string, droppedMinutesAgo: number, now: Date): string {
+  const filePath = path.join(dir, `${id}.jpg`);
+  writeFileSync(filePath, "jpeg");
+  store.insertCapture({
+    id: `cap-${id}`,
+    eventId: "event-1",
+    source: "canon",
+    originalPath: path.join(dir, `${id}-original.jpg`),
+    takenAt: now.toISOString(),
+  });
+  store.insertPrintJob({ id, captureId: `cap-${id}`, size: "4x6", filePath });
+  store.markPrintDropped(id);
+  // markPrintDropped stamps "now"; back-date it here rather than adding a
+  // test-only parameter to the production API.
+  db.prepare(`UPDATE print_jobs SET dropped_at = ? WHERE id = ?`).run(
+    new Date(now.getTime() - droppedMinutesAgo * MINUTE).toISOString(),
+    id
+  );
+  return filePath;
+}
+
+describe("detecting a hot folder that has stopped being drained", () => {
+  it("reports nothing when there are no dropped jobs at all", async () => {
+    expect(await reconcileHotFolderDrops(store, 120)).toEqual(NO_STALLED_PRINTS);
+  });
+
+  it("does not flag a file that was just dropped", async () => {
+    const now = new Date();
+    drop("job-1", 0, now);
+    expect((await reconcileHotFolderDrops(store, 120, now)).count).toBe(0);
+  });
+
+  it("flags a file still sitting there past the threshold", async () => {
+    const now = new Date();
+    drop("job-1", 5, now);
+
+    const stalled = await reconcileHotFolderDrops(store, 120, now);
+    expect(stalled.count).toBe(1);
+    expect(stalled.oldestAgeSeconds).toBe(300);
+    expect(stalled.files).toEqual([path.join(dir, "job-1.jpg")]);
+  });
+
+  it("treats a vanished file as claimed by HFP, which is the only honest evidence", async () => {
+    const now = new Date();
+    const filePath = drop("job-1", 5, now);
+    unlinkSync(filePath); // HFP consumes a file by moving it
+
+    expect((await reconcileHotFolderDrops(store, 120, now)).count).toBe(0);
+    expect(store.getPrintJobById("job-1")?.consumed_at).not.toBeNull();
+  });
+
+  it("stops stat-ing a job once it is confirmed consumed", async () => {
+    const now = new Date();
+    const filePath = drop("job-1", 5, now);
+    unlinkSync(filePath);
+    await reconcileHotFolderDrops(store, 120, now);
+
+    expect(store.getUnconsumedDroppedPrintJobs()).toHaveLength(0);
+
+    // Even if a file reappears at that path later, the job is settled - this
+    // is what keeps /health from re-checking every print for the whole event.
+    writeFileSync(filePath, "jpeg");
+    expect((await reconcileHotFolderDrops(store, 120, now)).count).toBe(0);
+  });
+
+  it("reports the oldest first when several are stuck", async () => {
+    const now = new Date();
+    drop("job-new", 3, now);
+    drop("job-old", 30, now);
+    drop("job-mid", 10, now);
+
+    const stalled = await reconcileHotFolderDrops(store, 120, now);
+    expect(stalled.count).toBe(3);
+    expect(stalled.oldestAgeSeconds).toBe(1800);
+    expect(stalled.files[0]).toBe(path.join(dir, "job-old.jpg"));
+  });
+
+  it("separates the drained from the stuck in the same pass", async () => {
+    const now = new Date();
+    const drained = drop("job-ok", 5, now);
+    drop("job-stuck", 5, now);
+    unlinkSync(drained);
+
+    const stalled = await reconcileHotFolderDrops(store, 120, now);
+    expect(stalled.count).toBe(1);
+    expect(stalled.files).toEqual([path.join(dir, "job-stuck.jpg")]);
+    expect(store.getPrintJobById("job-ok")?.consumed_at).not.toBeNull();
+    expect(store.getPrintJobById("job-stuck")?.consumed_at).toBeNull();
+  });
+});
+
+describe("the stall alert", () => {
+  const healthyCamera: CameraManagerStatus = {
+    activeSource: "canon",
+    activeModel: "Canon EOS R100",
+    canonConnected: true,
+    webcamConnected: true,
+    preference: "canon",
+  };
+
+  // Everything HFP reports is fine. That is the entire point of this alert.
+  const healthyPrinter: PrinterStatus = {
+    reachable: true,
+    ok: true,
+    status: "STATUS_OK",
+    model: "DS-RX1HS",
+    mediaRemaining: 573,
+    mediaType: "4x6",
+    serialNumber: "SN1",
+    lastUpdatedAt: new Date().toISOString(),
+    staleMs: 100,
+    error: null,
+    statusFilePath: "C:\\DNP\\HotFolderPrint\\Logs\\printer_status.txt",
+    raw: {},
+  };
+
+  function report(stalledPrints: Parameters<typeof buildHealthReport>[0]["stalledPrints"]) {
+    return buildHealthReport({
+      camera: healthyCamera,
+      hotFolder: { path: "C:\\DNP\\HotFolderPrint\\Prints", writable: true },
+      stalledPrints,
+      printer: healthyPrinter,
+      disk: { freeBytes: 500 * 1024 ** 3, totalBytes: 1000 * 1024 ** 3 },
+      outbox: { queueDepth: 0, lastSyncAt: null, lastError: null, abandonedCount: 0 },
+      eventId: "gigsmore-launch-2026",
+      thresholds: {
+        lowDiskWarnBytes: 10 * 1024 ** 3,
+        lowMediaWarnPrints: 30,
+        outboxBacklogWarn: 50,
+        expectedMediaType: "4x6",
+      },
+    });
+  }
+
+  it("is an error, because guests are being affected right now", () => {
+    const result = report({
+      count: 3,
+      oldestDroppedAt: new Date().toISOString(),
+      oldestAgeSeconds: 300,
+      files: ["C:\\DNP\\HotFolderPrint\\Prints\\s4x6\\b0615ad9.jpg"],
+    });
+
+    expect(result.overall).toBe("error");
+    expect(result.alerts.map((a) => a.code)).toContain("hot-folder-stalled");
+  });
+
+  it("fires even when the hot folder is writable and the printer says STATUS_OK", () => {
+    const result = report({
+      count: 1,
+      oldestDroppedAt: new Date().toISOString(),
+      oldestAgeSeconds: 240,
+      files: ["f3aa792f.jpg"],
+    });
+
+    // No other check has anything to say - which is exactly how this failure
+    // used to go unnoticed until a guest complained.
+    expect(result.alerts.map((a) => a.code)).toEqual(["hot-folder-stalled"]);
+  });
+
+  it("stays quiet when nothing is stuck", () => {
+    expect(report(NO_STALLED_PRINTS).overall).toBe("ok");
+  });
+});

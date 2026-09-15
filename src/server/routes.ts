@@ -12,6 +12,7 @@ import { renderComposite } from "../compositor/compositor";
 import { originalsDir, compositesDir, aiDownloadsDir } from "../util/paths";
 import { isHotFolderWritable } from "../print/hotFolder";
 import { readPrinterStatus, defaultPrinterStatusPath } from "../print/printerStatus";
+import { reconcileHotFolderDrops } from "../print/hotFolderStall";
 import { buildHealthReport } from "../health/healthReport";
 import { runPreflight, logPreflight } from "../startup/preflight";
 import { getDiskSpace } from "../util/disk";
@@ -55,7 +56,7 @@ export function buildRouter(ctx: AgentContext): Router {
   router.get("/health", asyncHandler(async (_req: Request, res: Response) => {
     const config = ctx.configStore.current;
     const cameraStatus = ctx.cameraManager.getStatus();
-    const [hotFolderWritable, diskSpace, printerStatus] = await Promise.all([
+    const [hotFolderWritable, diskSpace, printerStatus, stalledPrints] = await Promise.all([
       isHotFolderWritable(config.printing.hotFolderPath),
       getDiskSpace(config.storage.dataDir),
       readPrinterStatus({
@@ -64,6 +65,7 @@ export function buildRouter(ctx: AgentContext): Router {
           defaultPrinterStatusPath(config.printing.hotFolderPath),
         staleAfterMs: config.printing.printerStatusStaleMs,
       }),
+      reconcileHotFolderDrops(ctx.outboxStore, config.printing.hotFolderStallSeconds),
     ]);
 
     res.json(
@@ -73,6 +75,7 @@ export function buildRouter(ctx: AgentContext): Router {
           path: config.printing.hotFolderPath,
           writable: hotFolderWritable,
         },
+        stalledPrints,
         printer: printerStatus,
         disk: diskSpace,
         outbox: ctx.outboxStore.getSyncSummary(),
