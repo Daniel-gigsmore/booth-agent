@@ -191,12 +191,13 @@ See `booth.config.example.json` for the full shape (validated by `src/config/sch
 | Key | Meaning |
 |---|---|
 | `agent.sharedSecret` | Required on every request as `Authorization: Bearer <secret>` (or `?token=` for `<img>`/WS clients that can't set headers). Loopback binding is the real security boundary; this just stops other local processes from poking the agent by accident. |
+| `agent.allowedOrigins` | Origins allowed to make cross-origin requests to the agent - the kiosk UI's own origin, when it isn't served from `127.0.0.1` itself (e.g. a dev server on another port, or a kiosk browser pointed at a hostname). Empty (`[]`) by default: CORS is opt-in per deployment. Without the kiosk's origin listed here, its `Authorization`-bearing requests never get past the browser's own CORS preflight - the agent itself stays healthy and answering, but DevTools reports a CORS error and `fetch()` calls fail, while `<img src="/liveview?token=">` keeps working since images aren't subject to CORS. See `src/server/cors.ts`. |
 | `capture.sourcePreference` | `"canon"` or `"webcam"` - which one the manager prefers when both are healthy. |
 | `printing.hotFolderPath` | HFP's `Prints` folder (typically `C:\DNP\HotFolderPrint\Prints`); the agent writes into its `s4x6`/`s6x2_2` subfolders (see above). |
 | `compositing.templateDir` | Where `<templateId>.json` template files and their overlay PNGs live. See `assets/templates/default.json` (4x6) and `assets/templates/default-strip.json` (2x6-strip, 3 stacked photo slots) for the shape. |
 | `event.id` | The single event this deployment is wired to (single-tenant). |
 
-`booth.config.json` is watched for changes and re-validated on save; `capture.sourcePreference` takes effect immediately without a restart. Other fields (ports, paths) require a restart since they're read once at startup by things like the HTTP listener and DB connection.
+`booth.config.json` is watched for changes and re-validated on save; `capture.sourcePreference`, `agent.sharedSecret`, and `agent.allowedOrigins` all take effect immediately without a restart, since each request reads them fresh off `ConfigStore.current` rather than a value captured at startup. Other fields (ports, paths) require a restart since they're read once at startup by things like the HTTP listener and DB connection.
 
 ## API
 

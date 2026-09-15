@@ -1,6 +1,7 @@
 import express, { Express, NextFunction, Request, Response } from "express";
 import { AgentContext } from "./context";
 import { sharedSecretAuth } from "./auth";
+import { corsMiddleware } from "./cors";
 import { buildRouter } from "./routes";
 import { createLogger } from "../util/logger";
 
@@ -9,6 +10,7 @@ const log = createLogger("server:http");
 export function buildHttpApp(ctx: AgentContext): Express {
   const app = express();
   app.disable("x-powered-by");
+  app.use(corsMiddleware(() => ctx.configStore.current.agent.allowedOrigins));
   app.use(express.json({ limit: "5mb" }));
   app.use(sharedSecretAuth(() => ctx.configStore.current.agent.sharedSecret));
   app.use(buildRouter(ctx));

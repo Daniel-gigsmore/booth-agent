@@ -10,6 +10,10 @@ export const BoothConfigSchema = z.object({
   agent: z.object({
     port: z.number().int().positive().default(7070),
     sharedSecret: z.string().min(8, "sharedSecret must be at least 8 characters"),
+    // Origins allowed to make cross-origin requests to this agent - the
+    // kiosk UI's own origin, when it isn't served from 127.0.0.1 itself.
+    // Empty by default: CORS is opt-in per deployment, not assumed.
+    allowedOrigins: z.array(z.string()).default([]),
   }),
   capture: z.object({
     sourcePreference: CaptureSourcePreferenceSchema.default("canon"),
