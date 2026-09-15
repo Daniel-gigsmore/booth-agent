@@ -1,7 +1,8 @@
 {
   "agent": {
     "port": 7070,
-    "sharedSecret": "change-me-to-a-long-random-string"
+    "sharedSecret": "change-me-to-a-long-random-string",
+    "allowedOrigins": []
   },
   "capture": {
     "sourcePreference": "canon",
