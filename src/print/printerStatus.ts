@@ -207,16 +207,49 @@ function stripBom(text: string): string {
 }
 
 /**
- * HFP may report a single printer object or an array of them (the utility
- * supports more than one physical printer). One booth, one printer - take the
- * first entry rather than failing on the array shape.
+ * HFP may report a single printer object or an array of them. The array case
+ * was assumed to mean "one booth, one printer, plus some retired/spare driver
+ * entries" and just took whichever came first - but a real booth PC has shown
+ * this holding two genuinely distinct entries at once (a barely-used spare
+ * next to the unit actually loaded with media and printing), in no particular
+ * or guaranteed order. Taking the first one blindly can silently report the
+ * spare's health - including its offline status - while the real printer
+ * guests are using sits unreported and runs out of media unnoticed.
+ *
+ * Instead: prefer whichever entry HFP reports as healthy (see
+ * HEALTHY_STATUS_VALUES) - an online printer is virtually always the one
+ * actually wired up, an offline one virtually never is. Among equally-healthy
+ * (or equally-unhealthy, if none are healthy) entries, prefer the one with
+ * more media remaining, since that's the entry more likely to be the one
+ * still in active rotation rather than a drained spare.
  */
 function firstRecord(parsed: unknown): Record<string, unknown> {
   if (Array.isArray(parsed)) {
-    const first = parsed.find((entry) => isRecord(entry));
-    return isRecord(first) ? first : {};
+    const records = parsed.filter(isRecord);
+    return selectBestRecord(records);
   }
   return isRecord(parsed) ? parsed : {};
+}
+
+function selectBestRecord(records: Record<string, unknown>[]): Record<string, unknown> {
+  if (records.length === 0) return {};
+
+  const healthy = records.filter(isRecordHealthy);
+  const pool = healthy.length > 0 ? healthy : records;
+
+  return pool.reduce((best, candidate) =>
+    recordMediaRemaining(candidate) > recordMediaRemaining(best) ? candidate : best
+  );
+}
+
+function isRecordHealthy(record: Record<string, unknown>): boolean {
+  const status = asString(pick(record, STATUS_KEYS));
+  return status !== null && HEALTHY_STATUS_VALUES.includes(status.trim().toLowerCase());
+}
+
+/** -1 (rather than 0) so a record with no parseable media count never wins a tiebreak against one reporting 0 left. */
+function recordMediaRemaining(record: Record<string, unknown>): number {
+  return asNumber(pick(record, MEDIA_KEYS)) ?? -1;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
