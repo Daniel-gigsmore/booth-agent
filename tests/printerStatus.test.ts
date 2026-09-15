@@ -135,6 +135,80 @@ describe("readPrinterStatus", () => {
   });
 });
 
+describe("readPrinterStatus with multiple printer entries", () => {
+  /**
+   * Captured verbatim from a real booth PC: two RX1HS driver entries in one
+   * status file, not the "one booth, one printer" shape the parser used to
+   * assume. RX1HS-1 is a barely-used spare that's offline; RX1HS-3 is the
+   * unit actually loaded and printing, nearly out of media. Blindly taking
+   * the first array entry (RX1HS-1) would report the spare's offline status
+   * while the real printer's near-empty roll went unnoticed.
+   */
+  it("prefers the online entry over an offline one earlier in the array", async () => {
+    await write(
+      JSON.stringify([
+        {
+          Name: "RX1HS-1",
+          Model: "RX1HS",
+          Status: "STATUS_OFFLINE",
+          MediaRemaining: 670,
+          SerialNumber: "CB2D63218295",
+        },
+        {
+          Name: "RX1HS-3",
+          Model: "RX1HS",
+          Status: "STATUS_OK",
+          MediaRemaining: 6,
+          SerialNumber: "CB2D58195689",
+        },
+      ])
+    );
+
+    const status = await readPrinterStatus({
+      statusFilePath: statusFile,
+      staleAfterMs: STALE_AFTER_MS,
+    });
+
+    expect(status.ok).toBe(true);
+    expect(status.serialNumber).toBe("CB2D58195689");
+    expect(status.mediaRemaining).toBe(6);
+  });
+
+  it("prefers the higher-media entry when no entry is online", async () => {
+    await write(
+      JSON.stringify([
+        { Name: "RX1HS-1", Status: "STATUS_OFFLINE", MediaRemaining: 12 },
+        { Name: "RX1HS-3", Status: "STATUS_OFFLINE", MediaRemaining: 400 },
+      ])
+    );
+
+    const status = await readPrinterStatus({
+      statusFilePath: statusFile,
+      staleAfterMs: STALE_AFTER_MS,
+    });
+
+    expect(status.ok).toBe(false);
+    expect(status.mediaRemaining).toBe(400);
+  });
+
+  it("prefers the higher-media entry among multiple online entries", async () => {
+    await write(
+      JSON.stringify([
+        { Name: "RX1HS-1", Status: "STATUS_OK", MediaRemaining: 50 },
+        { Name: "RX1HS-3", Status: "STATUS_OK", MediaRemaining: 400 },
+      ])
+    );
+
+    const status = await readPrinterStatus({
+      statusFilePath: statusFile,
+      staleAfterMs: STALE_AFTER_MS,
+    });
+
+    expect(status.ok).toBe(true);
+    expect(status.mediaRemaining).toBe(400);
+  });
+});
+
 describe("readPrinterStatus against the real booth PC file shape", () => {
   /**
    * Captured verbatim from C:\\DNP\\HotFolderPrint\\Logs\\printer_status.txt on
