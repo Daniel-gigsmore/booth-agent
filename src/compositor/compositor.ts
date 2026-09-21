@@ -1,6 +1,6 @@
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
-import sharp from "sharp";
+import sharp, { Sharp, OverlayOptions } from "sharp";
 import { v4 as uuidv4 } from "uuid";
 import { EventTemplate } from "./template";
 import {
@@ -35,7 +35,7 @@ async function renderCell(params: {
 }): Promise<Buffer> {
   const { sourceImagePath, template, overlayPath } = params;
 
-  const composites: sharp.OverlayOptions[] = [];
+  const composites: OverlayOptions[] = [];
   for (const slot of template.photoSlots) {
     const photoBuffer = await sharp(sourceImagePath)
       .rotate() // normalize EXIF orientation before placing
@@ -80,7 +80,7 @@ export async function renderComposite(params: CompositeParams): Promise<Composit
   const fileName = `composite-${uuidv4()}.jpg`;
   const filePath = path.join(params.outputDir, fileName);
 
-  let finalImage: sharp.Sharp;
+  let finalImage: Sharp;
 
   if (params.printSize === "4x6") {
     const cell = await renderCell({
