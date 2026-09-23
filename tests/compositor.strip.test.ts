@@ -37,7 +37,7 @@ describe("2x6 strip compositor", () => {
     const template = loadTemplate(templateDir, "default-strip");
 
     const result = await renderComposite({
-      sourceImagePath,
+      sourceImagePaths: [sourceImagePath],
       template,
       overlayPath: null,
       printSize: "2x6-strip",
@@ -74,7 +74,7 @@ describe("2x6 strip compositor", () => {
 
     await expect(
       renderComposite({
-        sourceImagePath,
+        sourceImagePaths: [sourceImagePath],
         template,
         overlayPath: null,
         printSize: "2x6-strip",

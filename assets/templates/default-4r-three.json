@@ -1,0 +1,13 @@
+{
+  "id": "default-4r-three",
+  "name": "4R landscape - 3 photos (1 big, 2 small)",
+  "printSize": "4x6",
+  "cellWidthPx": 1800,
+  "cellHeightPx": 1200,
+  "photoSlots": [
+    { "x": 30, "y": 30, "width": 1110, "height": 1140 },
+    { "x": 1170, "y": 30, "width": 600, "height": 555 },
+    { "x": 1170, "y": 615, "width": 600, "height": 555 }
+  ],
+  "overlayFile": null
+}

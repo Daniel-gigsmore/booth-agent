@@ -13,7 +13,8 @@ import {
 import { PrintSize } from "../config/schema";
 
 export interface CompositeParams {
-  sourceImagePath: string;
+  /** One photo per slot, in slot order. Fewer photos than slots repeat from the start. */
+  sourceImagePaths: string[];
   template: EventTemplate;
   overlayPath: string | null;
   printSize: PrintSize;
@@ -29,15 +30,16 @@ export interface CompositeResult {
 
 /** Renders one printable cell (a 4x6 sheet, or a single 2x6 strip) as a PNG buffer. */
 async function renderCell(params: {
-  sourceImagePath: string;
+  sourceImagePaths: string[];
   template: EventTemplate;
   overlayPath: string | null;
 }): Promise<Buffer> {
-  const { sourceImagePath, template, overlayPath } = params;
+  const { sourceImagePaths, template, overlayPath } = params;
+  if (sourceImagePaths.length === 0) throw new Error("renderComposite needs at least one source image");
 
   const composites: OverlayOptions[] = [];
-  for (const slot of template.photoSlots) {
-    const photoBuffer = await sharp(sourceImagePath)
+  for (const [i, slot] of template.photoSlots.entries()) {
+    const photoBuffer = await sharp(sourceImagePaths[i % sourceImagePaths.length])
       .rotate() // normalize EXIF orientation before placing
       .resize(slot.width, slot.height, { fit: "cover", position: "centre" })
       .toBuffer();
@@ -84,14 +86,18 @@ export async function renderComposite(params: CompositeParams): Promise<Composit
 
   if (params.printSize === "4x6") {
     const cell = await renderCell({
-      sourceImagePath: params.sourceImagePath,
+      sourceImagePaths: params.sourceImagePaths,
       template: params.template,
       overlayPath: params.overlayPath,
     });
-    finalImage = sharp(cell).resize(SHEET_WIDTH_PX, SHEET_HEIGHT_PX, { fit: "fill" });
+    // A landscape layout is turned a quarter onto the portrait sheet the
+    // printer feeds; the guest just turns the print round to look at it.
+    const landscape = params.template.cellWidthPx > params.template.cellHeightPx;
+    const upright = landscape ? await sharp(cell).rotate(90).toBuffer() : cell;
+    finalImage = sharp(upright).resize(SHEET_WIDTH_PX, SHEET_HEIGHT_PX, { fit: "fill" });
   } else {
     const cell = await renderCell({
-      sourceImagePath: params.sourceImagePath,
+      sourceImagePaths: params.sourceImagePaths,
       template: params.template,
       overlayPath: params.overlayPath,
     });

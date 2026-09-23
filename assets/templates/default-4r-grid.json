@@ -1,0 +1,14 @@
+{
+  "id": "default-4r-grid",
+  "name": "4R landscape - 4 photos (2x2)",
+  "printSize": "4x6",
+  "cellWidthPx": 1800,
+  "cellHeightPx": 1200,
+  "photoSlots": [
+    { "x": 52, "y": 30, "width": 833, "height": 555 },
+    { "x": 915, "y": 30, "width": 833, "height": 555 },
+    { "x": 52, "y": 615, "width": 833, "height": 555 },
+    { "x": 915, "y": 615, "width": 833, "height": 555 }
+  ],
+  "overlayFile": null
+}

@@ -1,4 +1,5 @@
-import { Router, Request, Response } from "express";
+import express, { Router, Request, Response } from "express";
+import sharp from "sharp";
 import { access, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { v4 as uuidv4 } from "uuid";
@@ -7,7 +8,15 @@ import { AgentContext } from "./context";
 import { asyncHandler } from "./asyncHandler";
 import { writeBackpressureAware } from "./streamWrite";
 import { PrintSizeSchema } from "../config/schema";
-import { loadTemplate, resolveOverlayPath } from "../compositor/template";
+import {
+  loadTemplate,
+  resolveOverlayPath,
+  listTemplates,
+  saveTemplate,
+  deleteTemplate,
+  overlayFileName,
+} from "../compositor/template";
+import { readSessionSettings, writeSessionSettings, SessionSettingsSchema } from "../session/sessionSettings";
 import { renderComposite } from "../compositor/compositor";
 import { originalsDir, compositesDir, aiDownloadsDir } from "../util/paths";
 import { isHotFolderWritable } from "../print/hotFolder";
@@ -22,6 +31,12 @@ const log = createLogger("server:routes");
 
 const CompositeRequestSchema = z.object({
   captureId: z.string().min(1),
+  /**
+   * Every shot of a multi-photo session, in slot order. The first must be
+   * captureId, which is the capture the composite (and so its print jobs and
+   * sync) is filed under. Omitted = captureId alone fills every slot.
+   */
+  captureIds: z.array(z.string().min(1)).min(1).max(12).optional(),
   templateId: z.string().min(1),
   printSize: PrintSizeSchema.optional(),
   aiOutputUrl: z.string().url().optional(),
@@ -211,6 +226,8 @@ export function buildRouter(ctx: AgentContext): Router {
   // only hands back a local path the browser cannot open, so serve the file
   // here. The path comes from the outbox row, never from the request, so the
   // id cannot be turned into a read of anything else on disk.
+  // ?variant=composite serves the print-ready composite instead, so the
+  // kiosk can show the guest exactly what will come out of the printer.
   router.get("/captures/:id/image", (req: Request<{ id: string }>, res: Response) => {
     const { id } = req.params;
     const row = ctx.outboxStore.getById(id);
@@ -218,7 +235,12 @@ export function buildRouter(ctx: AgentContext): Router {
       res.status(404).json({ error: `capture ${id} not found` });
       return;
     }
-    res.sendFile(path.resolve(row.original_path), (err) => {
+    const file = req.query["variant"] === "composite" ? row.composite_path : row.original_path;
+    if (!file) {
+      res.status(404).json({ error: `capture ${id} has not been composited yet` });
+      return;
+    }
+    res.sendFile(path.resolve(file), (err) => {
       if (err && !res.headersSent) {
         res.status(404).json({ error: `capture ${id} file is missing` });
       }
@@ -233,24 +255,33 @@ export function buildRouter(ctx: AgentContext): Router {
       return;
     }
     const { captureId, templateId, aiOutputUrl } = parsed.data;
-    const printSize = parsed.data.printSize ?? config.printing.defaultSize;
+    const captureIds = parsed.data.captureIds ?? [captureId];
+    if (captureIds[0] !== captureId) {
+      res.status(400).json({ error: "captureIds must start with captureId" });
+      return;
+    }
 
-    const row = ctx.outboxStore.getById(captureId);
-    if (!row) {
-      res.status(404).json({ error: `capture ${captureId} not found` });
+    const rows = captureIds.map((id) => ctx.outboxStore.getById(id));
+    const missing = captureIds.filter((_, i) => !rows[i]);
+    if (missing.length > 0) {
+      res.status(404).json({ error: `capture ${missing.join(", ")} not found` });
       return;
     }
 
     try {
-      const sourceImagePath = aiOutputUrl
-        ? await downloadAiOutput(aiOutputUrl, aiDownloadsDir(config), config.supabase.url)
-        : row.original_path;
+      const sourceImagePaths = aiOutputUrl
+        ? [await downloadAiOutput(aiOutputUrl, aiDownloadsDir(config), config.supabase.url)]
+        : rows.map((row) => row!.original_path);
 
       const template = loadTemplate(config.compositing.templateDir, templateId);
       const overlayPath = resolveOverlayPath(config.compositing.templateDir, template);
+      // The template knows what paper it was drawn for; defaulting to the
+      // config's size instead made every strip template fail unless the
+      // client repeated the size it had already implied by choosing it.
+      const printSize = parsed.data.printSize ?? template.printSize;
 
       const result = await renderComposite({
-        sourceImagePath,
+        sourceImagePaths,
         template,
         overlayPath,
         printSize,
@@ -407,6 +438,115 @@ export function buildRouter(ctx: AgentContext): Router {
     const requeued = ctx.outboxStore.retryAbandoned();
     log.info(`Re-queued ${requeued} abandoned capture(s) for sync`);
     res.json({ requeued });
+  });
+
+  // --- Layouts and session settings -----------------------------------------
+  // The kiosk's operator panel edits these on the touchscreen during an event.
+  // Everything is POST (no PUT/DELETE) so the CORS preflight allowlist in
+  // cors.ts stays GET/POST only.
+
+  router.get("/templates", (_req: Request, res: Response) => {
+    const dir = ctx.configStore.current.compositing.templateDir;
+    res.json({ templates: listTemplates(dir) });
+  });
+
+  router.post("/templates/:id", (req: Request<{ id: string }>, res: Response) => {
+    const dir = ctx.configStore.current.compositing.templateDir;
+    try {
+      const template = saveTemplate(dir, { ...req.body, id: req.params.id });
+      log.info(`Saved layout ${template.id} (${template.photoSlots.length} photos)`);
+      res.json(template);
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  router.post("/templates/:id/delete", (req: Request<{ id: string }>, res: Response) => {
+    const config = ctx.configStore.current;
+    const { id } = req.params;
+    if (readSessionSettings(config.storage.dataDir).templateId === id) {
+      res.status(409).json({ error: `layout ${id} is in use - pick another layout in Settings first` });
+      return;
+    }
+    try {
+      deleteTemplate(config.compositing.templateDir, id);
+      res.json({ deleted: id });
+    } catch (err) {
+      res.status(404).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  // Overlay (frame, logo, event name) drawn over the photos. Only PNG, since
+  // it needs transparency to show the photos underneath.
+  router.post(
+    "/templates/:id/overlay",
+    express.raw({ type: "image/png", limit: "10mb" }),
+    asyncHandler(async (req: Request, res: Response) => {
+      const dir = ctx.configStore.current.compositing.templateDir;
+      const id = String(req.params["id"]);
+      try {
+        const template = loadTemplate(dir, id);
+        const body = req.body as unknown;
+        if (!Buffer.isBuffer(body) || body.length === 0) throw new Error("send the overlay as an image/png body");
+        const meta = await sharp(body).metadata();
+        if (meta.format !== "png") throw new Error("overlay must be a PNG");
+        await writeFile(path.join(dir, overlayFileName(id)), body);
+        const saved = saveTemplate(dir, { ...template, overlayFile: overlayFileName(id) });
+        res.json(saved);
+      } catch (err) {
+        res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+      }
+    })
+  );
+
+  router.get("/templates/:id/overlay", (req: Request<{ id: string }>, res: Response) => {
+    const dir = ctx.configStore.current.compositing.templateDir;
+    try {
+      const overlay = resolveOverlayPath(dir, loadTemplate(dir, req.params.id));
+      if (!overlay) {
+        res.status(404).json({ error: "this layout has no overlay" });
+        return;
+      }
+      res.sendFile(path.resolve(overlay), (err) => {
+        if (err && !res.headersSent) res.status(404).json({ error: "overlay file is missing" });
+      });
+    } catch (err) {
+      res.status(404).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  /** Settings plus the layout they point at, so the kiosk knows how many shots to take. */
+  router.get("/session", (_req: Request, res: Response) => {
+    const config = ctx.configStore.current;
+    const settings = readSessionSettings(config.storage.dataDir);
+    try {
+      res.json({ ...settings, template: loadTemplate(config.compositing.templateDir, settings.templateId) });
+    } catch (err) {
+      res.status(409).json({
+        ...settings,
+        template: null,
+        error: `layout ${settings.templateId} can't be loaded - pick another in Settings (${
+          err instanceof Error ? err.message : String(err)
+        })`,
+      });
+    }
+  });
+
+  router.post("/session", (req: Request, res: Response) => {
+    const config = ctx.configStore.current;
+    const parsed = SessionSettingsSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.message });
+      return;
+    }
+    try {
+      const template = loadTemplate(config.compositing.templateDir, parsed.data.templateId);
+      writeSessionSettings(config.storage.dataDir, parsed.data);
+      log.info(`Session settings changed: ${JSON.stringify(parsed.data)}`);
+      res.json({ ...parsed.data, template });
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    }
   });
 
   return router;

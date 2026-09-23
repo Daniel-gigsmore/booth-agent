@@ -2,7 +2,7 @@ import { describe, expect, it, beforeEach, afterEach } from "vitest";
 import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { loadTemplate } from "../src/compositor/template";
+import { loadTemplate, saveTemplate, listTemplates } from "../src/compositor/template";
 import { SHEET_WIDTH_PX, SHEET_HEIGHT_PX } from "../src/compositor/dimensions";
 
 let templateDir: string;
@@ -59,5 +59,44 @@ describe("loadTemplate templateId safety", () => {
 
   it("rejects a templateId containing a path separator even if it stays inside templateDir", () => {
     expect(() => loadTemplate(templateDir, "sub/default")).toThrow(/Invalid templateId/);
+  });
+});
+
+describe("saveTemplate (layout editor)", () => {
+  const landscape = {
+    id: "my-grid",
+    name: "My grid",
+    printSize: "4x6",
+    cellWidthPx: SHEET_HEIGHT_PX,
+    cellHeightPx: SHEET_WIDTH_PX,
+    photoSlots: [{ x: 0, y: 0, width: 900, height: 600 }],
+    overlayFile: null,
+  };
+
+  it("saves a landscape 4x6 layout and lists it", () => {
+    saveTemplate(templateDir, landscape);
+    expect(loadTemplate(templateDir, "my-grid").name).toBe("My grid");
+    expect(listTemplates(templateDir).map((t) => t.id)).toContain("my-grid");
+  });
+
+  it("rejects a slot that runs off the edge", () => {
+    expect(() =>
+      saveTemplate(templateDir, { ...landscape, photoSlots: [{ x: 1000, y: 0, width: 900, height: 600 }] })
+    ).toThrow(/runs off the edge/);
+  });
+
+  it("rejects a cell size that doesn't match the paper", () => {
+    expect(() => saveTemplate(templateDir, { ...landscape, cellWidthPx: 1000 })).toThrow(/must be/);
+  });
+
+  it("rejects a path-traversal id", () => {
+    expect(() => saveTemplate(templateDir, { ...landscape, id: "../evil" })).toThrow(/Invalid templateId/);
+  });
+
+  it("won't point overlayFile at an arbitrary file", () => {
+    expect(() => saveTemplate(templateDir, { ...landscape, overlayFile: "../../secret.png" })).toThrow(/overlayFile/);
+    expect(saveTemplate(templateDir, { ...landscape, overlayFile: "my-grid-overlay.png" }).overlayFile).toBe(
+      "my-grid-overlay.png"
+    );
   });
 });
