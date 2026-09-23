@@ -48,8 +48,13 @@ const MEDIA_KEYS = [
 const MEDIA_TYPE_KEYS = ["mediatype", "media", "papersize", "size"];
 const SERIAL_KEYS = ["serialnumber", "serial"];
 
-/** Status strings HFP reports for a printer that is ready to print. */
-const HEALTHY_STATUS_VALUES = ["status_ok", "ok", "ready", "idle"];
+/**
+ * Status strings HFP reports for a printer that is ready to print, or busy
+ * printing. STATUS_PRINTING was confirmed live on the DS-RX1HS: it holds for
+ * the ~15 s of every print, and treating it as unhealthy turned /health red
+ * mid-print for every guest.
+ */
+const HEALTHY_STATUS_VALUES = ["status_ok", "ok", "ready", "idle", "status_printing", "printing"];
 
 export interface PrinterStatus {
   /** The status file exists, parsed, and was written recently enough to trust. */
