@@ -84,6 +84,23 @@ function migrate(db: DatabaseSync): void {
   // print sits in forever. Left NULL on existing rows on purpose: they are
   // re-checked once after the upgrade, find their files long gone, and settle.
   ensureColumn(db, "print_jobs", "consumed_at", "TEXT");
+  // Where the copy handed to HFP actually landed (<hotFolder>\<size>\<jobId>.jpg).
+  // This, not file_path, is the file HFP consumes: file_path is the composite
+  // in data\composites, which stays on disk for reprints and sync and so never
+  // "disappears" - checking it made every print look stalled once it passed
+  // the threshold.
+  ensureColumn(db, "print_jobs", "dropped_path", "TEXT");
+
+  // Dropped rows from before dropped_path existed cannot be verified: the only
+  // path they recorded is the composite, and the hot folder root may have
+  // changed since. Settle them instead of reporting them as stalled forever.
+  // New drops always record dropped_path in the same UPDATE that sets
+  // status = 'dropped', so this can never touch a row written by this version.
+  db.exec(`
+    UPDATE print_jobs
+    SET consumed_at = dropped_at
+    WHERE status = 'dropped' AND consumed_at IS NULL AND dropped_path IS NULL
+  `);
 
   // Existing rows predate synced_source_path and have it NULL, and nothing on
   // disk records which file they actually uploaded (storage_path is the same

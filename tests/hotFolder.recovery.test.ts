@@ -126,7 +126,7 @@ describe("interrupted print job recovery", () => {
       size: "4x6",
       filePath: path.join(dir, "composite.jpg"),
     });
-    store.markPrintDropped("job-b");
+    store.markPrintDropped("job-b", path.join(dir, "s4x6", "job-b.jpg"));
 
     expect(store.resolveInterruptedPrintJobs()).toHaveLength(0);
     expect(store.getPrintJobById("job-b")?.status).toBe("dropped");
