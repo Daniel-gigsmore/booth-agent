@@ -207,7 +207,25 @@ export function buildRouter(ctx: AgentContext): Router {
     }
   }));
 
-  router.post("/composite", asyncHandler(async (req: Request, res: Response) => {
+  // The kiosk's review screen shows the still the guest just took. /capture
+  // only hands back a local path the browser cannot open, so serve the file
+  // here. The path comes from the outbox row, never from the request, so the
+  // id cannot be turned into a read of anything else on disk.
+  router.get("/captures/:id/image", (req: Request<{ id: string }>, res: Response) => {
+    const { id } = req.params;
+    const row = ctx.outboxStore.getById(id);
+    if (!row) {
+      res.status(404).json({ error: `capture ${id} not found` });
+      return;
+    }
+    res.sendFile(path.resolve(row.original_path), (err) => {
+      if (err && !res.headersSent) {
+        res.status(404).json({ error: `capture ${id} file is missing` });
+      }
+    });
+  });
+
+  router.post("/composite",asyncHandler(async (req: Request, res: Response) => {
     const config = ctx.configStore.current;
     const parsed = CompositeRequestSchema.safeParse(req.body);
     if (!parsed.success) {
