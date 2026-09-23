@@ -64,6 +64,19 @@ describe("readPrinterStatus", () => {
     expect(status.error).toBeNull();
   });
 
+  it("treats a printer that is busy printing as healthy, not as an error", async () => {
+    await write(JSON.stringify({ Status: "STATUS_PRINTING", Model: "DS-RX1HS", MediaRemaining: 564 }));
+
+    const status = await readPrinterStatus({
+      statusFilePath: statusFile,
+      staleAfterMs: STALE_AFTER_MS,
+    });
+
+    expect(status.reachable).toBe(true);
+    expect(status.ok).toBe(true);
+    expect(status.status).toBe("STATUS_PRINTING");
+  });
+
   it("reports a printer that is present but not OK - the paper-out case", async () => {
     await write(JSON.stringify({ Status: "STATUS_PAPER_OUT", Model: "DS-RX1HS" }));
 
