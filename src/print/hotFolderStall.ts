@@ -20,7 +20,9 @@ import { PrintJobRow } from "../outbox/types";
  *
  * Ground truth is simply whether the file we dropped is still on disk. HFP
  * consumes a file by moving it, so its continued presence means it was never
- * claimed.
+ * claimed. That is the copy in the hot folder (dropped_path), never the
+ * composite it was copied from (file_path) - the composite deliberately stays
+ * on disk, so checking it would flag every print ever made.
  */
 export interface StalledPrints {
   /** Dropped files still sitting in the hot folder past the stall threshold. */
@@ -60,7 +62,13 @@ export async function reconcileHotFolderDrops(
   const stalled: Array<{ job: PrintJobRow; ageSeconds: number }> = [];
 
   for (const job of pending) {
-    if (await fileStillThere(job.file_path)) {
+    // Nothing verifiable to check (a pre-dropped_path row the db migration
+    // missed). Settle it rather than guess at a path.
+    if (!job.dropped_path) {
+      store.markPrintJobConsumed(job.id, now.toISOString());
+      continue;
+    }
+    if (await fileStillThere(job.dropped_path)) {
       // dropped_at should always be set for a dropped job; fall back to
       // queued_at rather than skipping, so a malformed row still gets noticed.
       const droppedAtMs = Date.parse(job.dropped_at ?? job.queued_at);
@@ -81,7 +89,7 @@ export async function reconcileHotFolderDrops(
     count: stalled.length,
     oldestDroppedAt: oldest.job.dropped_at ?? oldest.job.queued_at,
     oldestAgeSeconds: oldest.ageSeconds,
-    files: stalled.slice(0, MAX_REPORTED_FILES).map((s) => s.job.file_path),
+    files: stalled.slice(0, MAX_REPORTED_FILES).map((s) => s.job.dropped_path ?? s.job.file_path),
   };
 }
 

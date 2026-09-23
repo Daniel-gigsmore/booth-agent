@@ -222,10 +222,10 @@ export class OutboxStore {
       .run(job.id, job.captureId, job.size, job.filePath);
   }
 
-  markPrintDropped(id: string): void {
+  markPrintDropped(id: string, droppedPath: string): void {
     this.db
-      .prepare(`UPDATE print_jobs SET status = 'dropped', dropped_at = ? WHERE id = ?`)
-      .run(nowIso(), id);
+      .prepare(`UPDATE print_jobs SET status = 'dropped', dropped_at = ?, dropped_path = ? WHERE id = ?`)
+      .run(nowIso(), droppedPath, id);
   }
 
   markPrintFailed(id: string): void {

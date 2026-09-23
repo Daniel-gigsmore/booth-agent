@@ -82,8 +82,8 @@ export class PrintQueue {
     // on it as soon as possible.
     this.processingChain = this.processingChain
       .then(() => dropIntoHotFolder(this.hotFolderPath, size, jobId, compositeFilePath))
-      .then(() => {
-        this.outbox.markPrintDropped(jobId);
+      .then((droppedPath) => {
+        this.outbox.markPrintDropped(jobId, droppedPath);
       })
       .catch((err: unknown) => {
         const message = err instanceof Error ? err.message : String(err);

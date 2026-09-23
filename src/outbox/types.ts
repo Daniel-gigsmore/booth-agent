@@ -60,6 +60,11 @@ export interface PrintJobRow {
   queued_at: string;
   dropped_at: string | null;
   /**
+   * The copy placed in the hot folder - the file HFP consumes. file_path is the
+   * composite it was copied from, which stays on disk. NULL until dropped.
+   */
+  dropped_path: string | null;
+  /**
    * When the file was confirmed gone from the hot folder - HFP consumes a file
    * by moving it, so disappearance is the only honest evidence that a print
    * was actually claimed. NULL while still unconfirmed.

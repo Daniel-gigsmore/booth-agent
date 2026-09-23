@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync, unlinkSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, unlinkSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { createInMemoryOutboxDb } from "../src/outbox/db";
+import { createInMemoryOutboxDb, openOutboxDb } from "../src/outbox/db";
 import { OutboxStore } from "../src/outbox/outboxStore";
 import { reconcileHotFolderDrops, NO_STALLED_PRINTS } from "../src/print/hotFolderStall";
 import { buildHealthReport } from "../src/health/healthReport";
@@ -31,10 +31,17 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-/** Drops a job whose file exists on disk, as printQueue does. */
+/**
+ * Drops a job the way printQueue does: the composite stays in data\composites
+ * (it is kept for reprints and sync) and a copy lands in the hot folder under
+ * the job id. Returns the hot-folder copy - the file HFP consumes.
+ */
 function drop(id: string, droppedMinutesAgo: number, now: Date): string {
-  const filePath = path.join(dir, `${id}.jpg`);
-  writeFileSync(filePath, "jpeg");
+  const compositePath = path.join(dir, `composite-${id}.jpg`);
+  writeFileSync(compositePath, "jpeg");
+  mkdirSync(path.join(dir, "s4x6"), { recursive: true });
+  const droppedPath = path.join(dir, "s4x6", `${id}.jpg`);
+  writeFileSync(droppedPath, "jpeg");
   store.insertCapture({
     id: `cap-${id}`,
     eventId: "event-1",
@@ -42,15 +49,15 @@ function drop(id: string, droppedMinutesAgo: number, now: Date): string {
     originalPath: path.join(dir, `${id}-original.jpg`),
     takenAt: now.toISOString(),
   });
-  store.insertPrintJob({ id, captureId: `cap-${id}`, size: "4x6", filePath });
-  store.markPrintDropped(id);
+  store.insertPrintJob({ id, captureId: `cap-${id}`, size: "4x6", filePath: compositePath });
+  store.markPrintDropped(id, droppedPath);
   // markPrintDropped stamps "now"; back-date it here rather than adding a
   // test-only parameter to the production API.
   db.prepare(`UPDATE print_jobs SET dropped_at = ? WHERE id = ?`).run(
     new Date(now.getTime() - droppedMinutesAgo * MINUTE).toISOString(),
     id
   );
-  return filePath;
+  return droppedPath;
 }
 
 describe("detecting a hot folder that has stopped being drained", () => {
@@ -71,7 +78,7 @@ describe("detecting a hot folder that has stopped being drained", () => {
     const stalled = await reconcileHotFolderDrops(store, 120, now);
     expect(stalled.count).toBe(1);
     expect(stalled.oldestAgeSeconds).toBe(300);
-    expect(stalled.files).toEqual([path.join(dir, "job-1.jpg")]);
+    expect(stalled.files).toEqual([path.join(dir, "s4x6", "job-1.jpg")]);
   });
 
   it("treats a vanished file as claimed by HFP, which is the only honest evidence", async () => {
@@ -106,7 +113,7 @@ describe("detecting a hot folder that has stopped being drained", () => {
     const stalled = await reconcileHotFolderDrops(store, 120, now);
     expect(stalled.count).toBe(3);
     expect(stalled.oldestAgeSeconds).toBe(1800);
-    expect(stalled.files[0]).toBe(path.join(dir, "job-old.jpg"));
+    expect(stalled.files[0]).toBe(path.join(dir, "s4x6", "job-old.jpg"));
   });
 
   it("separates the drained from the stuck in the same pass", async () => {
@@ -117,9 +124,67 @@ describe("detecting a hot folder that has stopped being drained", () => {
 
     const stalled = await reconcileHotFolderDrops(store, 120, now);
     expect(stalled.count).toBe(1);
-    expect(stalled.files).toEqual([path.join(dir, "job-stuck.jpg")]);
+    expect(stalled.files).toEqual([path.join(dir, "s4x6", "job-stuck.jpg")]);
     expect(store.getPrintJobById("job-ok")?.consumed_at).not.toBeNull();
     expect(store.getPrintJobById("job-stuck")?.consumed_at).toBeNull();
+  });
+
+  // Regression: the check used to stat file_path, which is the composite in
+  // data\composites. That file is kept on purpose, so every print that HFP
+  // had already printed was reported as stalled once it passed the threshold.
+  it("does not flag a print just because its composite is still on disk", async () => {
+    const now = new Date();
+    const droppedPath = drop("job-1", 5, now);
+    unlinkSync(droppedPath); // HFP claimed the hot-folder copy
+
+    const compositePath = store.getPrintJobById("job-1")!.file_path;
+    expect(existsSync(compositePath)).toBe(true);
+
+    expect((await reconcileHotFolderDrops(store, 120, now)).count).toBe(0);
+    expect(store.getPrintJobById("job-1")?.consumed_at).not.toBeNull();
+  });
+
+  it("settles a dropped job with no recorded hot-folder path instead of flagging it", async () => {
+    const now = new Date();
+    drop("job-legacy", 5, now);
+    db.prepare(`UPDATE print_jobs SET dropped_path = NULL WHERE id = ?`).run("job-legacy");
+
+    expect((await reconcileHotFolderDrops(store, 120, now)).count).toBe(0);
+    expect(store.getUnconsumedDroppedPrintJobs()).toHaveLength(0);
+  });
+});
+
+describe("upgrading a booth PC whose outbox predates dropped_path", () => {
+  it("settles old dropped jobs so they stop showing as stalled", () => {
+    const dataDir = path.join(dir, "data");
+    const first = openOutboxDb(dataDir, "outbox.db");
+    const firstStore = new OutboxStore(first);
+    firstStore.insertCapture({
+      id: "cap-old",
+      eventId: "event-1",
+      source: "canon",
+      originalPath: path.join(dir, "old-original.jpg"),
+      takenAt: new Date().toISOString(),
+    });
+    // What an older agent left behind: dropped, never confirmed, and only the
+    // composite path on record.
+    first
+      .prepare(
+        `INSERT INTO print_jobs (id, capture_id, size, file_path, status, dropped_at)
+         VALUES ('job-old', 'cap-old', '4x6', ?, 'dropped', '2026-09-15T08:27:13.470Z')`
+      )
+      .run(path.join(dir, "composite-old.jpg"));
+    first.close();
+
+    const second = openOutboxDb(dataDir, "outbox.db");
+    const reopened = new OutboxStore(second);
+    try {
+      expect(reopened.getUnconsumedDroppedPrintJobs()).toHaveLength(0);
+      expect(reopened.getPrintJobById("job-old")?.consumed_at).toBe("2026-09-15T08:27:13.470Z");
+    } finally {
+      // Windows keeps the file locked while open, which breaks afterEach's rmSync.
+      second.close();
+    }
   });
 });
 
