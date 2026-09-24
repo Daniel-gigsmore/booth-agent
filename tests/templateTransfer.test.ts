@@ -61,10 +61,19 @@ describe("layout files", () => {
 
   it("rejects a file that isn't a layout, lacks an image, or carries a non-image", async () => {
     const bundle = await exportLayout(dir, (await savedLayout("a", "A")).id);
-    await expect(importLayout(dir, { ...bundle, format: "other" })).rejects.toThrow();
+    await expect(importLayout(dir, { ...bundle, format: "other" })).rejects.toThrow(/isn't a Kachak layout file/);
     await expect(importLayout(dir, { ...bundle, assets: {} })).rejects.toThrow(/missing image/);
     const [file] = Object.keys(bundle.assets);
     await expect(importLayout(dir, { ...bundle, assets: { [file!]: Buffer.from("hello").toString("base64") } })).rejects.toThrow(/PNG or JPEG/);
+  });
+
+  it("rejects an asset larger than 10 MB", async () => {
+    const bundle = await exportLayout(dir, (await savedLayout("big", "Big")).id);
+    const [file] = Object.keys(bundle.assets);
+    const huge = Buffer.alloc(10 * 1024 * 1024 + 1);
+    await expect(
+      importLayout(dir, { ...bundle, assets: { [file!]: huge.toString("base64") } })
+    ).rejects.toThrow(/larger than 10 MB/);
   });
 
   it("leaves no stray images when an import fails part-way", async () => {

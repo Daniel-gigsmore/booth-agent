@@ -101,5 +101,7 @@ describe("layout preview", () => {
     expect(jobId).toMatch(/^test-/);
     const dropped = await filesUnder(hotFolder);
     expect(dropped.some((f) => path.basename(f) === `${jobId}.jpg`)).toBe(true);
+    const composites = await filesUnder(path.join(root, "composites"));
+    expect(composites.some((f) => path.basename(f) === `${jobId}.jpg`)).toBe(false);
   });
 });

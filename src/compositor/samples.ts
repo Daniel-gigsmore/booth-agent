@@ -1,6 +1,7 @@
-import { access, mkdir } from "node:fs/promises";
+import { access, mkdir, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import sharp from "sharp";
+import { FONT_DIR } from "./fonts";
 
 const COLORS = ["#e76f51", "#2a9d8f", "#e9c46a", "#457b9d", "#8d6a9f", "#6a994e"];
 
@@ -22,12 +23,27 @@ export async function samplePhotos(dir: string, count: number): Promise<string[]
       } catch {
         // not made yet
       }
-      const svg =
-        `<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1200">` +
-        `<rect width="1800" height="1200" fill="${COLORS[i % COLORS.length]}"/>` +
-        `<text x="900" y="600" font-family="sans-serif" font-size="600" font-weight="bold" fill="#ffffff" ` +
-        `text-anchor="middle" dominant-baseline="central">${i + 1}</text></svg>`;
-      await sharp(Buffer.from(svg)).jpeg({ quality: 85 }).toFile(file);
+      const digit = await sharp({
+        text: {
+          text: `<span foreground="#ffffff">${i + 1}</span>`,
+          font: "Manrope Bold 600px",
+          fontfile: path.join(FONT_DIR, "Manrope.ttf"),
+          rgba: true,
+        },
+      })
+        .png()
+        .toBuffer();
+      const jpeg = await sharp({
+        create: { width: 1800, height: 1200, channels: 3, background: COLORS[i % COLORS.length]! },
+      })
+        .composite([{ input: digit, gravity: "centre" }])
+        .jpeg({ quality: 85 })
+        .toBuffer();
+      // Atomic: a crash mid-write must never leave a corrupt file that the
+      // access() check above then reuses forever.
+      const tmp = `${file}.tmp`;
+      await writeFile(tmp, jpeg);
+      await rename(tmp, file);
       return file;
     })
   );

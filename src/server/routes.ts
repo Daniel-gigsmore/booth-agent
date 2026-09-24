@@ -1,5 +1,5 @@
 import express, { Router, Request, Response } from "express";
-import { access, mkdir, writeFile } from "node:fs/promises";
+import { access, mkdir, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { v4 as uuidv4 } from "uuid";
 import { z } from "zod";
@@ -487,18 +487,25 @@ export function buildRouter(ctx: AgentContext): Router {
   // and the guest print history stays clean.
   router.post("/layout-preview/print", asyncHandler(async (req: Request, res: Response) => {
     const config = ctx.configStore.current;
+    let file: string | null = null;
     try {
       const { template, jpeg } = await renderDraft(req.body);
       const dir = compositesDir(config);
       await mkdir(dir, { recursive: true });
       const jobId = `test-${uuidv4()}`;
-      const file = path.join(dir, `${jobId}.jpg`);
+      file = path.join(dir, `${jobId}.jpg`);
       await writeFile(file, jpeg);
       await dropIntoHotFolder(config.printing.hotFolderPath, template.printSize, jobId, file);
       log.info(`Test print of layout ${template.id} dropped into the hot folder (${jobId})`);
       res.status(202).json({ jobId });
     } catch (err) {
       res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    } finally {
+      // The hot folder has its own copy; nothing else uses the source, so
+      // don't leave test-print JPEGs accumulating under composites/. A
+      // missing file (e.g. the drop never got this far) must never turn
+      // the response into an error.
+      if (file) await unlink(file).catch(() => {});
     }
   }));
 

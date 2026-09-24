@@ -96,6 +96,11 @@ export default function LayoutEditor({ initial, takenIds, inUseId, onClose }: {
   // The saved id lives outside undo history: pre-save snapshots have id "", and
   // undoing past the first save must not make a later save mint a second layout.
   const savedId = useRef(initial.id);
+  // The name saved under savedId.current, so saveAsNew can tell "still the
+  // layout I loaded" from "a new layout auto-saved under this name by an
+  // upload" - initial.name is "" for the latter, which isn't useful to
+  // compare against once a save has actually happened.
+  const savedName = useRef((initial.name ?? "").trim());
   const isNew = initial.id === "";
   const selected = t.elements.find((e) => e.id === selectedId) ?? null;
 
@@ -145,6 +150,7 @@ export default function LayoutEditor({ initial, takenIds, inUseId, onClose }: {
       setH((cur) => historyReplace(cur, stored));
       setWrote(true);
       savedId.current = stored.id;
+      savedName.current = stored.name ?? "";
       return stored;
     } catch (e) {
       setError((e as Error).message);
@@ -205,7 +211,7 @@ export default function LayoutEditor({ initial, takenIds, inUseId, onClose }: {
       setError("Give the layout a name first.");
       return;
     }
-    const newName = name === (initial.name ?? "").trim() ? `${name} copy` : name;
+    const newName = name === savedName.current ? `${name} copy` : name;
     setBusy(true);
     setError("");
     try {

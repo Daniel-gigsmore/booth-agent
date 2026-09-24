@@ -85,16 +85,22 @@ async function saveAsNewLayout(
   });
 }
 
+const MAX_ASSET_BYTES = 10 * 1024 * 1024;
+
 /** Imports a file made by exportLayout as a new layout; never overwrites one. */
 export async function importLayout(templateDir: string, bundle: unknown): Promise<EventTemplate> {
-  const parsed = BundleSchema.parse(bundle);
+  const result = BundleSchema.safeParse(bundle);
+  if (!result.success) throw new Error("That file isn't a Kachak layout file.");
+  const parsed = result.data;
   const template = validateTemplate(parsed.template);
   for (const file of imageFiles(template)) {
-    if (!(file in parsed.assets)) throw new Error(`the layout file is missing image "${file}"`);
+    if (!Object.hasOwn(parsed.assets, file)) throw new Error(`the layout file is missing image "${file}"`);
   }
-  return saveAsNewLayout(templateDir, template, template.name ?? template.id, async (file) =>
-    Buffer.from(parsed.assets[file]!, "base64")
-  );
+  return saveAsNewLayout(templateDir, template, template.name ?? template.id, async (file) => {
+    const buf = Buffer.from(parsed.assets[file]!, "base64");
+    if (buf.length > MAX_ASSET_BYTES) throw new Error(`image "${file}" is larger than 10 MB`);
+    return buf;
+  });
 }
 
 /**

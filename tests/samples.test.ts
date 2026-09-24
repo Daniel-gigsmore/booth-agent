@@ -20,6 +20,13 @@ describe("sample photos", () => {
     const meta = await sharp(files[0]!).metadata();
     expect([meta.width, meta.height]).toEqual([1800, 1200]);
 
+    const region = await sharp(files[0]!)
+      .extract({ left: 800, top: 500, width: 200, height: 200 })
+      .greyscale()
+      .raw()
+      .toBuffer();
+    expect(Array.from(region).some((v) => v > 240)).toBe(true);
+
     const before = (await stat(files[0]!)).mtimeMs;
     const again = await samplePhotos(path.join(dir, "samples"), 3);
     expect(again).toEqual(files);
