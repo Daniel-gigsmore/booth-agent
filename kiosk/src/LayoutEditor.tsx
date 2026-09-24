@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { agent, agentUrl, config, LayoutElement, Template } from "./agent";
 import { AddPanel, LayersPanel, PropsPanel } from "./EditorPanels";
 import { cssFamily, useAgentFonts } from "./fonts";
@@ -169,8 +169,12 @@ export default function LayoutEditor({ initial, takenIds, inUseId, onClose }: {
     }
   }
 
-  function closePreview() {
+  // Revoke the rendered sheet when it's replaced or the editor goes away (e.g. the idle timer).
+  useEffect(() => () => {
     if (preview) URL.revokeObjectURL(preview);
+  }, [preview]);
+
+  function closePreview() {
     setPreview(null);
     setConfirmPrint(false);
     setPrintNote("");
