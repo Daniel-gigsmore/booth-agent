@@ -196,10 +196,13 @@ side panels.
 ### PR 3 additions
 
 - **Preview:** sends the current draft (saved or not) to a new
-  `POST /templates/preview` endpoint, which renders it with four bundled sample
-  photos and returns the image. Shown in a dialog; this is exactly what prints.
-- **Test print:** after a confirm dialog ("uses 1 sheet of paper"), prints the
-  sample-photo render.
+  `POST /layout-preview` endpoint (outside `/templates/:id`, so it can't collide
+  with a save), which renders it with numbered sample photos, one per shot,
+  generated on the agent, and returns the image. Shown in a dialog; this is
+  exactly what prints.
+- **Test print:** after a confirm ("uses 1 sheet of paper"), prints the
+  sample-photo render straight to the hot folder, with no capture or print-job
+  record, so nothing is uploaded.
 - **Export:** downloads one `.json` file with the template and its assets embedded
   as base64.
 - **Import:** picks such a file; the agent validates it, saves it under a new id
