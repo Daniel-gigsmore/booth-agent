@@ -49,7 +49,8 @@ describe("multi-photo compositor", () => {
     const result = await renderComposite({
       sourceImagePaths: sources,
       template,
-      overlayPath: null,
+      assetDir: templateDir,
+      variables: { event: "Test", date: "24 Sep 2026", time: "14:05", code: "abcdefgh" },
       printSize: "4x6",
       outputDir: workDir,
       jpegQuality: 90,
@@ -61,7 +62,8 @@ describe("multi-photo compositor", () => {
     // Rotating the 1800x1200 cell 90deg clockwise maps cell (x, y) to sheet
     // (1199 - y, x). Sample the centre of each slot through that mapping.
     const colors = [RED, GREEN, BLUE, YELLOW];
-    for (const [i, slot] of template.photoSlots.entries()) {
+    const slots = template.elements.flatMap((e) => (e.type === "photo" ? [e] : []));
+    for (const [i, slot] of slots.entries()) {
       const cx = slot.x + Math.floor(slot.width / 2);
       const cy = slot.y + Math.floor(slot.height / 2);
       const got = await pixel(result.filePath, template.cellHeightPx - 1 - cy, cx);
@@ -74,12 +76,13 @@ describe("multi-photo compositor", () => {
     const result = await renderComposite({
       sourceImagePaths: [await solid(BLUE)],
       template,
-      overlayPath: null,
+      assetDir: templateDir,
+      variables: { event: "Test", date: "24 Sep 2026", time: "14:05", code: "abcdefgh" },
       printSize: "4x6",
       outputDir: workDir,
       jpegQuality: 90,
     });
-    for (const slot of template.photoSlots) {
+    for (const slot of template.elements.flatMap((e) => (e.type === "photo" ? [e] : []))) {
       const cx = slot.x + Math.floor(slot.width / 2);
       const cy = slot.y + Math.floor(slot.height / 2);
       expect(near(await pixel(result.filePath, template.cellHeightPx - 1 - cy, cx), BLUE)).toBe(true);

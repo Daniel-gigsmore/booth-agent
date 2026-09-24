@@ -39,7 +39,8 @@ describe("2x6 strip compositor", () => {
     const result = await renderComposite({
       sourceImagePaths: [sourceImagePath],
       template,
-      overlayPath: null,
+      assetDir: templateDir,
+      variables: { event: "Test", date: "24 Sep 2026", time: "14:05", code: "abcdefgh" },
       printSize: "2x6-strip",
       outputDir: workDir,
       jpegQuality: 90,
@@ -76,7 +77,8 @@ describe("2x6 strip compositor", () => {
       renderComposite({
         sourceImagePaths: [sourceImagePath],
         template,
-        overlayPath: null,
+        assetDir: templateDir,
+        variables: { event: "Test", date: "24 Sep 2026", time: "14:05", code: "abcdefgh" },
         printSize: "2x6-strip",
         outputDir: workDir,
         jpegQuality: 90,
