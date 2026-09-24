@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -71,5 +71,14 @@ describe("layout assets", () => {
     await writeFile(path.join(dir, "party.json"), JSON.stringify(layout("party", [shared])));
     saveTemplate(dir, layout("wed", []));
     expect(existsSync(path.join(dir, shared))).toBe(true);
+  });
+
+  it("doesn't fail the save when one stale asset can't be unlinked", async () => {
+    // unlinkSync throws EPERM/EISDIR on a directory; simulates a file the OS
+    // is still holding open (Windows) so the whole prune shouldn't abort.
+    await mkdir(path.join(dir, "wed-abc123def456.png"));
+    const drop = await saveAsset(dir, "wed", await png());
+    expect(() => saveTemplate(dir, layout("wed", []))).not.toThrow();
+    expect(existsSync(path.join(dir, drop))).toBe(false);
   });
 });

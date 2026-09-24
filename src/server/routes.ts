@@ -286,7 +286,7 @@ export function buildRouter(ctx: AgentContext): Router {
         sourceImagePaths,
         template,
         assetDir: config.compositing.templateDir,
-        variables: textVariables(config.event.name ?? config.event.id, captureId),
+        variables: textVariables(config.event.name || config.event.id, captureId),
         printSize,
         outputDir: compositesDir(config),
         jpegQuality: config.compositing.jpegQuality,

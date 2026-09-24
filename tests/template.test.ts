@@ -107,6 +107,7 @@ describe("element templates", () => {
     ["too many elements", { elements: Array.from({ length: 41 }, (_, i) => ({ ...landscape.elements[0], id: `p${i}` })) }, /40/],
     ["over-long text", { elements: [landscape.elements[0], { ...landscape.elements[2], text: "x".repeat(501) }] }, /500/],
     ["a cell size that doesn't match the paper", { cellWidthPx: 1000 }, /must be/],
+    ["an oversized element", { elements: [{ ...landscape.elements[0], width: 3601 }] }, /3600/],
   ])("rejects %s", (_name, patch, message) => {
     expect(() => validateTemplate({ ...landscape, ...patch })).toThrow(message);
   });

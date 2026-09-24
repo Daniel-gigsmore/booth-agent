@@ -16,8 +16,8 @@ const box = {
   id: z.string().min(1).max(40),
   x: z.number().int(),
   y: z.number().int(),
-  width: z.number().int().positive(),
-  height: z.number().int().positive(),
+  width: z.number().int().positive().max(3600),
+  height: z.number().int().positive().max(3600),
   /** Degrees clockwise about the box centre. */
   rotation: z.number().min(-180).max(180).default(0),
   hidden: z.boolean().default(false),
@@ -324,6 +324,18 @@ export function assetPath(templateDir: string, templateId: string, file: string)
 export function pruneAssets(templateDir: string, templateId: string): void {
   const used = new Set(listTemplates(templateDir).flatMap(imageFiles));
   for (const file of readdirSync(templateDir)) {
-    if (isOwnAsset(templateId, file) && !used.has(file)) unlinkSync(path.join(templateDir, file));
+    if (isOwnAsset(templateId, file) && !used.has(file)) {
+      // Best-effort: this runs after saveTemplate/deleteTemplate already
+      // wrote or removed the JSON, so the save/delete has already succeeded.
+      // On Windows, unlinkSync can throw EPERM while the file is still held
+      // open elsewhere. An orphan image left behind is harmless; reporting a
+      // save as failed after it actually succeeded is not, so one failing
+      // unlink must neither abort the rest of the prune nor throw.
+      try {
+        unlinkSync(path.join(templateDir, file));
+      } catch {
+        // Leave it; it'll be swept up next time this layout (or any other) is saved or deleted.
+      }
+    }
   }
 }

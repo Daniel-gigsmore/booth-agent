@@ -1696,10 +1696,16 @@ Write `pr-body.md` (don't commit it) with: a link to the spec; what changed (ele
 - [ ] **Step 2: After the user merges, deploy**
 
 ```bash
-git checkout master && git pull && npm ci && npm run build
+git checkout master && git pull && npm run build
 ```
 
+`npm ci` must never run while the service is running, because it deletes node_modules, and the running service holds sharp's native files open on Windows; the branch changes no dependencies.
+
 Then:
+- Back up the live templates, since the first save rewrites a layout in the new format and replacing an overlay deletes the old PNG:
+  ```bash
+  cp -r /c/BoothAgent/templates "/c/BoothAgent/templates.bak-$(date +%Y%m%d)"
+  ```
 - Add `"name": "Gigsmore Launch"` under `event` in `booth.config.json`. This file is gitignored. Show the user the diff first.
 - Ask the user to restart the `boothagent.exe` service from an admin shell.
 
@@ -1710,6 +1716,7 @@ Using the kiosk token from `C:\BoothAgent\kiosk\.env.local` (never print it):
 - `GET /templates` lists all layouts in `C:\BoothAgent\templates` (5, including `overlay-test`). Each has `elements`, `photoSlots` and `overlayFile`. `overlay-test` has `overlayFile: "overlay-test-overlay.png"`.
 - `POST /composite` with the four `overlay-test` shots from 2026-09-24 (`e2e116bb…`, `724b03c1…`, `3b23d8d9…`, `dc2bd04d…`; full ids in the session log or the outbox DB) and `templateId: "overlay-test"`. The result must look the same as before: orange frame, photos in the holes. No new captures, no print.
 - In the browser pane, open the operator panel on the current kiosk and check: the layout list shows every layout, and the editor opens `overlay-test` with its overlay preview.
+- Save `overlay-test` once from the old editor with no changes, and confirm the save succeeds and `GET /templates` still shows its overlay. This exercises migration-on-save.
 
 - [ ] **Step 4: Update memory**
 

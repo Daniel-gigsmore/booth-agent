@@ -1,7 +1,7 @@
 # Layout elements: a LumaBooth-style layout editor
 
 Date: 2026-09-24
-Status: approved design, awaiting spec review
+Status: approved; PR 1 (agent) implemented on feat/layout-elements
 
 ## Goal
 
