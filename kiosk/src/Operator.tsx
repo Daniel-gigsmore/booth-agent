@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { agent, config, PrintJob, SessionSettings, Template } from "./agent";
 import { useHealth } from "./hooks";
-import LayoutEditor, { LayoutThumb, newTemplate } from "./LayoutEditor";
+import LayoutEditor, { LayoutThumb } from "./LayoutEditor";
+import { newTemplate, shotCount } from "./layout";
 
 const time = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
@@ -140,7 +141,7 @@ function SettingsTab({ onEdit }: { onEdit: (t: Template, all: Template[], inUseI
                 <div className="col gap-6">
                   <div className="bold fs-26">{t.name ?? t.id}</div>
                   <div className="muted fs-24">
-                    {t.photoSlots.length} photo{t.photoSlots.length === 1 ? "" : "s"} · {t.printSize === "4x6" ? "4R" : "2×6 strips"}
+                    {shotCount(t)} photo{shotCount(t) === 1 ? "" : "s"} · {t.printSize === "4x6" ? "4R" : "2×6 strips"}
                   </div>
                   {t.id === settings.templateId && <div className="in-use">In use</div>}
                 </div>

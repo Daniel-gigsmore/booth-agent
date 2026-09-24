@@ -1,52 +1,42 @@
 import { useRef, useState } from "react";
-import { agent, agentUrl, PrintSize, Slot, Template } from "./agent";
+import { agent, agentUrl, config, LayoutElement, Template } from "./agent";
+import { AddPanel, LayersPanel, PropsPanel } from "./EditorPanels";
+import { cssFamily, useAgentFonts } from "./fonts";
+import {
+  addElement, addImage, AddKind, changePaper, History, historyCommit, historyCommitFrom, historyOf, historyRedo,
+  historyReplace, historyUndo, moveLayer, movedBox, removeElement, resizedBox, sampleText, updateElement,
+} from "./layout";
 
-/** Paper choices. A landscape 4R layout is turned onto the sheet by booth-agent at print time. */
-const PAPERS = [
-  { key: "4r-landscape", label: "4R landscape", printSize: "4x6", w: 1800, h: 1200 },
-  { key: "4r-portrait", label: "4R portrait", printSize: "4x6", w: 1200, h: 1800 },
-  { key: "strip", label: "2×6 strips", printSize: "2x6-strip", w: 600, h: 1800 },
-] as const;
-
-const SNAP = 10;
-const MIN_SLOT = 60;
-const snap = (v: number) => Math.round(v / SNAP) * SNAP;
-const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), hi);
-
-const paperOf = (t: Pick<Template, "printSize" | "cellWidthPx" | "cellHeightPx">) =>
-  PAPERS.find((p) => p.printSize === t.printSize && p.w === t.cellWidthPx && p.h === t.cellHeightPx) ?? PAPERS[0];
-
-/** Small picture of a layout's photo slots, for the Settings list. */
+/** Small picture of a layout, for the Settings list. */
 export function LayoutThumb({ t, height }: { t: Template; height: number }) {
   return (
     <svg height={height} viewBox={`0 0 ${t.cellWidthPx} ${t.cellHeightPx}`} className="layout-thumb" aria-hidden="true">
-      <rect width={t.cellWidthPx} height={t.cellHeightPx} fill="#FBF8F3" />
-      {t.photoSlots.map((s, i) => (
-        <g key={i}>
-          <rect x={s.x} y={s.y} width={s.width} height={s.height} fill="#3A3342" />
-          <text x={s.x + s.width / 2} y={s.y + s.height / 2} fill="#F5EFE6" fontSize={Math.min(s.width, s.height) / 2.5}
-            fontWeight="800" textAnchor="middle" dominantBaseline="central">{i + 1}</text>
-        </g>
-      ))}
+      <rect width={t.cellWidthPx} height={t.cellHeightPx} fill={t.background} />
+      {t.elements.filter((e) => !e.hidden).map((e) => {
+        const turn = e.rotation ? `rotate(${e.rotation} ${e.x + e.width / 2} ${e.y + e.height / 2})` : undefined;
+        const at = { x: e.x, y: e.y, width: e.width, height: e.height };
+        switch (e.type) {
+          case "photo":
+            return (
+              <g key={e.id} transform={turn}>
+                <rect {...at} fill="#3A3342" />
+                <text x={e.x + e.width / 2} y={e.y + e.height / 2} fill="#F5EFE6" fontSize={Math.min(e.width, e.height) / 2.5}
+                  fontWeight="800" textAnchor="middle" dominantBaseline="central">{e.shot + 1}</text>
+              </g>
+            );
+          case "image":
+            return <image key={e.id} {...at} transform={turn} preserveAspectRatio="none"
+              href={agentUrl(`/templates/${t.id}/assets/${e.file}`)} />;
+          case "rect":
+            return <rect key={e.id} {...at} transform={turn} fill={e.fill} fillOpacity={e.opacity} rx={e.radius} />;
+          case "text":
+            // A bar where the text goes; the thumbnail is too small to read.
+            return <rect key={e.id} x={e.x} y={e.y + e.height * 0.3} width={e.width} height={e.height * 0.4}
+              transform={turn} fill={e.color} fillOpacity={0.5} rx={e.height * 0.1} />;
+        }
+      })}
     </svg>
   );
-}
-
-export function newTemplate(): Template {
-  return {
-    id: "",
-    name: "",
-    printSize: "4x6",
-    cellWidthPx: 1800,
-    cellHeightPx: 1200,
-    photoSlots: [
-      { x: 60, y: 60, width: 810, height: 540 },
-      { x: 930, y: 60, width: 810, height: 540 },
-      { x: 60, y: 620, width: 810, height: 540 },
-      { x: 930, y: 620, width: 810, height: 540 },
-    ],
-    overlayFile: null,
-  };
 }
 
 function slugFor(name: string, taken: string[]): string {
@@ -56,36 +46,65 @@ function slugFor(name: string, taken: string[]): string {
   return id;
 }
 
-type Drag = { index: number; mode: "move" | "resize"; startX: number; startY: number; start: Slot; pxPerCell: number };
+const JUSTIFY = { left: "flex-start", center: "center", right: "flex-end" } as const;
+
+/** One element as the editor draws it, filling its (already positioned and rotated) box. */
+function ElementBody({ el, t, view }: { el: LayoutElement; t: Template; view: number }) {
+  switch (el.type) {
+    case "photo":
+      return <div className="el-photo" style={{ fontSize: Math.min(el.width, el.height) * view / 2.5 }}>{el.shot + 1}</div>;
+    case "image":
+      return <img className="el-fill" src={agentUrl(`/templates/${t.id}/assets/${el.file}`)} alt="" draggable={false} />;
+    case "rect":
+      return <div className="el-fill" style={{ background: el.fill, opacity: el.opacity, borderRadius: el.radius * view }} />;
+    case "text":
+      return (
+        <div className="el-text" style={{
+          justifyContent: JUSTIFY[el.align], textAlign: el.align, color: el.color,
+          fontFamily: cssFamily(el.font), fontSize: el.size * view, fontWeight: el.bold ? 700 : 400,
+        }}>
+          <span>{sampleText(el.text, config.eventName)}</span>
+        </div>
+      );
+  }
+}
+
+type Drag = {
+  id: string; mode: "move" | "resize"; startX: number; startY: number;
+  start: LayoutElement; before: Template; pxPerCell: number;
+};
 
 export default function LayoutEditor({ initial, takenIds, inUseId, onClose }: {
   initial: Template; takenIds: string[]; inUseId: string; onClose: (changed: boolean) => void;
 }) {
-  const [t, setT] = useState<Template>(initial);
-  const [selected, setSelected] = useState(0);
+  const [h, setH] = useState<History>(() => historyOf(initial));
+  const t = h.present;
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [lock, setLock] = useState(true);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  // Saves and uploads write to booth-agent at once, so the list needs a refresh even on Cancel.
+  const [wrote, setWrote] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [overlayVer, setOverlayVer] = useState(0);
+  const fonts = useAgentFonts();
   const canvas = useRef<HTMLDivElement>(null);
   const drag = useRef<Drag | null>(null);
   const isNew = initial.id === "";
-  const paper = paperOf(t);
+  const selected = t.elements.find((e) => e.id === selectedId) ?? null;
 
-  // Canvas is drawn at a fixed on-stage size; cell pixels map onto it.
-  const view = Math.min(1040 / t.cellWidthPx, 900 / t.cellHeightPx);
+  // The canvas gets a fixed area of the stage; cell pixels map onto it.
+  const view = Math.min(960 / t.cellWidthPx, 680 / t.cellHeightPx);
 
-  const setSlot = (i: number, slot: Slot) =>
-    setT((cur) => ({ ...cur, photoSlots: cur.photoSlots.map((s, j) => (j === i ? slot : s)) }));
+  const change = (next: Template) => setH((cur) => historyCommit(cur, next));
+  const patch = (id: string, p: Partial<LayoutElement>) => setH((cur) => historyCommit(cur, updateElement(cur.present, id, p)));
 
-  function startDrag(e: React.PointerEvent, index: number, mode: Drag["mode"]) {
+  function startDrag(e: React.PointerEvent, el: LayoutElement, mode: Drag["mode"]) {
     e.stopPropagation();
-    (e.target as Element).setPointerCapture(e.pointerId);
+    e.currentTarget.setPointerCapture(e.pointerId);
     // Measured on screen, so it already includes the stage's own scale-to-fit.
     const pxPerCell = canvas.current!.getBoundingClientRect().width / t.cellWidthPx;
-    drag.current = { index, mode, startX: e.clientX, startY: e.clientY, start: t.photoSlots[index]!, pxPerCell };
-    setSelected(index);
+    drag.current = { id: el.id, mode, startX: e.clientX, startY: e.clientY, start: el, before: t, pxPerCell };
+    setSelectedId(el.id);
   }
 
   function moveDrag(e: React.PointerEvent) {
@@ -93,57 +112,18 @@ export default function LayoutEditor({ initial, takenIds, inUseId, onClose }: {
     if (!d) return;
     const dx = (e.clientX - d.startX) / d.pxPerCell;
     const dy = (e.clientY - d.startY) / d.pxPerCell;
-    const s = d.start;
-    if (d.mode === "move") {
-      setSlot(d.index, {
-        ...s,
-        x: clamp(snap(s.x + dx), 0, t.cellWidthPx - s.width),
-        y: clamp(snap(s.y + dy), 0, t.cellHeightPx - s.height),
-      });
-    } else {
-      let width = clamp(snap(s.width + dx), MIN_SLOT, t.cellWidthPx - s.x);
-      let height = lock ? Math.round((width * 2) / 3) : clamp(snap(s.height + dy), MIN_SLOT, t.cellHeightPx - s.y);
-      if (s.y + height > t.cellHeightPx) {
-        // Locked ratio ran off the bottom: shrink both to fit.
-        height = t.cellHeightPx - s.y;
-        width = Math.round((height * 3) / 2);
-      }
-      setSlot(d.index, { ...s, width, height });
-    }
+    // Screen-space drag, even for a rotated box: simple, and the number fields give exact control.
+    const p = d.mode === "move" ? movedBox(d.start, dx, dy, t) : resizedBox(d.start, dx, dy, lock);
+    setH((cur) => historyReplace(cur, updateElement(cur.present, d.id, p)));
   }
 
-  function changePaper(key: string) {
-    const p = PAPERS.find((x) => x.key === key)!;
-    const sx = p.w / t.cellWidthPx;
-    const sy = p.h / t.cellHeightPx;
-    setT({
-      ...t,
-      printSize: p.printSize as PrintSize,
-      cellWidthPx: p.w,
-      cellHeightPx: p.h,
-      photoSlots: t.photoSlots.map((s) => {
-        const width = Math.max(MIN_SLOT, snap(s.width * sx));
-        const height = Math.max(MIN_SLOT, snap(s.height * sy));
-        return { x: clamp(snap(s.x * sx), 0, p.w - width), y: clamp(snap(s.y * sy), 0, p.h - height), width, height };
-      }),
-    });
+  function endDrag() {
+    const d = drag.current;
+    drag.current = null;
+    if (d) setH((cur) => historyCommitFrom(cur, d.before));
   }
 
-  function addSlot() {
-    if (t.photoSlots.length >= 12) return;
-    const width = snap(Math.min(t.cellWidthPx, t.cellHeightPx * 1.5) / 3);
-    const slot = { x: 30, y: 30, width, height: Math.round((width * 2) / 3) };
-    setT({ ...t, photoSlots: [...t.photoSlots, slot] });
-    setSelected(t.photoSlots.length);
-  }
-
-  function removeSlot() {
-    if (t.photoSlots.length <= 1) return;
-    setT({ ...t, photoSlots: t.photoSlots.filter((_, i) => i !== selected) });
-    setSelected(0);
-  }
-
-  /** Saves and returns the stored template (a new layout gets its id here). */
+  /** Saves and returns the stored layout (a new layout gets its id here). */
   async function save(): Promise<Template | null> {
     const name = (t.name ?? "").trim();
     if (!name) {
@@ -154,9 +134,10 @@ export default function LayoutEditor({ initial, takenIds, inUseId, onClose }: {
     setError("");
     try {
       const id = isNew && !t.id ? slugFor(name, takenIds) : t.id;
-      const saved = await agent.saveTemplate({ ...t, id, name });
-      setT(saved);
-      return saved;
+      const stored = await agent.saveTemplate({ ...t, id, name });
+      setH((cur) => historyReplace(cur, stored));
+      setWrote(true);
+      return stored;
     } catch (e) {
       setError((e as Error).message);
       return null;
@@ -165,15 +146,27 @@ export default function LayoutEditor({ initial, takenIds, inUseId, onClose }: {
     }
   }
 
-  async function uploadOverlay(file: File | undefined) {
+  function add(kind: AddKind) {
+    const r = addElement(t, kind);
+    change(r.template);
+    setSelectedId(r.id);
+  }
+
+  async function addImageFile(file: File | undefined) {
     if (!file) return;
-    // Save first: the upload returns the stored layout, which would otherwise drop unsaved edits.
-    const saved = await save();
-    if (!saved) return;
+    // Uploads are filed under the layout's id, so a new layout is saved first.
+    const current = t.id ? t : await save();
+    if (!current) return;
     setBusy(true);
     try {
-      setT(await agent.uploadOverlay(saved.id, file));
-      setOverlayVer((v) => v + 1);
+      const bitmap = await createImageBitmap(file);
+      const { width, height } = bitmap;
+      bitmap.close();
+      const { file: name } = await agent.uploadAsset(current.id, file);
+      setWrote(true);
+      const r = addImage(current, name, width, height);
+      setH((cur) => historyCommit(cur, r.template));
+      setSelectedId(r.id);
       setError("");
     } catch (e) {
       setError((e as Error).message);
@@ -182,7 +175,7 @@ export default function LayoutEditor({ initial, takenIds, inUseId, onClose }: {
     }
   }
 
-  async function remove() {
+  async function removeLayout() {
     if (!confirmDelete) {
       setConfirmDelete(true);
       return;
@@ -198,95 +191,65 @@ export default function LayoutEditor({ initial, takenIds, inUseId, onClose }: {
 
   return (
     <div className="editor">
-      <div
-        ref={canvas}
-        className="editor-canvas"
-        style={{ width: t.cellWidthPx * view, height: t.cellHeightPx * view }}
-        onPointerMove={moveDrag}
-        onPointerUp={() => (drag.current = null)}
-        onPointerCancel={() => (drag.current = null)}
-      >
-        {t.photoSlots.map((s, i) => (
-          <div
-            key={i}
-            className={`editor-slot ${i === selected ? "selected" : ""}`}
-            style={{ left: s.x * view, top: s.y * view, width: s.width * view, height: s.height * view }}
-            onPointerDown={(e) => startDrag(e, i, "move")}
-          >
-            <span>{i + 1}</span>
-            {i === selected && (
-              <div className="editor-handle" aria-label="Resize" onPointerDown={(e) => startDrag(e, i, "resize")} />
-            )}
-          </div>
-        ))}
-        {t.overlayFile && t.id && (
-          <img className="editor-overlay" src={agentUrl(`/templates/${t.id}/overlay?v=${overlayVer}`)} alt="" />
+      <div className="row gap-16 editor-top">
+        <input className="text-input grow" value={t.name ?? ""} maxLength={80} placeholder="Layout name, e.g. Wedding 4-up"
+          aria-label="Layout name" onChange={(e) => setH((cur) => historyReplace(cur, { ...cur.present, name: e.target.value }))} />
+        <button type="button" className="btn outline sm" disabled={!h.past.length} onClick={() => setH(historyUndo)}>Undo</button>
+        <button type="button" className="btn outline sm" disabled={!h.future.length} onClick={() => setH(historyRedo)}>Redo</button>
+        <button type="button" className="btn primary sm" disabled={busy} onClick={async () => { if (await save()) onClose(true); }}>
+          Save
+        </button>
+        <button type="button" className="btn outline sm" onClick={() => onClose(wrote)}>Cancel</button>
+        {!isNew && t.id !== inUseId && (
+          <button type="button" className="btn outline sm danger" onClick={removeLayout}>
+            {confirmDelete ? "Tap again to delete" : "Delete layout"}
+          </button>
         )}
       </div>
+      {error && <div className="banner error fs-24">{error}</div>}
 
-      <div className="editor-side">
-        <label className="field">
-          <span>Name</span>
-          <input value={t.name ?? ""} maxLength={80} onChange={(e) => setT({ ...t, name: e.target.value })}
-            placeholder="e.g. Wedding 4-up" />
-        </label>
+      <div className="editor-body">
+        <AddPanel t={t} busy={busy} onAdd={add} onImage={addImageFile}
+          onPaper={(key) => change(changePaper(t, key))} onBackground={(background) => change({ ...t, background })} />
 
-        <div className="field">
-          <span>Paper</span>
-          <div className="seg">
-            {PAPERS.map((p) => (
-              <button key={p.key} type="button" className={p.key === paper.key ? "on" : ""} onClick={() => changePaper(p.key)}>
-                {p.label}
-              </button>
+        <div className="editor-stage">
+          <div
+            ref={canvas}
+            className="editor-canvas"
+            style={{ width: t.cellWidthPx * view, height: t.cellHeightPx * view, background: t.background }}
+            onPointerDown={() => setSelectedId(null)}
+            onPointerMove={moveDrag}
+            onPointerUp={endDrag}
+            onPointerCancel={endDrag}
+          >
+            {t.elements.map((el) => (
+              <div
+                key={el.id}
+                className={`el ${el.id === selectedId ? "selected" : ""} ${el.hidden ? "hidden-el" : ""}`}
+                style={{
+                  left: el.x * view, top: el.y * view, width: el.width * view, height: el.height * view,
+                  transform: el.rotation ? `rotate(${el.rotation}deg)` : undefined,
+                }}
+                onPointerDown={(e) => startDrag(e, el, "move")}
+              >
+                <ElementBody el={el} t={t} view={view} />
+                {el.id === selectedId && (
+                  <div className="editor-handle" aria-label="Resize" onPointerDown={(e) => startDrag(e, el, "resize")} />
+                )}
+              </div>
             ))}
           </div>
         </div>
 
-        <div className="field">
-          <span>Photos: {t.photoSlots.length} (one shot each)</span>
-          <div className="row gap-16">
-            <button type="button" className="btn outline sm" onClick={addSlot} disabled={t.photoSlots.length >= 12}>Add photo</button>
-            <button type="button" className="btn outline sm" onClick={removeSlot} disabled={t.photoSlots.length <= 1}>
-              Remove #{selected + 1}
-            </button>
-          </div>
-          <label className="check">
-            <input type="checkbox" checked={lock} onChange={(e) => setLock(e.target.checked)} />
-            Keep 3:2 camera shape when resizing
-          </label>
-        </div>
-
-        <div className="field">
-          <span>Overlay (PNG with transparent holes for the photos)</span>
-          <div className="row gap-16">
-            <label className="btn outline sm file-btn">
-              {t.overlayFile ? "Replace overlay" : "Upload overlay"}
-              {/* Clear the value so re-picking the same (edited) file still fires onChange. */}
-              <input type="file" accept="image/png"
-                onChange={(e) => { uploadOverlay(e.target.files?.[0]); e.target.value = ""; }} />
-            </label>
-            {t.overlayFile && (
-              <button type="button" className="btn outline sm" onClick={() => setT({ ...t, overlayFile: null })}>Remove</button>
-            )}
-          </div>
-        </div>
-
-        {error && <div className="banner error fs-24">{error}</div>}
-
-        <div className="row gap-16 editor-actions">
-          <button type="button" className="btn primary sm" disabled={busy}
-            onClick={async () => { if (await save()) onClose(true); }}>
-            Save
-          </button>
-          {/* An overlay upload already saved the layout, so the list needs a refresh even on Cancel. */}
-          <button type="button" className="btn outline sm" onClick={() => onClose(t.id !== initial.id || overlayVer > 0)}>
-            Cancel
-          </button>
-          {!isNew && t.id !== inUseId && (
-            <button type="button" className="btn outline sm danger" onClick={remove}>
-              {confirmDelete ? "Tap again to delete" : "Delete"}
-            </button>
-          )}
+        <div className="editor-side">
+          <PropsPanel el={selected} t={t} fonts={fonts} lock={lock} onLock={setLock}
+            onPatch={(p) => selected && patch(selected.id, p)} />
+          <LayersPanel t={t} selectedId={selectedId} onSelect={setSelectedId} onPatch={patch}
+            onMove={(id, dir) => change(moveLayer(t, id, dir))}
+            onDelete={(id) => {
+              change(removeElement(t, id));
+              if (id === selectedId) setSelectedId(null);
+            }} />
         </div>
       </div>
     </div>

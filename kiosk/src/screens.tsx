@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import QRCode from "qrcode";
 import { agent, agentUrl, config, Health, Session, Template } from "./agent";
 import { useCountdown } from "./hooks";
+import { shotCount } from "./layout";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -112,7 +113,7 @@ function Countdown({ seconds, onZero }: { seconds: number; onZero: () => void })
 export function GetReady({ session, onDone, onFail }: {
   session: Session; onDone: (captureIds: string[]) => Promise<void>; onFail: () => void;
 }) {
-  const total = session.template.photoSlots.length;
+  const total = shotCount(session.template);
   const [shots, setShots] = useState<string[]>([]);
   const [phase, setPhase] = useState<"count" | "flash" | "saving" | "composing">("count");
 

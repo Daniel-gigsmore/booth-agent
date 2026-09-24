@@ -9,7 +9,7 @@ Flow: Attract → Get ready (live view; one countdown and shot per photo slot in
 - **Status:** camera, printer, sync and hot folder health, plus the last 3 prints with Reprint.
 - **Settings:** pick the layout in use, set the countdown for the first photo and between photos (1–10 s), and create, edit or delete layouts. Changes apply to the next guest.
 
-**Layout editor:** drag a photo box to move it, and drag the orange corner dot to resize it (it keeps the camera's 3:2 shape unless you untick that). Choose the paper (4R landscape, 4R portrait, 2×6 strips) and add or remove photos; each photo box is one shot. You can upload a PNG overlay (a frame, logo or event name, with transparent holes where the photos go) and save. Layouts are stored by booth-agent in `compositing.templateDir`.
+**Layout editor:** the left column adds a photo (each photo number is one shot), an image (PNG or JPEG, uploaded to booth-agent), a text or a shape, and sets the background colour and paper. Drag an element to move it and its orange corner dot to resize it. The Selected panel has exact X/Y/W/H, rotation, keep-aspect-ratio, align-to-paper and "Fill paper" controls, plus text (font, size, colour, bold, alignment, and the `{event}` `{date}` `{time}` `{code}` variables filled in per print), shape and photo-number settings. The Layers panel lists elements top first, with show/hide, up/down and delete. Undo/Redo keep the last 50 steps. The editor draws text with booth-agent's own font files, so it looks like the print; line breaks may differ slightly.
 
 ## Setup
 
@@ -27,7 +27,7 @@ npm run preview
 
 To start it with Windows, put a shortcut to `powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File <path>\start-kiosk.ps1` in `shell:startup`. At login, the script starts the server if it isn't already running, then opens Chrome in kiosk mode using its own profile. Exit with Alt+F4. After changing `.env` or the code, run `npm run build` again.
 
-Requires booth-agent with the multi-photo layout and `/session` endpoints (booth-agent PR #40), plus the bundled layouts copied into `compositing.templateDir`.
+Requires booth-agent with element-based layouts (booth-agent PR #42) and the bundled layouts copied into `compositing.templateDir`.
 
 The fonts are bundled, so the kiosk works offline. The shared secret is baked into the built JS. That is fine because the kiosk is only served on the booth PC; do not host `dist/` anywhere public.
 
