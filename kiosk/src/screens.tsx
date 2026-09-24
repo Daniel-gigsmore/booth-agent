@@ -173,19 +173,21 @@ export function GetReady({ session, onDone, onFail }: {
   );
 }
 
+const compositeUrl = (captureId: string) => agentUrl(`/captures/${captureId}/image?variant=composite`);
+
 /**
- * The print-ready composite, shown the way the guest will hold it. A landscape
- * layout is stored turned onto the portrait sheet, so it's turned back here.
+ * A print-ready sheet (a guest's composite, or a layout preview), shown the
+ * way the guest will hold it. A landscape layout is stored turned onto the
+ * portrait sheet, so it's turned back here.
  */
-function CompositePreview({ captureId, template, maxW, maxH }: {
-  captureId: string; template: Template; maxW: number; maxH: number;
+export function CompositePreview({ src, template, maxW, maxH }: {
+  src: string; template: Template; maxW: number; maxH: number;
 }) {
   const landscape = template.printSize === "4x6" && template.cellWidthPx > template.cellHeightPx;
   // Strips come out two-up on a portrait 4x6 sheet, so the file is always portrait unless turned.
   const [aw, ah] = landscape ? [3, 2] : [2, 3];
   const scale = Math.min(maxW / aw, maxH / ah);
   const [w, h] = [Math.round(aw * scale), Math.round(ah * scale)];
-  const src = agentUrl(`/captures/${captureId}/image?variant=composite`);
   return (
     <div className="composite" style={{ width: w, height: h }}>
       <img
@@ -208,7 +210,7 @@ export function Review({ template, captureId, onApprove, onRetake }: {
   return (
     <div className="stage review">
       <div className="review-frame">
-        <CompositePreview captureId={captureId} template={template} maxW={1140} maxH={900} />
+        <CompositePreview src={compositeUrl(captureId)} template={template} maxW={1140} maxH={900} />
       </div>
       <div className="col gap-40 grow">
         <h2 className="display fs-104">Looking<br />good?</h2>
@@ -249,7 +251,7 @@ export function Printing({ template, captureId, waitMs, onContinue }: {
 
   return (
     <div className="stage printing">
-      <CompositePreview captureId={captureId} template={template} maxW={620} maxH={900} />
+      <CompositePreview src={compositeUrl(captureId)} template={template} maxW={620} maxH={900} />
       <div className="col gap-40 grow">
         <div className="pill row gap-14 fs-24 caps">
           <Icon size={28} d="M6 9V2h12v7">
