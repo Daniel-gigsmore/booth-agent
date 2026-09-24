@@ -90,7 +90,7 @@ function TextProps({ el, fonts, onPatch }: { el: TextElement; fonts: BundledFont
     const a = area.current;
     const at = a ? a.selectionStart : el.text.length;
     const end = a ? a.selectionEnd : at;
-    onPatch({ text: el.text.slice(0, at) + v + el.text.slice(end) });
+    onPatch({ text: (el.text.slice(0, at) + v + el.text.slice(end)).slice(0, 500) });
   }
   return (
     <>

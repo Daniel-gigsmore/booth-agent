@@ -126,6 +126,11 @@ describe("editing elements", () => {
     expect(t).toMatchObject({ printSize: "2x6-strip", cellWidthPx: 600, cellHeightPx: 1800 });
     expect(t.elements[1]).toMatchObject({ x: 60, y: 180, width: 300, height: 450, size: 30 });
   });
+
+  it("leaves the layout untouched when choosing the paper it's already on", () => {
+    const t = layout([photo("a", 0)]);
+    expect(changePaper(t, "4r-landscape")).toBe(t);
+  });
 });
 
 describe("text, save body and labels", () => {

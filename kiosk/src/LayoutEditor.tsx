@@ -49,12 +49,12 @@ function slugFor(name: string, taken: string[]): string {
 const JUSTIFY = { left: "flex-start", center: "center", right: "flex-end" } as const;
 
 /** One element as the editor draws it, filling its (already positioned and rotated) box. */
-function ElementBody({ el, t, view }: { el: LayoutElement; t: Template; view: number }) {
+function ElementBody({ el, layoutId, view }: { el: LayoutElement; layoutId: string; view: number }) {
   switch (el.type) {
     case "photo":
       return <div className="el-photo" style={{ fontSize: Math.min(el.width, el.height) * view / 2.5 }}>{el.shot + 1}</div>;
     case "image":
-      return <img className="el-fill" src={agentUrl(`/templates/${t.id}/assets/${el.file}`)} alt="" draggable={false} />;
+      return <img className="el-fill" src={agentUrl(`/templates/${layoutId}/assets/${el.file}`)} alt="" draggable={false} />;
     case "rect":
       return <div className="el-fill" style={{ background: el.fill, opacity: el.opacity, borderRadius: el.radius * view }} />;
     case "text":
@@ -89,6 +89,9 @@ export default function LayoutEditor({ initial, takenIds, inUseId, onClose }: {
   const fonts = useAgentFonts();
   const canvas = useRef<HTMLDivElement>(null);
   const drag = useRef<Drag | null>(null);
+  // The saved id lives outside undo history: pre-save snapshots have id "", and
+  // undoing past the first save must not make a later save mint a second layout.
+  const savedId = useRef(initial.id);
   const isNew = initial.id === "";
   const selected = t.elements.find((e) => e.id === selectedId) ?? null;
 
@@ -133,10 +136,11 @@ export default function LayoutEditor({ initial, takenIds, inUseId, onClose }: {
     setBusy(true);
     setError("");
     try {
-      const id = isNew && !t.id ? slugFor(name, takenIds) : t.id;
+      const id = t.id || savedId.current || slugFor(name, takenIds);
       const stored = await agent.saveTemplate({ ...t, id, name });
       setH((cur) => historyReplace(cur, stored));
       setWrote(true);
+      savedId.current = stored.id;
       return stored;
     } catch (e) {
       setError((e as Error).message);
@@ -155,8 +159,9 @@ export default function LayoutEditor({ initial, takenIds, inUseId, onClose }: {
   async function addImageFile(file: File | undefined) {
     if (!file) return;
     // Uploads are filed under the layout's id, so a new layout is saved first.
-    const current = t.id ? t : await save();
-    if (!current) return;
+    const base = savedId.current ? t : await save();
+    if (!base) return;
+    const current = base.id ? base : { ...base, id: savedId.current };
     setBusy(true);
     try {
       const bitmap = await createImageBitmap(file);
@@ -181,7 +186,7 @@ export default function LayoutEditor({ initial, takenIds, inUseId, onClose }: {
       return;
     }
     try {
-      await agent.deleteTemplate(t.id);
+      await agent.deleteTemplate(t.id || savedId.current);
       onClose(true);
     } catch (e) {
       setError((e as Error).message);
@@ -200,9 +205,9 @@ export default function LayoutEditor({ initial, takenIds, inUseId, onClose }: {
         <button type="button" className="btn primary sm" disabled={busy} onClick={async () => { if (await save()) onClose(true); }}>
           Save
         </button>
-        <button type="button" className="btn outline sm" onClick={() => onClose(wrote)}>Cancel</button>
+        <button type="button" className="btn outline sm" disabled={busy} onClick={() => onClose(wrote)}>Cancel</button>
         {!isNew && t.id !== inUseId && (
-          <button type="button" className="btn outline sm danger" onClick={removeLayout}>
+          <button type="button" className="btn outline sm danger" disabled={busy} onClick={removeLayout}>
             {confirmDelete ? "Tap again to delete" : "Delete layout"}
           </button>
         )}
@@ -233,7 +238,7 @@ export default function LayoutEditor({ initial, takenIds, inUseId, onClose }: {
                 }}
                 onPointerDown={(e) => startDrag(e, el, "move")}
               >
-                <ElementBody el={el} t={t} view={view} />
+                <ElementBody el={el} layoutId={t.id || savedId.current} view={view} />
                 {el.id === selectedId && (
                   <div className="editor-handle" aria-label="Resize" onPointerDown={(e) => startDrag(e, el, "resize")} />
                 )}
@@ -243,7 +248,7 @@ export default function LayoutEditor({ initial, takenIds, inUseId, onClose }: {
         </div>
 
         <div className="editor-side">
-          <PropsPanel el={selected} t={t} fonts={fonts} lock={lock} onLock={setLock}
+          <PropsPanel key={selected?.id ?? "none"} el={selected} t={t} fonts={fonts} lock={lock} onLock={setLock}
             onPatch={(p) => selected && patch(selected.id, p)} />
           <LayersPanel t={t} selectedId={selectedId} onSelect={setSelectedId} onPatch={patch}
             onMove={(id, dir) => change(moveLayer(t, id, dir))}

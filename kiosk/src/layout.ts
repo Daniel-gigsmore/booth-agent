@@ -175,6 +175,7 @@ export function normalizeAngle(deg: number): number {
 /** Switches paper, scaling every element (and text size) to the new cell. */
 export function changePaper(t: Template, key: string): Template {
   const p = PAPERS.find((x) => x.key === key) ?? PAPERS[0];
+  if (p.key === paperOf(t).key) return t;
   const sx = p.w / t.cellWidthPx;
   const sy = p.h / t.cellHeightPx;
   return {

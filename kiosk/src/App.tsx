@@ -23,15 +23,21 @@ export default function App() {
 
   useEffect(() => {
     if (screen.name === "attract") return;
-    let timer = setTimeout(attract, IDLE_MS);
+    // While an OS dialog (e.g. the file picker) is open, the page gets no pointer/key
+    // events at all; firing Attract underneath it would kick the operator out mid-task,
+    // so re-arm instead of expiring whenever the document doesn't have focus.
+    const expire = () => (document.hasFocus() ? attract() : (timer = setTimeout(expire, IDLE_MS)));
+    let timer = setTimeout(expire, IDLE_MS);
     const bump = () => {
       clearTimeout(timer);
-      timer = setTimeout(attract, IDLE_MS);
+      timer = setTimeout(expire, IDLE_MS);
     };
     addEventListener("pointerdown", bump);
+    addEventListener("keydown", bump);
     return () => {
       clearTimeout(timer);
       removeEventListener("pointerdown", bump);
+      removeEventListener("keydown", bump);
     };
   }, [screen]);
 
