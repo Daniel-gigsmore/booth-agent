@@ -1,6 +1,9 @@
 import { readFileSync, readdirSync, writeFileSync, unlinkSync, existsSync } from "node:fs";
+import { writeFile } from "node:fs/promises";
+import { randomBytes } from "node:crypto";
 import path from "node:path";
 import { z } from "zod";
+import sharp from "sharp";
 import { PrintSizeSchema } from "../config/schema";
 import { SHEET_WIDTH_PX, SHEET_HEIGHT_PX, STRIP_CELL_WIDTH_PX, STRIP_CELL_HEIGHT_PX } from "./dimensions";
 import { findFont } from "./fonts";
@@ -274,10 +277,53 @@ export function saveTemplate(templateDir: string, input: unknown): EventTemplate
     }
   }
   writeFileSync(filePath, JSON.stringify(template, null, 2) + "\n");
+  pruneAssets(templateDir, template.id);
   return template;
 }
 
 export function deleteTemplate(templateDir: string, templateId: string): void {
   assertSafeTemplateId(templateId);
   unlinkSync(path.join(templateDir, `${templateId}.json`));
+  pruneAssets(templateDir, templateId);
+}
+
+/** Stores an uploaded PNG/JPEG for a layout under an agent-chosen name and returns that name. */
+export async function saveAsset(templateDir: string, templateId: string, body: unknown): Promise<string> {
+  assertSafeTemplateId(templateId);
+  if (!Buffer.isBuffer(body) || body.length === 0) throw new Error("send the image as a PNG or JPEG body");
+  const format = await sharp(body)
+    .metadata()
+    .then((m) => m.format, () => null);
+  const ext = format === "png" ? "png" : format === "jpeg" ? "jpg" : null;
+  if (!ext) throw new Error("image must be a PNG or JPEG");
+  const file = `${templateId}-${randomBytes(6).toString("hex")}.${ext}`;
+  await writeFile(path.join(templateDir, file), body);
+  return file;
+}
+
+/** Where one of a layout's images lives: its own upload, or a file the layout already uses. */
+export function assetPath(templateDir: string, templateId: string, file: string): string {
+  assertSafeTemplateId(templateId);
+  let used: string[] = [];
+  try {
+    used = imageFiles(loadTemplate(templateDir, templateId));
+  } catch {
+    // Not saved yet: only its own uploads can be shown.
+  }
+  if (!isOwnAsset(templateId, file) && !used.includes(file)) {
+    throw new Error(`no image "${file}" in layout ${templateId}`);
+  }
+  return path.join(templateDir, file);
+}
+
+/**
+ * Deletes the layout's uploads that no layout references any more. Checking
+ * every layout, not just this one, keeps a hand-edited layout's image safe
+ * even if its name looks like one of this layout's uploads.
+ */
+export function pruneAssets(templateDir: string, templateId: string): void {
+  const used = new Set(listTemplates(templateDir).flatMap(imageFiles));
+  for (const file of readdirSync(templateDir)) {
+    if (isOwnAsset(templateId, file) && !used.has(file)) unlinkSync(path.join(templateDir, file));
+  }
 }
