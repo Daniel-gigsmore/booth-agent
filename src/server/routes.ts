@@ -1,5 +1,4 @@
 import express, { Router, Request, Response } from "express";
-import sharp from "sharp";
 import { access, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { v4 as uuidv4 } from "uuid";
@@ -10,12 +9,16 @@ import { writeBackpressureAware } from "./streamWrite";
 import { PrintSizeSchema } from "../config/schema";
 import {
   loadTemplate,
-  resolveOverlayPath,
   listTemplates,
   saveTemplate,
   deleteTemplate,
-  overlayFileName,
+  saveAsset,
+  assetPath,
+  shotCount,
+  withLegacyFields,
 } from "../compositor/template";
+import { FONTS, fontFilePath } from "../compositor/fonts";
+import { textVariables } from "../compositor/variables";
 import { readSessionSettings, writeSessionSettings, SessionSettingsSchema } from "../session/sessionSettings";
 import { renderComposite } from "../compositor/compositor";
 import { originalsDir, compositesDir, aiDownloadsDir } from "../util/paths";
@@ -274,7 +277,6 @@ export function buildRouter(ctx: AgentContext): Router {
         : rows.map((row) => row!.original_path);
 
       const template = loadTemplate(config.compositing.templateDir, templateId);
-      const overlayPath = resolveOverlayPath(config.compositing.templateDir, template);
       // The template knows what paper it was drawn for; defaulting to the
       // config's size instead made every strip template fail unless the
       // client repeated the size it had already implied by choosing it.
@@ -283,7 +285,8 @@ export function buildRouter(ctx: AgentContext): Router {
       const result = await renderComposite({
         sourceImagePaths,
         template,
-        overlayPath,
+        assetDir: config.compositing.templateDir,
+        variables: textVariables(config.event.name ?? config.event.id, captureId),
         printSize,
         outputDir: compositesDir(config),
         jpegQuality: config.compositing.jpegQuality,
@@ -447,15 +450,15 @@ export function buildRouter(ctx: AgentContext): Router {
 
   router.get("/templates", (_req: Request, res: Response) => {
     const dir = ctx.configStore.current.compositing.templateDir;
-    res.json({ templates: listTemplates(dir) });
+    res.json({ templates: listTemplates(dir).map(withLegacyFields) });
   });
 
   router.post("/templates/:id", (req: Request<{ id: string }>, res: Response) => {
     const dir = ctx.configStore.current.compositing.templateDir;
     try {
       const template = saveTemplate(dir, { ...req.body, id: req.params.id });
-      log.info(`Saved layout ${template.id} (${template.photoSlots.length} photos)`);
-      res.json(template);
+      log.info(`Saved layout ${template.id} (${shotCount(template)} photos, ${template.elements.length} elements)`);
+      res.json(withLegacyFields(template));
     } catch (err) {
       res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
     }
@@ -476,8 +479,34 @@ export function buildRouter(ctx: AgentContext): Router {
     }
   });
 
-  // Overlay (frame, logo, event name) drawn over the photos. Only PNG, since
-  // it needs transparency to show the photos underneath.
+  // Images a layout draws (logos, frames, stickers). The agent names the file;
+  // the layout then refers to it from an image element.
+  router.post(
+    "/templates/:id/assets",
+    express.raw({ type: ["image/png", "image/jpeg"], limit: "10mb" }),
+    asyncHandler(async (req: Request, res: Response) => {
+      const dir = ctx.configStore.current.compositing.templateDir;
+      try {
+        res.status(201).json({ file: await saveAsset(dir, String(req.params["id"]), req.body) });
+      } catch (err) {
+        res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+      }
+    })
+  );
+
+  router.get("/templates/:id/assets/:file", (req: Request<{ id: string; file: string }>, res: Response) => {
+    const dir = ctx.configStore.current.compositing.templateDir;
+    try {
+      res.sendFile(path.resolve(assetPath(dir, req.params.id, req.params.file)), (err) => {
+        if (err && !res.headersSent) res.status(404).json({ error: "image file is missing" });
+      });
+    } catch (err) {
+      res.status(404).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  // Compat for the current kiosk editor: one full-sheet overlay on top.
+  // Remove with the kiosk editor rewrite (layout elements PR 2).
   router.post(
     "/templates/:id/overlay",
     express.raw({ type: "image/png", limit: "10mb" }),
@@ -486,13 +515,21 @@ export function buildRouter(ctx: AgentContext): Router {
       const id = String(req.params["id"]);
       try {
         const template = loadTemplate(dir, id);
-        const body = req.body as unknown;
-        if (!Buffer.isBuffer(body) || body.length === 0) throw new Error("send the overlay as an image/png body");
-        const meta = await sharp(body).metadata();
-        if (meta.format !== "png") throw new Error("overlay must be a PNG");
-        await writeFile(path.join(dir, overlayFileName(id)), body);
-        const saved = saveTemplate(dir, { ...template, overlayFile: overlayFileName(id) });
-        res.json(saved);
+        const file = await saveAsset(dir, id, req.body);
+        const { overlayFile } = withLegacyFields(template);
+        const below = overlayFile ? template.elements.slice(0, -1) : template.elements;
+        const overlay = {
+          id: `overlay-${file.slice(id.length + 1, id.length + 9)}`,
+          type: "image" as const,
+          file,
+          x: 0,
+          y: 0,
+          width: template.cellWidthPx,
+          height: template.cellHeightPx,
+          rotation: 0,
+          hidden: false,
+        };
+        res.json(withLegacyFields(saveTemplate(dir, { ...template, elements: [...below, overlay] })));
       } catch (err) {
         res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
       }
@@ -502,12 +539,12 @@ export function buildRouter(ctx: AgentContext): Router {
   router.get("/templates/:id/overlay", (req: Request<{ id: string }>, res: Response) => {
     const dir = ctx.configStore.current.compositing.templateDir;
     try {
-      const overlay = resolveOverlayPath(dir, loadTemplate(dir, req.params.id));
-      if (!overlay) {
+      const { overlayFile } = withLegacyFields(loadTemplate(dir, req.params.id));
+      if (!overlayFile) {
         res.status(404).json({ error: "this layout has no overlay" });
         return;
       }
-      res.sendFile(path.resolve(overlay), (err) => {
+      res.sendFile(path.resolve(dir, overlayFile), (err) => {
         if (err && !res.headersSent) res.status(404).json({ error: "overlay file is missing" });
       });
     } catch (err) {
@@ -515,12 +552,29 @@ export function buildRouter(ctx: AgentContext): Router {
     }
   });
 
+  // Fonts text elements can use; the kiosk editor loads the same files.
+  router.get("/fonts", (_req: Request, res: Response) => {
+    res.json({ fonts: FONTS });
+  });
+
+  router.get("/fonts/:file", (req: Request<{ file: string }>, res: Response) => {
+    const file = fontFilePath(req.params.file);
+    if (!file) {
+      res.status(404).json({ error: "no such font" });
+      return;
+    }
+    res.sendFile(file);
+  });
+
   /** Settings plus the layout they point at, so the kiosk knows how many shots to take. */
   router.get("/session", (_req: Request, res: Response) => {
     const config = ctx.configStore.current;
     const settings = readSessionSettings(config.storage.dataDir);
     try {
-      res.json({ ...settings, template: loadTemplate(config.compositing.templateDir, settings.templateId) });
+      res.json({
+        ...settings,
+        template: withLegacyFields(loadTemplate(config.compositing.templateDir, settings.templateId)),
+      });
     } catch (err) {
       res.status(409).json({
         ...settings,
@@ -543,7 +597,7 @@ export function buildRouter(ctx: AgentContext): Router {
       const template = loadTemplate(config.compositing.templateDir, parsed.data.templateId);
       writeSessionSettings(config.storage.dataDir, parsed.data);
       log.info(`Session settings changed: ${JSON.stringify(parsed.data)}`);
-      res.json({ ...parsed.data, template });
+      res.json({ ...parsed.data, template: withLegacyFields(template) });
     } catch (err) {
       res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
     }

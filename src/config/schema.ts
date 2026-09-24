@@ -87,6 +87,8 @@ export const BoothConfigSchema = z.object({
   }),
   event: z.object({
     id: z.string(),
+    /** Shown in layouts as {event}. Falls back to id. */
+    name: z.string().optional(),
   }),
   sync: z.object({
     // Backlog size that turns into a /health warning. Being offline is an

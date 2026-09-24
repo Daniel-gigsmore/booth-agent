@@ -45,7 +45,8 @@
     "storageBucket": "captures"
   },
   "event": {
-    "id": "your-event-id"
+    "id": "your-event-id",
+    "name": "Gigsmore Launch"
   },
   "sync": {
     "backlogWarnCount": 50,
