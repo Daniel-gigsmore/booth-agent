@@ -12,8 +12,13 @@ import {
   saveTemplate,
   validateTemplate,
 } from "./template";
+import { AsyncMutex } from "../util/mutex";
 
 export const LAYOUT_FILE_FORMAT = "kachak-layout";
+
+// The agent is one process, so serializing every save-as-new through one
+// mutex makes choosing a free id and saving under it atomic.
+const newLayoutLock = new AsyncMutex();
 
 /** One file that carries a layout and every image it uses, to move it to another booth. */
 export interface LayoutBundle {
@@ -60,22 +65,24 @@ async function saveAsNewLayout(
   name: string,
   bytesOf: (file: string) => Promise<Buffer>
 ): Promise<EventTemplate> {
-  const id = freeTemplateId(templateDir, name);
-  try {
-    const renamed = new Map<string, string>();
-    for (const file of new Set(imageFiles(template))) {
-      renamed.set(file, await saveAsset(templateDir, id, await bytesOf(file)));
+  return newLayoutLock.run(async () => {
+    const id = freeTemplateId(templateDir, name);
+    try {
+      const renamed = new Map<string, string>();
+      for (const file of new Set(imageFiles(template))) {
+        renamed.set(file, await saveAsset(templateDir, id, await bytesOf(file)));
+      }
+      return saveTemplate(templateDir, {
+        ...template,
+        id,
+        name,
+        elements: template.elements.map((e) => (e.type === "image" ? { ...e, file: renamed.get(e.file)! } : e)),
+      });
+    } catch (err) {
+      pruneAssets(templateDir, id);
+      throw err;
     }
-    return saveTemplate(templateDir, {
-      ...template,
-      id,
-      name,
-      elements: template.elements.map((e) => (e.type === "image" ? { ...e, file: renamed.get(e.file)! } : e)),
-    });
-  } catch (err) {
-    pruneAssets(templateDir, id);
-    throw err;
-  }
+  });
 }
 
 /** Imports a file made by exportLayout as a new layout; never overwrites one. */

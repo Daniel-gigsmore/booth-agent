@@ -102,6 +102,14 @@ describe("layout files", () => {
     expect(await ownFiles("party")).toHaveLength(1);
   });
 
+  it("gives concurrent imports of the same name separate layouts", async () => {
+    const bundle = await exportLayout(dir, (await savedLayout("same", "Same")).id);
+    const [a, b] = await Promise.all([importLayout(dir, bundle), importLayout(dir, bundle)]);
+    expect(new Set([a.id, b.id]).size).toBe(2);
+    expect(loadTemplate(dir, a.id).id).toBe(a.id);
+    expect(loadTemplate(dir, b.id).id).toBe(b.id);
+  });
+
   it("won't copy a draft that points at someone else's image", async () => {
     await savedLayout("party", "Party");
     await writeFile(path.join(dir, "secret.png"), await png());
