@@ -228,9 +228,18 @@ export function listTemplates(templateDir: string): EventTemplate[] {
 
 export function saveTemplate(templateDir: string, input: unknown): EventTemplate {
   const template = validateTemplate(input);
-  // An image may be one of this layout's uploads, or a file the layout on
-  // disk already uses (a hand-placed overlay) - never an arbitrary path,
-  // which would let a save read any image on disk into the next print.
+  assertImagesAllowed(templateDir, template);
+  writeFileSync(path.join(templateDir, `${template.id}.json`), JSON.stringify(template, null, 2) + "\n");
+  pruneAssets(templateDir, template.id);
+  return template;
+}
+
+/**
+ * An image may be one of this layout's uploads, or a file the layout on disk
+ * already uses (a hand-placed overlay) - never an arbitrary path, which would
+ * let a save or a preview read any image on disk into the output.
+ */
+export function assertImagesAllowed(templateDir: string, template: EventTemplate): void {
   const filePath = path.join(templateDir, `${template.id}.json`);
   let current: string[] = [];
   try {
@@ -246,9 +255,6 @@ export function saveTemplate(templateDir: string, input: unknown): EventTemplate
       throw new Error(`image "${file}" is missing - upload it again`);
     }
   }
-  writeFileSync(filePath, JSON.stringify(template, null, 2) + "\n");
-  pruneAssets(templateDir, template.id);
-  return template;
 }
 
 export function deleteTemplate(templateDir: string, templateId: string): void {
