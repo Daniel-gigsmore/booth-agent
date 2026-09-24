@@ -1,5 +1,7 @@
 // Thin client for booth-agent (see its README "API" section). Everything the
 // kiosk needs from the camera, printer and outbox goes through here.
+import { templateBody } from "./layout";
+
 const env = import.meta.env;
 const base = env.VITE_AGENT_URL || "http://127.0.0.1:7070";
 const token = env.VITE_AGENT_TOKEN || "";
@@ -45,18 +47,29 @@ export interface Health {
 
 export type PrintSize = "4x6" | "2x6-strip";
 
-export interface Slot { x: number; y: number; width: number; height: number }
+/** Every element is a box in cell pixels; x/y is the top-left of the unrotated box. */
+interface Box { id: string; x: number; y: number; width: number; height: number; rotation: number; hidden: boolean }
+export type PhotoElement = Box & { type: "photo"; shot: number };
+export type ImageElement = Box & { type: "image"; file: string };
+export type TextElement = Box & {
+  type: "text"; text: string; font: string; size: number; color: string; align: "left" | "center" | "right"; bold: boolean;
+};
+export type RectElement = Box & { type: "rect"; fill: string; radius: number; opacity: number };
+export type LayoutElement = PhotoElement | ImageElement | TextElement | RectElement;
 
-/** A print layout. One photo per slot, so slot count = shots per guest. */
+/** A print layout: a background and elements in layer order (first = bottom). Each distinct photo shot is one photo per guest. */
 export interface Template {
   id: string;
   name?: string;
   printSize: PrintSize;
   cellWidthPx: number;
   cellHeightPx: number;
-  photoSlots: Slot[];
-  overlayFile: string | null;
+  background: string;
+  elements: LayoutElement[];
 }
+
+/** A font booth-agent bundles for text elements. */
+export interface BundledFont { family: string; file: string; hasBold: boolean }
 
 export interface SessionSettings {
   templateId: string;
@@ -86,9 +99,10 @@ export const agent = {
   session: () => call<Session>("GET", "/session"),
   saveSession: (s: SessionSettings) => call<Session>("POST", "/session", s),
   templates: () => call<{ templates: Template[] }>("GET", "/templates").then((r) => r.templates),
-  saveTemplate: (t: Template) => call<Template>("POST", `/templates/${t.id}`, t),
+  saveTemplate: (t: Template) => call<Template>("POST", `/templates/${t.id}`, templateBody(t)),
   deleteTemplate: (id: string) => call("POST", `/templates/${id}/delete`),
-  uploadOverlay: (id: string, png: Blob) => call<Template>("POST", `/templates/${id}/overlay`, png),
+  uploadAsset: (id: string, file: Blob) => call<{ file: string }>("POST", `/templates/${id}/assets`, file),
+  fonts: () => call<{ fonts: BundledFont[] }>("GET", "/fonts").then((r) => r.fonts),
   health: () => call<Health>("GET", "/health"),
   history: () => call<{ jobs: PrintJob[] }>("GET", "/print/history?limit=3"),
   reprint: (jobId: string) => call("POST", "/print/reprint", { jobId }),
