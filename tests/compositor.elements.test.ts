@@ -7,6 +7,7 @@ import sharp from "sharp";
 import { renderComposite } from "../src/compositor/compositor";
 import { validateTemplate } from "../src/compositor/template";
 import { TextVariables } from "../src/compositor/variables";
+import { FONT_DIR } from "../src/compositor/fonts";
 
 type Rgb = { r: number; g: number; b: number };
 const RED: Rgb = { r: 220, g: 30, b: 30 };
@@ -16,7 +17,11 @@ const VARS: TextVariables = { event: "Gigsmore Launch", date: "24 Sep 2026", tim
 let workDir: string;
 beforeAll(async () => {
   workDir = await mkdtemp(path.join(tmpdir(), "booth-elements-"));
-});
+  // The first text render in a process makes fontconfig scan every system
+  // font (seconds on a CI runner without a writable font cache). Pay that
+  // here so the text tests time rendering, not fontconfig start-up.
+  await sharp({ text: { text: "warm-up", font: "Manrope 12px", fontfile: path.join(FONT_DIR, "Manrope.ttf") } }).toBuffer();
+}, 60_000);
 afterAll(async () => {
   await rm(workDir, { recursive: true, force: true });
 });
@@ -132,12 +137,12 @@ describe("element renderer", () => {
 
   it("renders text inside its box, bolder when bold", async () => {
     const text = { id: "t", type: "text", text: "{event} {date}", font: "Manrope", size: 60, color: "#000000", x: 100, y: 600, width: 1000, height: 200 };
-    const regular = await darkPixels(await render([photo, text]), 100, 600, 1000, 200);
+    const file = await render([photo, text]);
+    const regular = await darkPixels(file, 100, 600, 1000, 200);
     const bold = await darkPixels(await render([photo, { ...text, bold: true }]), 100, 600, 1000, 200);
     expect(regular).toBeGreaterThan(500);
     expect(bold).toBeGreaterThan(regular * 1.1);
     // Nothing leaks out of the box.
-    const file = await render([photo, text]);
     expect(await darkPixels(file, 100, 400, 1000, 200)).toBe(0);
     expect(await darkPixels(file, 100, 800, 1000, 200)).toBe(0);
   });
