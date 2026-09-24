@@ -104,7 +104,11 @@ async function renderElement(el: LayoutElement, params: CellParams): Promise<Buf
         .png()
         .toBuffer();
     case "image":
-      return sharp(path.join(params.assetDir, el.file)).resize(el.width, el.height, { fit: "fill" }).png().toBuffer();
+      return sharp(path.join(params.assetDir, el.file))
+        .rotate() // normalize EXIF orientation before placing
+        .resize(el.width, el.height, { fit: "fill" })
+        .png()
+        .toBuffer();
     case "rect": {
       const r = Math.min(el.radius, el.width / 2, el.height / 2);
       const svg =
