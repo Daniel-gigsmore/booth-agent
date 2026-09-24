@@ -18,6 +18,7 @@ import {
   validateTemplate,
   assertImagesAllowed,
 } from "../compositor/template";
+import { exportLayout, importLayout, copyLayout } from "../compositor/templateTransfer";
 import { FONTS, fontFilePath } from "../compositor/fonts";
 import { textVariables } from "../compositor/variables";
 import { readSessionSettings, writeSessionSettings, SessionSettingsSchema } from "../session/sessionSettings";
@@ -496,6 +497,48 @@ export function buildRouter(ctx: AgentContext): Router {
       await dropIntoHotFolder(config.printing.hotFolderPath, template.printSize, jobId, file);
       log.info(`Test print of layout ${template.id} dropped into the hot folder (${jobId})`);
       res.status(202).json({ jobId });
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  }));
+
+  router.get("/templates/:id/export", asyncHandler(async (req: Request, res: Response) => {
+    const dir = ctx.configStore.current.compositing.templateDir;
+    try {
+      res.json(await exportLayout(dir, String(req.params["id"])));
+    } catch (err) {
+      res.status(404).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  }));
+
+  router.post(
+    "/layout-import",
+    express.json({ limit: "60mb" }),
+    asyncHandler(async (req: Request, res: Response) => {
+      const dir = ctx.configStore.current.compositing.templateDir;
+      try {
+        const template = await importLayout(dir, req.body);
+        log.info(`Imported layout ${template.id}`);
+        res.status(201).json(template);
+      } catch (err) {
+        res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+      }
+    })
+  );
+
+  const CopyRequestSchema = z.object({ name: z.string().trim().min(1).max(80), template: z.unknown() });
+
+  router.post("/templates/:id/copy", asyncHandler(async (req: Request, res: Response) => {
+    const dir = ctx.configStore.current.compositing.templateDir;
+    const parsed = CopyRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "give the new layout a name" });
+      return;
+    }
+    try {
+      const template = await copyLayout(dir, String(req.params["id"]), parsed.data.template, parsed.data.name);
+      log.info(`Saved layout ${req.params["id"]} as new layout ${template.id}`);
+      res.status(201).json(template);
     } catch (err) {
       res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
     }

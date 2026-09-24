@@ -11,7 +11,11 @@ export function buildHttpApp(ctx: AgentContext): Express {
   const app = express();
   app.disable("x-powered-by");
   app.use(corsMiddleware(() => ctx.configStore.current.agent.allowedOrigins));
-  app.use(express.json({ limit: "5mb" }));
+  // Layout files carry their images as base64 and can be far bigger than any
+  // other request. /layout-import parses its own body (after auth) with a
+  // larger limit, so the small global parser skips it.
+  const json = express.json({ limit: "5mb" });
+  app.use((req, res, next) => (req.path === "/layout-import" ? next() : json(req, res, next)));
   app.use(sharedSecretAuth(() => ctx.configStore.current.agent.sharedSecret));
   app.use(buildRouter(ctx));
 
