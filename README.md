@@ -2,6 +2,8 @@
 
 Local Windows service that owns the photobooth's camera and printer and exposes them to the kiosk (React) UI over `http://127.0.0.1:7070`. Runs entirely offline; the only thing that needs the internet is the background sync worker pushing finished captures up to Supabase.
 
+The guest-facing touchscreen UI lives in [`kiosk/`](kiosk/) (React + Vite). It is deployed to `C:\BoothAgent\kiosk` on the booth PC; see `kiosk/README.md`.
+
 ## Contents
 
 - [Architecture](#architecture)

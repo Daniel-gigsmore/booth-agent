@@ -25,6 +25,8 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      - run: npm ci --prefix kiosk
+      - run: npm run build --prefix kiosk
 
   # Branch protection requires a status check literally named "test" - a
   # matrix job reports as "test-matrix (ubuntu-latest)" /
