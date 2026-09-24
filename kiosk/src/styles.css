@@ -293,6 +293,7 @@ button { font: inherit; color: inherit; cursor: inherit; }
 
 .editor { display: flex; flex-direction: column; gap: 20px; flex-grow: 1; min-height: 0; }
 .editor-body { display: flex; gap: 28px; flex-grow: 1; min-height: 0; }
+.editor-body.busy { pointer-events: none; opacity: 0.6; }
 .text-input {
   height: 72px;
   padding: 0 24px;
@@ -344,8 +345,8 @@ select.text-input { padding: 0 16px; }
 .el-text { position: absolute; inset: 0; display: flex; align-items: center; overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.2; pointer-events: none; }
 .editor-handle {
   position: absolute;
-  right: -6px;
-  bottom: -6px;
+  right: 0;
+  bottom: 0;
   width: 44px;
   height: 44px;
   border-radius: 50%;

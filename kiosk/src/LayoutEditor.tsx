@@ -193,9 +193,10 @@ export default function LayoutEditor({ initial, takenIds, inUseId, onClose }: {
     <div className="editor">
       <div className="row gap-16 editor-top">
         <input className="text-input grow" value={t.name ?? ""} maxLength={80} placeholder="Layout name, e.g. Wedding 4-up"
-          aria-label="Layout name" onChange={(e) => setH((cur) => historyReplace(cur, { ...cur.present, name: e.target.value }))} />
-        <button type="button" className="btn outline sm" disabled={!h.past.length} onClick={() => setH(historyUndo)}>Undo</button>
-        <button type="button" className="btn outline sm" disabled={!h.future.length} onClick={() => setH(historyRedo)}>Redo</button>
+          aria-label="Layout name" disabled={busy}
+          onChange={(e) => setH((cur) => historyReplace(cur, { ...cur.present, name: e.target.value }))} />
+        <button type="button" className="btn outline sm" disabled={busy || !h.past.length} onClick={() => setH(historyUndo)}>Undo</button>
+        <button type="button" className="btn outline sm" disabled={busy || !h.future.length} onClick={() => setH(historyRedo)}>Redo</button>
         <button type="button" className="btn primary sm" disabled={busy} onClick={async () => { if (await save()) onClose(true); }}>
           Save
         </button>
@@ -208,7 +209,7 @@ export default function LayoutEditor({ initial, takenIds, inUseId, onClose }: {
       </div>
       {error && <div className="banner error fs-24">{error}</div>}
 
-      <div className="editor-body">
+      <div className={`editor-body ${busy ? "busy" : ""}`}>
         <AddPanel t={t} busy={busy} onAdd={add} onImage={addImageFile}
           onPaper={(key) => change(changePaper(t, key))} onBackground={(background) => change({ ...t, background })} />
 
