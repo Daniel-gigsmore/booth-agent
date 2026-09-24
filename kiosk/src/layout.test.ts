@@ -10,6 +10,7 @@ import {
 const base = { rotation: 0, hidden: false };
 const photo = (id: string, shot: number, x = 0): LayoutElement => ({ ...base, id, type: "photo", shot, x, y: 0, width: 300, height: 200 });
 const rect = (id: string): LayoutElement => ({ ...base, id, type: "rect", fill: "#ff0000", radius: 0, opacity: 1, x: 0, y: 0, width: 100, height: 100 });
+const image = (id: string, width: number, height: number): LayoutElement => ({ ...base, id, type: "image", file: "f.png", x: 0, y: 0, width, height });
 const layout = (elements: LayoutElement[]): Template => ({
   id: "t", name: "T", printSize: "4x6", cellWidthPx: 1800, cellHeightPx: 1200, background: "#ffffff", elements,
 });
@@ -124,7 +125,17 @@ describe("editing elements", () => {
     const text: LayoutElement = { ...base, id: "t", type: "text", text: "Hi", font: "Manrope", size: 90, color: "#000000", align: "center", bold: false, x: 180, y: 120, width: 900, height: 300 };
     const t = changePaper(layout([photo("a", 0), text]), "strip");
     expect(t).toMatchObject({ printSize: "2x6-strip", cellWidthPx: 600, cellHeightPx: 1800 });
-    expect(t.elements[1]).toMatchObject({ x: 60, y: 180, width: 300, height: 450, size: 30 });
+    expect(t.elements[1]).toMatchObject({ x: 60, y: 180, width: 300, height: 100, size: 30 });
+  });
+
+  it("keeps an image's aspect ratio when the paper changes, instead of stretching it", () => {
+    const t = changePaper(layout([image("i", 600, 300)]), "4r-portrait");
+    expect(t.elements[0]).toMatchObject({ width: 400, height: 200 });
+  });
+
+  it("still scales a photo independently on each axis, since photos crop to fill", () => {
+    const t = changePaper(layout([photo("a", 0)]), "4r-portrait");
+    expect(t.elements[0]).toMatchObject({ width: 200, height: 300 });
   });
 
   it("leaves the layout untouched when choosing the paper it's already on", () => {

@@ -88,8 +88,9 @@ function TextProps({ el, fonts, onPatch }: { el: TextElement; fonts: BundledFont
   const area = useRef<HTMLTextAreaElement>(null);
   function insert(v: string) {
     const a = area.current;
-    const at = a ? a.selectionStart : el.text.length;
-    const end = a ? a.selectionEnd : at;
+    const focused = a && document.activeElement === a;
+    const at = focused ? a.selectionStart : el.text.length;
+    const end = focused ? a.selectionEnd : at;
     onPatch({ text: (el.text.slice(0, at) + v + el.text.slice(end)).slice(0, 500) });
   }
   return (

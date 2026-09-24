@@ -172,20 +172,29 @@ export function normalizeAngle(deg: number): number {
   return ((((Math.round(deg) + 180) % 360) + 360) % 360) - 180;
 }
 
-/** Switches paper, scaling every element (and text size) to the new cell. */
+/**
+ * Switches paper, scaling every element (and text size) to the new cell.
+ * Photos crop to fill their box, so they scale x/width and y/height
+ * independently, stretching to keep the grid filling the page. Images,
+ * text and shapes keep their proportions: position still scales per axis,
+ * but width/height scale together by the smaller of the two factors.
+ */
 export function changePaper(t: Template, key: string): Template {
   const p = PAPERS.find((x) => x.key === key) ?? PAPERS[0];
   if (p.key === paperOf(t).key) return t;
   const sx = p.w / t.cellWidthPx;
   const sy = p.h / t.cellHeightPx;
+  const s = Math.min(sx, sy);
   return {
     ...t,
     printSize: p.printSize,
     cellWidthPx: p.w,
     cellHeightPx: p.h,
     elements: t.elements.map((e) => {
-      const scaled = { ...e, x: snap(e.x * sx), y: snap(e.y * sy), width: side(e.width * sx), height: side(e.height * sy) };
-      return scaled.type === "text" ? { ...scaled, size: clamp(Math.round(scaled.size * Math.min(sx, sy)), 8, 600) } : scaled;
+      const wf = e.type === "photo" ? sx : s;
+      const hf = e.type === "photo" ? sy : s;
+      const scaled = { ...e, x: snap(e.x * sx), y: snap(e.y * sy), width: side(e.width * wf), height: side(e.height * hf) };
+      return scaled.type === "text" ? { ...scaled, size: clamp(Math.round(scaled.size * s), 8, 600) } : scaled;
     }),
   };
 }
