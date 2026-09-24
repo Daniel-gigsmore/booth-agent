@@ -8,7 +8,6 @@ import {
   saveTemplate,
   listTemplates,
   validateTemplate,
-  withLegacyFields,
   shotCount,
   isOwnAsset,
 } from "../src/compositor/template";
@@ -136,18 +135,9 @@ describe("legacy templates", () => {
     ]);
   });
 
-  it("round-trips through the legacy view the current kiosk reads", () => {
-    const view = withLegacyFields(validateTemplate(legacy));
-    expect(view.photoSlots).toEqual(legacy.photoSlots);
-    expect(view.overlayFile).toBe("old-overlay.png");
-    // The current kiosk sends back what it was given, with photoSlots edited.
-    const moved = validateTemplate({ ...view, photoSlots: [{ x: 0, y: 0, width: 900, height: 600 }], overlayFile: null });
-    expect(moved.elements).toHaveLength(1);
-    expect(moved.elements[0]).toMatchObject({ type: "photo", x: 0, width: 900 });
-  });
-
-  it("reports no overlay when the top element isn't a full-cell image", () => {
-    expect(withLegacyFields(validateTemplate(landscape)).overlayFile).toBeNull();
+  it("still treats a body with photoSlots as old-format", () => {
+    const t = validateTemplate({ ...legacy, elements: [{ id: "x", type: "rect", fill: "#000000", x: 0, y: 0, width: 1, height: 1 }] });
+    expect(t.elements.map((e) => e.type)).toEqual(["photo", "photo", "image"]);
   });
 
   it("migrates every shipped default template", () => {

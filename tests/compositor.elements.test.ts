@@ -135,6 +135,27 @@ describe("element renderer", () => {
     expect(near(await pixel(file, 600, 650), BLUE)).toBe(true);
   });
 
+  it("honours EXIF orientation on an uploaded image", async () => {
+    // 200x100 raw JPEG, left half red / right half blue, tagged orientation 6
+    // ("rotate 90deg clockwise to display"): a browser (and the fix) show it
+    // as 100x200 with red on top and blue on the bottom.
+    const redSq = await sharp({ create: { width: 100, height: 100, channels: 3, background: RED } }).png().toBuffer();
+    const blueSq = await sharp({ create: { width: 100, height: 100, channels: 3, background: BLUE } }).png().toBuffer();
+    const file = path.join(workDir, `exif-${randomUUID()}.jpg`);
+    await sharp({ create: { width: 200, height: 100, channels: 3, background: "#000000" } })
+      .composite([
+        { input: redSq, left: 0, top: 0 },
+        { input: blueSq, left: 100, top: 0 },
+      ])
+      .jpeg()
+      .withMetadata({ orientation: 6 })
+      .toFile(file);
+    const asset = path.basename(file);
+    const out = await render([photo, { id: "i", type: "image", file: asset, x: 0, y: 0, width: 100, height: 200 }]);
+    expect(near(await pixel(out, 75, 20), RED)).toBe(true);
+    expect(near(await pixel(out, 75, 180), BLUE)).toBe(true);
+  });
+
   it("renders text inside its box, bolder when bold", async () => {
     const text = { id: "t", type: "text", text: "{event} {date}", font: "Manrope", size: 60, color: "#000000", x: 100, y: 600, width: 1000, height: 200 };
     const file = await render([photo, text]);

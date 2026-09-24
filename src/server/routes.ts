@@ -15,7 +15,6 @@ import {
   saveAsset,
   assetPath,
   shotCount,
-  withLegacyFields,
 } from "../compositor/template";
 import { FONTS, fontFilePath } from "../compositor/fonts";
 import { textVariables } from "../compositor/variables";
@@ -450,7 +449,7 @@ export function buildRouter(ctx: AgentContext): Router {
 
   router.get("/templates", (_req: Request, res: Response) => {
     const dir = ctx.configStore.current.compositing.templateDir;
-    res.json({ templates: listTemplates(dir).map(withLegacyFields) });
+    res.json({ templates: listTemplates(dir) });
   });
 
   router.post("/templates/:id", (req: Request<{ id: string }>, res: Response) => {
@@ -458,7 +457,7 @@ export function buildRouter(ctx: AgentContext): Router {
     try {
       const template = saveTemplate(dir, { ...req.body, id: req.params.id });
       log.info(`Saved layout ${template.id} (${shotCount(template)} photos, ${template.elements.length} elements)`);
-      res.json(withLegacyFields(template));
+      res.json(template);
     } catch (err) {
       res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
     }
@@ -505,53 +504,6 @@ export function buildRouter(ctx: AgentContext): Router {
     }
   });
 
-  // Compat for the current kiosk editor: one full-sheet overlay on top.
-  // Remove with the kiosk editor rewrite (layout elements PR 2).
-  router.post(
-    "/templates/:id/overlay",
-    express.raw({ type: "image/png", limit: "10mb" }),
-    asyncHandler(async (req: Request, res: Response) => {
-      const dir = ctx.configStore.current.compositing.templateDir;
-      const id = String(req.params["id"]);
-      try {
-        const template = loadTemplate(dir, id);
-        const file = await saveAsset(dir, id, req.body);
-        const { overlayFile } = withLegacyFields(template);
-        const below = overlayFile ? template.elements.slice(0, -1) : template.elements;
-        const overlay = {
-          id: `overlay-${file.slice(id.length + 1, id.length + 9)}`,
-          type: "image" as const,
-          file,
-          x: 0,
-          y: 0,
-          width: template.cellWidthPx,
-          height: template.cellHeightPx,
-          rotation: 0,
-          hidden: false,
-        };
-        res.json(withLegacyFields(saveTemplate(dir, { ...template, elements: [...below, overlay] })));
-      } catch (err) {
-        res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
-      }
-    })
-  );
-
-  router.get("/templates/:id/overlay", (req: Request<{ id: string }>, res: Response) => {
-    const dir = ctx.configStore.current.compositing.templateDir;
-    try {
-      const { overlayFile } = withLegacyFields(loadTemplate(dir, req.params.id));
-      if (!overlayFile) {
-        res.status(404).json({ error: "this layout has no overlay" });
-        return;
-      }
-      res.sendFile(path.resolve(dir, overlayFile), (err) => {
-        if (err && !res.headersSent) res.status(404).json({ error: "overlay file is missing" });
-      });
-    } catch (err) {
-      res.status(404).json({ error: err instanceof Error ? err.message : String(err) });
-    }
-  });
-
   // Fonts text elements can use; the kiosk editor loads the same files.
   router.get("/fonts", (_req: Request, res: Response) => {
     res.json({ fonts: FONTS });
@@ -573,7 +525,7 @@ export function buildRouter(ctx: AgentContext): Router {
     try {
       res.json({
         ...settings,
-        template: withLegacyFields(loadTemplate(config.compositing.templateDir, settings.templateId)),
+        template: loadTemplate(config.compositing.templateDir, settings.templateId),
       });
     } catch (err) {
       res.status(409).json({
@@ -597,7 +549,7 @@ export function buildRouter(ctx: AgentContext): Router {
       const template = loadTemplate(config.compositing.templateDir, parsed.data.templateId);
       writeSessionSettings(config.storage.dataDir, parsed.data);
       log.info(`Session settings changed: ${JSON.stringify(parsed.data)}`);
-      res.json({ ...parsed.data, template: withLegacyFields(template) });
+      res.json({ ...parsed.data, template });
     } catch (err) {
       res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
     }

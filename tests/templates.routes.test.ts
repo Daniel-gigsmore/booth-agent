@@ -50,11 +50,11 @@ const auth = { Authorization: `Bearer ${SECRET}` };
 const png = () => sharp({ create: { width: 8, height: 8, channels: 4, background: "#ff0000" } }).png().toBuffer();
 
 describe("layout routes", () => {
-  it("lists legacy layouts with both elements and the old fields", async () => {
+  it("lists legacy layouts as elements", async () => {
     const { templates } = await (await fetch(`${base}/templates`, { headers: auth })).json();
     expect(templates[0].elements).toHaveLength(2);
-    expect(templates[0].photoSlots).toHaveLength(2);
-    expect(templates[0].overlayFile).toBeNull();
+    expect(templates[0]).not.toHaveProperty("photoSlots");
+    expect(templates[0]).not.toHaveProperty("overlayFile");
   });
 
   it("uploads an asset and saves a layout that uses it", async () => {
@@ -83,7 +83,7 @@ describe("layout routes", () => {
       }),
     });
     expect(save.status).toBe(200);
-    expect((await save.json()).overlayFile).toBe(file);
+    expect((await save.json()).elements[1]).toMatchObject({ type: "image", file });
   });
 
   it("rejects a non-image upload and a foreign asset path", async () => {
@@ -96,17 +96,8 @@ describe("layout routes", () => {
     expect((await fetch(`${base}/templates/new/assets/old.json`, { headers: auth })).status).toBe(404);
   });
 
-  it("replaces the overlay through the compat route without touching the photos", async () => {
-    const res = await fetch(`${base}/templates/old/overlay`, {
-      method: "POST",
-      headers: { ...auth, "Content-Type": "image/png" },
-      body: await png(),
-    });
-    expect(res.status).toBe(200);
-    const saved = await res.json();
-    expect(saved.photoSlots).toHaveLength(2);
-    expect(saved.overlayFile).toMatch(/^old-[0-9a-f]+\.png$/);
-    expect((await fetch(`${base}/templates/old/overlay`, { headers: auth })).status).toBe(200);
+  it("no longer serves the old overlay routes", async () => {
+    expect((await fetch(`${base}/templates/old/overlay`, { headers: auth })).status).toBe(404);
   });
 
   it("lists and serves bundled fonts, and nothing else", async () => {

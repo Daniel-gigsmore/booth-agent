@@ -124,10 +124,8 @@ const LegacyFieldsSchema = z.object({
 /**
  * Converts the pre-elements format (photoSlots + overlayFile): each slot
  * becomes a photo taking that shot, and the overlay a full-cell image on top.
- * Anything carrying photoSlots counts as legacy even if it also has elements:
- * until the kiosk editor is rewritten, it sends back what GET /templates gave
- * it (elements plus the derived photoSlots) with only photoSlots edited, and
- * before then no layout has anything but photos and an overlay.
+ * Anything carrying photoSlots counts as legacy, even alongside elements:
+ * that was the shape the pre-elements kiosk sent back.
  */
 export function migrateLegacyTemplate(input: unknown): unknown {
   if (typeof input !== "object" || input === null || !("photoSlots" in input)) return input;
@@ -204,34 +202,6 @@ export function validateTemplate(input: unknown): EventTemplate {
   }
 
   return parsed;
-}
-
-export interface LegacySlot {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
-export type ApiTemplate = EventTemplate & { photoSlots: LegacySlot[]; overlayFile: string | null };
-
-/**
- * Adds the old fields the current kiosk still reads: one slot per shot (its
- * first photo element) and the overlay (a full-cell image on top). Remove
- * once the kiosk editor works on elements (layout elements PR 2).
- */
-export function withLegacyFields(t: EventTemplate): ApiTemplate {
-  const photos = t.elements.filter((e): e is PhotoElement => e.type === "photo");
-  const photoSlots = Array.from({ length: shotCount(t) }, (_, shot) => {
-    const { x, y, width, height } = photos.find((p) => p.shot === shot)!;
-    return { x, y, width, height };
-  });
-  const top = t.elements[t.elements.length - 1];
-  const overlayFile =
-    top?.type === "image" && top.x === 0 && top.y === 0 && top.width === t.cellWidthPx && top.height === t.cellHeightPx
-      ? top.file
-      : null;
-  return { ...t, photoSlots, overlayFile };
 }
 
 export function loadTemplate(templateDir: string, templateId: string): EventTemplate {

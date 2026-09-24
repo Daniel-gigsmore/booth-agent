@@ -215,9 +215,8 @@ export function sampleText(text: string, eventName: string, now: Date = new Date
 }
 
 /**
- * Just the fields booth-agent stores. Its responses still carry the old
- * photoSlots/overlayFile fields, and sending those back would make it treat
- * the layout as old-format and drop every non-photo element.
+ * Just the fields booth-agent stores. A body carrying the pre-elements
+ * photoSlots field would be treated as old-format, so never send extras.
  */
 export function templateBody(t: Template): Template {
   const { id, name, printSize, cellWidthPx, cellHeightPx, background, elements } = t;
