@@ -1,17 +1,36 @@
 /** Messages between EdsdkSource (agent side) and the camera worker child process. */
 
+import { SettingKey } from "./cameraLabels";
+export type { SettingKey };
+
+export interface SettingOption {
+  code: number;
+  label: string;
+}
+
+export interface CameraSettings {
+  mode: string | null;
+  settings: Record<SettingKey, { value: SettingOption | null; options: SettingOption[] }>;
+  /** Keys from the last setSettings that the camera refused (not allowed in this mode, or the set failed). */
+  rejected: SettingKey[];
+}
+
+export type SettingChanges = Partial<Record<SettingKey, number>>;
+
 export type RequestBody =
   | { type: "capture"; destPath: string }
   | { type: "frame" }
   | { type: "prefocus" }
   | { type: "ping" }
-  | { type: "shutdown" };
+  | { type: "shutdown" }
+  | { type: "getSettings" }
+  | { type: "setSettings"; changes: SettingChanges };
 
 export type WorkerRequest = RequestBody & { id: number };
 
-/** `result` is a JPEG for "frame" (or null when there is none right now) and null for everything else. */
+/** `result` is a JPEG for "frame" (or null when there is none right now), CameraSettings for get/setSettings, and null for everything else. */
 export type WorkerResponse =
-  | { id: number; ok: true; result: Uint8Array | null }
+  | { id: number; ok: true; result: Uint8Array | CameraSettings | null }
   | { id: number; ok: false; error: string };
 
 export type LogLevel = "debug" | "info" | "warn" | "error";

@@ -365,6 +365,61 @@ describe("CameraWorker status", () => {
   });
 });
 
+describe("CameraWorker settings", () => {
+  beforeEach(() => {
+    makeWorker();
+    eds.props.set(EDS.PROP_AE_MODE, 2); // Av
+    eds.props.set(EDS.PROP_ISO, 0x58);
+    eds.props.set(EDS.PROP_AV, 0x30);
+    eds.props.set(EDS.PROP_TV, 0x70);
+    eds.props.set(EDS.PROP_WHITE_BALANCE, 0);
+    eds.props.set(EDS.PROP_EXPOSURE_COMP, 0);
+    eds.props.set(EDS.PROP_IMAGE_QUALITY, 0x0013ff0f);
+    eds.descs.set(EDS.PROP_ISO, [0, 0x48, 0x58, 0x60]);
+    eds.descs.set(EDS.PROP_AV, [0x28, 0x30, 0x38]);
+    // Tv has no allowed values: in Av mode the camera picks the shutter speed
+    eds.descs.set(EDS.PROP_WHITE_BALANCE, [0, 1, 2]);
+    eds.descs.set(EDS.PROP_EXPOSURE_COMP, [0xf8, 0, 0x08]);
+    eds.descs.set(EDS.PROP_IMAGE_QUALITY, [0x0013ff0f, 0x00640013]);
+    worker.tick();
+  });
+
+  it("reports current values and the allowed options, with labels", () => {
+    const s = worker.getSettings();
+    expect(s.mode).toBe("Av");
+    expect(s.settings.iso).toEqual({
+      value: { code: 0x58, label: "ISO 400" },
+      options: [
+        { code: 0, label: "ISO Auto" }, { code: 0x48, label: "ISO 100" },
+        { code: 0x58, label: "ISO 400" }, { code: 0x60, label: "ISO 800" },
+      ],
+    });
+    expect(s.settings.tv.options).toEqual([]); // disabled in Av mode
+    expect(s.settings.tv.value).toEqual({ code: 0x70, label: "1/125" });
+    expect(s.rejected).toEqual([]);
+  });
+
+  it("sets allowed values and reports disallowed or failed ones as rejected", () => {
+    eds.rejectSet.set(EDS.PROP_WHITE_BALANCE, EDS.ERR_DEVICE_BUSY);
+    const s = worker.setSettings({ iso: 0x60, tv: 0x78, wb: 1 });
+    expect(eds.props.get(EDS.PROP_ISO)).toBe(0x60);
+    expect(eds.props.get(EDS.PROP_TV)).toBe(0x70); // unchanged: not in the allowed list
+    expect(s.settings.iso.value).toEqual({ code: 0x60, label: "ISO 800" });
+    expect(s.rejected.sort()).toEqual(["tv", "wb"]);
+  });
+
+  it("refuses with no camera or during a capture", async () => {
+    eds.photoNames = [];
+    const capture = worker.capture(dest());
+    expect(() => worker.getSettings()).toThrow("busy capturing");
+    expect(() => worker.setSettings({ iso: 0x48 })).toThrow("busy capturing");
+    await expect(capture).rejects.toThrow("timed out");
+    eds.unplug();
+    worker.tick();
+    expect(() => worker.getSettings()).toThrow("No Canon camera connected");
+  });
+});
+
 describe("CameraWorker shutdown", () => {
   it("releases the shutter, stops live view, closes the session and terminates EDSDK", () => {
     makeWorker();

@@ -145,7 +145,9 @@ export class EdsdkSource implements CameraSource {
       if (!pending) return;
       this.pending.delete(message.id);
       clearTimeout(pending.timer);
-      if (message.ok) pending.resolve(message.result);
+      // Task 2 widened WorkerResponse.result to include CameraSettings; Task 3 will widen
+      // EdsdkSource's own request/Pending types to carry it through properly.
+      if (message.ok) pending.resolve(message.result as Uint8Array | null);
       else pending.reject(new Error(message.error));
       return;
     }

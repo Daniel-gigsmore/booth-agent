@@ -17,6 +17,12 @@ export function loadEdsdk(dllPath: string): EdsApi {
     reserved: "uint32",
   });
   koffi.struct("EdsCapacity", { numberOfFreeClusters: "int32", bytesPerSector: "int32", reset: "int32" });
+  koffi.struct("EdsPropertyDesc", {
+    form: "int32",
+    access: "int32",
+    numElements: "int32",
+    propDesc: koffi.array("int32", 128),
+  });
   koffi.struct("EdsDirectoryItemInfo", {
     size: "uint64",
     isFolder: "int32",
@@ -41,6 +47,7 @@ export function loadEdsdk(dllPath: string): EdsApi {
     release: lib.func("uint32 __stdcall EdsRelease(void *ref)"),
     getU32: lib.func("uint32 __stdcall EdsGetPropertyData(void *ref, uint32 id, int32 param, uint32 size, _Out_ uint32 *data)"),
     setU32: lib.func("uint32 __stdcall EdsSetPropertyData(void *ref, uint32 id, int32 param, uint32 size, _In_ uint32 *data)"),
+    getPropertyDesc: lib.func("uint32 __stdcall EdsGetPropertyDesc(void *ref, uint32 id, _Out_ EdsPropertyDesc *desc)"),
     setCapacity: lib.func("uint32 __stdcall EdsSetCapacity(void *cam, EdsCapacity capacity)"),
     sendCommand: lib.func("uint32 __stdcall EdsSendCommand(void *cam, uint32 command, int32 param)"),
     setObjectHandler: lib.func("uint32 __stdcall EdsSetObjectEventHandler(void *cam, uint32 event, EdsObjectEventHandler *handler, void *ctx)"),
@@ -107,6 +114,14 @@ export function loadEdsdk(dllPath: string): EdsApi {
       return { err, value: value[0] ?? 0 };
     },
     setU32: (cam, prop, value) => f.setU32(cam, prop, 0, 4, [value]),
+    getPropertyDesc(cam, prop) {
+      const desc: { numElements?: number; propDesc?: number[] } = {};
+      const err = f.getPropertyDesc(cam, prop, desc);
+      if (err !== 0) return { err, values: [] };
+      const n = Math.max(0, Math.min(128, desc.numElements ?? 0));
+      // Codes are unsigned property values; int32 decoding would turn e.g. 0xFFFFFFFF into -1.
+      return { err: 0, values: Array.from(desc.propDesc ?? []).slice(0, n).map((v) => v >>> 0) };
+    },
     setCapacityHost: (cam) => f.setCapacity(cam, { numberOfFreeClusters: 0x7fffffff, bytesPerSector: 0x1000, reset: 1 }),
     sendCommand: (cam, command, param) => f.sendCommand(cam, command, param),
     setObjectHandler(cam, handler) {
