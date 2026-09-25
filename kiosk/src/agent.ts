@@ -54,7 +54,16 @@ export type HealthLevel = "ok" | "warn" | "error";
 export interface Health {
   overall: HealthLevel;
   alerts: { level: "warn" | "error"; code: string; message: string }[];
-  camera: { activeSource: string; model: string | null };
+  camera: {
+    activeSource: string;
+    model: string | null;
+    driver?: "digicamcontrol" | "edsdk";
+    battery?: number | "ac" | null;
+    mode?: string | null;
+    afMode?: string | null;
+    quality?: { label: string; hasJpeg: boolean } | null;
+    lastError?: { message: string; at: string } | null;
+  };
   printer: { reachable: boolean; ok: boolean; status: string | null; model: string | null; mediaRemaining: number | null };
   stalledPrints: { count: number };
   outbox: { queueDepth: number; lastError: string | null };
