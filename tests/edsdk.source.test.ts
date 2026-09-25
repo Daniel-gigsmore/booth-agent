@@ -162,6 +162,61 @@ describe("EdsdkSource", () => {
   });
 });
 
+describe("EdsdkSource detail", () => {
+  it("caches the worker's status and keeps lastError when the worker dies", async () => {
+    expect(source.getDetail()).toBeNull();
+    const detail = { battery: "ac" as const, mode: "M", afMode: "AI Servo", quality: { label: "JPEG", hasJpeg: true }, lastError: null };
+    current().push({ type: "status", detail });
+    expect(source.getDetail()).toEqual(detail);
+
+    current().emit("exit", 3);
+    expect(source.getDetail()).toMatchObject({
+      battery: null, mode: null, afMode: null, quality: null,
+      lastError: { message: "Camera worker exited (code 3)" },
+    });
+  });
+
+  it("preserves lastError when respawned worker sends status with lastError: null", async () => {
+    // Crash the current worker
+    current().emit("exit", 3);
+
+    // Advance timers to allow respawn (1000ms backoff)
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    // New worker sends status with lastError: null and battery 50
+    const newDetail = {
+      battery: 50 as const,
+      mode: null,
+      afMode: null,
+      quality: null,
+      lastError: null,
+    };
+    current().push({ type: "status", detail: newDetail });
+
+    // Should preserve the crash error while updating battery
+    const detail = source.getDetail();
+    expect(detail).toEqual({
+      battery: 50,
+      mode: null,
+      afMode: null,
+      quality: null,
+      lastError: { message: "Camera worker exited (code 3)", at: expect.any(String) },
+    });
+
+    // New error from worker should replace the old one
+    const newError = { message: "Autofocus failed - took the shot without autofocus", at: "t" };
+    current().push({ type: "status", detail: { ...newDetail, lastError: newError } });
+
+    expect(source.getDetail()).toEqual({
+      battery: 50,
+      mode: null,
+      afMode: null,
+      quality: null,
+      lastError: newError,
+    });
+  });
+});
+
 describe("EdsdkSource pre-focus", () => {
   it("sends a prefocus request to the worker", async () => {
     await source.prefocus();

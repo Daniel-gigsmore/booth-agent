@@ -195,6 +195,7 @@ describe("the stall alert", () => {
     canonConnected: true,
     webcamConnected: true,
     preference: "canon",
+    canonDetail: null,
   };
 
   // Everything HFP reports is fine. That is the entire point of this alert.
@@ -216,6 +217,7 @@ describe("the stall alert", () => {
   function report(stalledPrints: Parameters<typeof buildHealthReport>[0]["stalledPrints"]) {
     return buildHealthReport({
       camera: healthyCamera,
+      canon: { driver: "digicamcontrol", digiCamControlRunning: false },
       hotFolder: { path: "C:\\DNP\\HotFolderPrint\\Prints", writable: true },
       stalledPrints,
       printer: healthyPrinter,

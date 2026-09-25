@@ -3,6 +3,7 @@ import { CameraKind } from "../events/types";
 import { CaptureSourcePreference } from "../config/schema";
 import { EventBus } from "../events/eventBus";
 import { createLogger } from "../util/logger";
+import { CameraDetail } from "./edsdk/protocol";
 
 const log = createLogger("camera:manager");
 
@@ -20,6 +21,7 @@ export interface CameraManagerStatus {
   canonConnected: boolean;
   webcamConnected: boolean;
   preference: CaptureSourcePreference;
+  canonDetail: CameraDetail | null;
 }
 
 /**
@@ -92,6 +94,7 @@ export class CameraManager {
       canonConnected: this.healthy.canon,
       webcamConnected: this.healthy.webcam,
       preference: this.preference,
+      canonDetail: this.sources.canon.getDetail?.() ?? null,
     };
   }
 

@@ -3,6 +3,7 @@ import { PrinterStatus } from "../print/printerStatus";
 import { DiskSpace } from "../util/disk";
 import { SyncSummary } from "../outbox/types";
 import { StalledPrints } from "../print/hotFolderStall";
+import { CameraDetail } from "../camera/edsdk/protocol";
 
 /**
  * `/health` used to return raw facts and leave the judgement to whoever read
@@ -46,6 +47,8 @@ export interface HealthThresholds {
 
 export interface HealthInputs {
   camera: CameraManagerStatus;
+  /** How the Canon is driven, and for EDSDK whether digiCamControl is running too. */
+  canon: { driver: "digicamcontrol" | "edsdk"; digiCamControlRunning: boolean };
   hotFolder: { path: string; writable: boolean };
   /** Dropped files HFP has not claimed. See reconcileHotFolderDrops(). */
   stalledPrints: StalledPrints;
@@ -66,6 +69,12 @@ export interface HealthReport {
     canonConnected: boolean;
     webcamConnected: boolean;
     preference: string;
+    driver: "digicamcontrol" | "edsdk";
+    battery: CameraDetail["battery"];
+    mode: string | null;
+    afMode: string | null;
+    quality: CameraDetail["quality"];
+    lastError: CameraDetail["lastError"];
   };
   hotFolder: { path: string; writable: boolean };
   stalledPrints: StalledPrints;
@@ -76,7 +85,7 @@ export interface HealthReport {
 }
 
 export function buildHealthReport(inputs: HealthInputs): HealthReport {
-  const { camera, hotFolder, stalledPrints, printer, disk, outbox, eventId, thresholds } = inputs;
+  const { camera, canon, hotFolder, stalledPrints, printer, disk, outbox, eventId, thresholds } = inputs;
   const alerts: HealthAlert[] = [];
 
   // --- Capture ------------------------------------------------------------
@@ -84,13 +93,39 @@ export function buildHealthReport(inputs: HealthInputs): HealthReport {
     alerts.push({
       level: "error",
       code: "camera-none",
-      message: "No camera available - captures will fail. Check USB and digiCamControl.",
+      message:
+        canon.driver === "edsdk"
+          ? "No camera available - captures will fail. Check the camera is on and its USB cable is plugged in."
+          : "No camera available - captures will fail. Check USB and digiCamControl.",
     });
   } else if (camera.activeSource !== camera.preference) {
     alerts.push({
       level: "warn",
       code: "camera-fallback",
       message: `Running on ${camera.activeSource} instead of ${camera.preference} - photo quality is reduced.`,
+    });
+  }
+
+  const detail = camera.canonDetail;
+  if (canon.driver === "edsdk" && canon.digiCamControlRunning) {
+    alerts.push({
+      level: "error",
+      code: "camera-digicamcontrol-conflict",
+      message: "digiCamControl is running and holding the camera - close it (and remove it from startup) so the booth can use the camera.",
+    });
+  }
+  if (detail?.quality && !detail.quality.hasJpeg) {
+    alerts.push({
+      level: "error",
+      code: "camera-raw-only",
+      message: `The camera is set to ${detail.quality.label} with no JPEG - captures will fail. Set image quality to include JPEG.`,
+    });
+  }
+  if (typeof detail?.battery === "number" && detail.battery < 20) {
+    alerts.push({
+      level: "warn",
+      code: "camera-battery-low",
+      message: `Camera battery at ${detail.battery}% - swap or charge it at the next gap.`,
     });
   }
 
@@ -213,6 +248,12 @@ export function buildHealthReport(inputs: HealthInputs): HealthReport {
       canonConnected: camera.canonConnected,
       webcamConnected: camera.webcamConnected,
       preference: camera.preference,
+      driver: canon.driver,
+      battery: detail?.battery ?? null,
+      mode: detail?.mode ?? null,
+      afMode: detail?.afMode ?? null,
+      quality: detail?.quality ?? null,
+      lastError: detail?.lastError ?? null,
     },
     hotFolder,
     stalledPrints,

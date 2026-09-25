@@ -16,10 +16,20 @@ export type WorkerResponse =
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
 
+/** Live camera detail for the Status tab / /health. Null fields mean "unknown right now". */
+export interface CameraDetail {
+  battery: number | "ac" | null;
+  mode: string | null;
+  afMode: string | null;
+  quality: { label: string; hasJpeg: boolean } | null;
+  lastError: { message: string; at: string } | null;
+}
+
 /** Pushed by the worker on its own, not in answer to a request. */
 export type WorkerEvent =
   | { type: "state"; connected: boolean; model: string | null }
-  | { type: "log"; level: LogLevel; message: string };
+  | { type: "log"; level: LogLevel; message: string }
+  | { type: "status"; detail: CameraDetail };
 
 export type WorkerMessage = WorkerResponse | WorkerEvent;
 

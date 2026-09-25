@@ -35,6 +35,7 @@ const healthyCamera: CameraManagerStatus = {
   canonConnected: true,
   webcamConnected: true,
   preference: "canon",
+  canonDetail: null,
 };
 
 const healthyPrinter: PrinterStatus = {
@@ -115,6 +116,7 @@ describe("abandoning captures that can never sync", () => {
   it("reports abandoned captures as their own warn, separate from a backlog", () => {
     const report = buildHealthReport({
       camera: healthyCamera,
+      canon: { driver: "digicamcontrol", digiCamControlRunning: false },
       hotFolder: { path: "C:\\DNP\\HotFolderPrint\\Prints", writable: true },
       stalledPrints: { count: 0, oldestDroppedAt: null, oldestAgeSeconds: null, files: [] },
       printer: healthyPrinter,

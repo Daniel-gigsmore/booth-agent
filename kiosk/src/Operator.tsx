@@ -1,10 +1,17 @@
 import { useEffect, useState } from "react";
-import { agent, config, PrintJob, SessionSettings, Template } from "./agent";
+import { agent, config, Health, PrintJob, SessionSettings, Template } from "./agent";
 import { useHealth } from "./hooks";
 import LayoutEditor, { LayoutThumb } from "./LayoutEditor";
 import { newTemplate, shotCount } from "./layout";
 
 const time = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+/** "Using canon · 80% · M · AI Servo · RAW+JPEG" - only the parts the agent knows. */
+function cameraNote(c: Health["camera"]): string {
+  if (c.activeSource === "none") return "No camera";
+  const battery = c.battery === "ac" ? "AC power" : typeof c.battery === "number" ? `${c.battery}%` : null;
+  return [`Using ${c.activeSource}`, battery, c.mode, c.afMode, c.quality?.label].filter(Boolean).join(" · ");
+}
 
 function Card({ label, value, ok, note }: { label: string; value: string; ok: boolean; note: string }) {
   return (
@@ -45,17 +52,24 @@ function StatusTab() {
       </div>
 
       {h && (
-        <div className="op-grid">
-          <Card label="CAMERA" value={h.camera.model ?? h.camera.activeSource}
-            ok={h.camera.activeSource !== "none"} note={h.camera.activeSource === "none" ? "No camera" : `Using ${h.camera.activeSource}`} />
-          <Card label={`PRINTER${h.printer.model ? ` · ${h.printer.model}` : ""}`}
-            value={h.printer.mediaRemaining !== null ? `${h.printer.mediaRemaining} prints left` : "Media unknown"}
-            ok={h.printer.ok} note={h.printer.reachable ? h.printer.status ?? "Unknown" : "Not reachable"} />
-          <Card label="PHOTO SYNC" value={h.outbox.queueDepth === 0 ? "Up to date" : "Uploading"}
-            ok={!h.outbox.lastError} note={h.outbox.lastError ? "Offline, will retry" : `${h.outbox.queueDepth} waiting to upload`} />
-          <Card label="HOT FOLDER" value={h.stalledPrints.count === 0 ? "Printing normally" : "Stuck"}
-            ok={h.stalledPrints.count === 0} note={`${h.stalledPrints.count} stuck`} />
-        </div>
+        <>
+          <div className="op-grid">
+            <Card label="CAMERA" value={h.camera.model ?? h.camera.activeSource}
+              ok={h.camera.activeSource !== "none"} note={cameraNote(h.camera)} />
+            <Card label={`PRINTER${h.printer.model ? ` · ${h.printer.model}` : ""}`}
+              value={h.printer.mediaRemaining !== null ? `${h.printer.mediaRemaining} prints left` : "Media unknown"}
+              ok={h.printer.ok} note={h.printer.reachable ? h.printer.status ?? "Unknown" : "Not reachable"} />
+            <Card label="PHOTO SYNC" value={h.outbox.queueDepth === 0 ? "Up to date" : "Uploading"}
+              ok={!h.outbox.lastError} note={h.outbox.lastError ? "Offline, will retry" : `${h.outbox.queueDepth} waiting to upload`} />
+            <Card label="HOT FOLDER" value={h.stalledPrints.count === 0 ? "Printing normally" : "Stuck"}
+              ok={h.stalledPrints.count === 0} note={`${h.stalledPrints.count} stuck`} />
+          </div>
+          {h.camera.lastError && (
+            <div className="muted fs-24">
+              Last camera issue ({time(h.camera.lastError.at)}): {h.camera.lastError.message}
+            </div>
+          )}
+        </>
       )}
 
       <div className="col gap-16">

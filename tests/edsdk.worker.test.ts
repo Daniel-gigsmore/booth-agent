@@ -289,6 +289,82 @@ describe("CameraWorker pre-focus", () => {
   });
 });
 
+describe("CameraWorker status", () => {
+  const statuses = () => events.filter((e) => e.type === "status");
+
+  beforeEach(() => {
+    makeWorker();
+    eds.props.set(EDS.PROP_BATTERY_LEVEL, 80);
+    eds.props.set(EDS.PROP_AE_MODE, 3);
+    eds.props.set(EDS.PROP_AF_MODE, 1);
+    eds.props.set(EDS.PROP_IMAGE_QUALITY, 0x00640013);
+    worker.tick(); // connects and reads the status once
+  });
+
+  it("reports the camera's status right after connecting", () => {
+    expect(statuses().at(-1)).toEqual({
+      type: "status",
+      detail: { battery: 80, mode: "M", afMode: "AI Servo", quality: { label: "RAW+JPEG", hasJpeg: true }, lastError: null },
+    });
+  });
+
+  it("re-reads every 5 s and only reports changes", () => {
+    const before = statuses().length;
+    clock.advance(5_000);
+    worker.tick();
+    expect(statuses()).toHaveLength(before); // unchanged, so nothing sent
+    eds.props.set(EDS.PROP_BATTERY_LEVEL, 15);
+    clock.advance(4_999);
+    worker.tick();
+    expect(statuses()).toHaveLength(before); // not due yet
+    clock.advance(1);
+    worker.tick();
+    expect(statuses().at(-1)).toMatchObject({ detail: { battery: 15 } });
+  });
+
+  it("records an autofocus fallback as lastError", async () => {
+    eds.pressResults = [EDS.ERR_TAKE_PICTURE_AF_NG];
+    await worker.capture(dest());
+    expect(statuses().at(-1)).toMatchObject({
+      detail: { lastError: { message: "Autofocus failed - took the shot without autofocus" } },
+    });
+  });
+
+  it("records a failed capture as lastError", async () => {
+    eds.photoNames = [];
+    await expect(worker.capture(dest())).rejects.toThrow("timed out");
+    expect(statuses().at(-1)).toMatchObject({ detail: { lastError: { message: "Canon capture timed out waiting for the photo" } } });
+  });
+
+  it("clears the readings on disconnect but keeps why as lastError", () => {
+    eds.unplug();
+    worker.tick();
+    expect(statuses().at(-1)).toMatchObject({
+      detail: { battery: null, mode: null, afMode: null, quality: null, lastError: { message: "Camera disconnected (camera shut down)" } },
+    });
+  });
+
+  it("never reads properties during a capture", async () => {
+    const statusProps = [EDS.PROP_BATTERY_LEVEL, EDS.PROP_AE_MODE, EDS.PROP_AF_MODE, EDS.PROP_IMAGE_QUALITY];
+    const readAnyStatusProp = () => eds.propReads.some((p) => statusProps.includes(p));
+
+    // Goes through the AF-fallback branch, which calls recordError() while capturing is still true.
+    eds.propReads = [];
+    eds.pressResults = [EDS.ERR_TAKE_PICTURE_AF_NG];
+    await worker.capture(dest());
+    expect(readAnyStatusProp()).toBe(false);
+    // The lastError status still carries the readings taken before the capture started.
+    expect(statuses().at(-1)).toMatchObject({ detail: { battery: 80, mode: "M" } });
+
+    // A thrown failure (timeout) goes through the catch, which also calls recordError().
+    eds.propReads = [];
+    eds.photoNames = [];
+    await expect(worker.capture(dest())).rejects.toThrow("timed out");
+    expect(readAnyStatusProp()).toBe(false);
+    expect(statuses().at(-1)).toMatchObject({ detail: { battery: 80, mode: "M" } });
+  });
+});
+
 describe("CameraWorker shutdown", () => {
   it("releases the shutter, stops live view, closes the session and terminates EDSDK", () => {
     makeWorker();

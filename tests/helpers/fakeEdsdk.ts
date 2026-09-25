@@ -16,6 +16,8 @@ export class FakeEds implements EdsApi {
   evfFrame: { err: number; jpeg: Buffer | null } = { err: 0, jpeg: Buffer.from("frame") };
   evfOutput = 1; // TFT only, as the camera starts
   props = new Map<number, number>();
+  /** Every prop code passed to getU32, in order - lets a test prove properties were (not) read. */
+  propReads: number[] = [];
   /** One-shot error results for setU32, keyed by prop; each call shifts one off, then succeeds. */
   setU32Fail = new Map<number, number[]>();
   /** One-shot error results for setObjectHandler; each call shifts one off, then succeeds. */
@@ -39,6 +41,7 @@ export class FakeEds implements EdsApi {
   closeSession(): number { this.sessionOpen = false; this.calls.push("closeSession"); return 0; }
   release(): void {}
   getU32(_cam: EdsRef, prop: number): { err: number; value: number } {
+    this.propReads.push(prop);
     return { err: 0, value: prop === EDS.PROP_EVF_OUTPUT_DEVICE ? this.evfOutput : this.props.get(prop) ?? 0 };
   }
   setU32(_cam: EdsRef, prop: number, value: number): number {

@@ -26,6 +26,7 @@ import { renderComposite, renderSheet } from "../compositor/compositor";
 import { samplePhotos } from "../compositor/samples";
 import { originalsDir, compositesDir, aiDownloadsDir, samplesDir } from "../util/paths";
 import { isHotFolderWritable, dropIntoHotFolder } from "../print/hotFolder";
+import { isDigiCamControlRunning } from "../camera/CanonTetheredSource";
 import { readPrinterStatus, defaultPrinterStatusPath } from "../print/printerStatus";
 import { reconcileHotFolderDrops } from "../print/hotFolderStall";
 import { buildHealthReport } from "../health/healthReport";
@@ -77,7 +78,7 @@ export function buildRouter(ctx: AgentContext): Router {
   router.get("/health", asyncHandler(async (_req: Request, res: Response) => {
     const config = ctx.configStore.current;
     const cameraStatus = ctx.cameraManager.getStatus();
-    const [hotFolderWritable, diskSpace, printerStatus, stalledPrints] = await Promise.all([
+    const [hotFolderWritable, diskSpace, printerStatus, stalledPrints, digiCamControlRunning] = await Promise.all([
       isHotFolderWritable(config.printing.hotFolderPath),
       getDiskSpace(config.storage.dataDir),
       readPrinterStatus({
@@ -87,11 +88,13 @@ export function buildRouter(ctx: AgentContext): Router {
         staleAfterMs: config.printing.printerStatusStaleMs,
       }),
       reconcileHotFolderDrops(ctx.outboxStore, config.printing.hotFolderStallSeconds),
+      config.capture.canon.driver === "edsdk" ? isDigiCamControlRunning().catch(() => false) : Promise.resolve(false),
     ]);
 
     res.json(
       buildHealthReport({
         camera: cameraStatus,
+        canon: { driver: config.capture.canon.driver, digiCamControlRunning },
         hotFolder: {
           path: config.printing.hotFolderPath,
           writable: hotFolderWritable,
