@@ -113,9 +113,17 @@ async function captureWithRetry(attempts = 3): Promise<{ captureId: string } | n
   return null;
 }
 
-/** Remounted per shot (via key) so each shot gets a fresh countdown. */
-function Countdown({ seconds, onZero }: { seconds: number; onZero: () => void }) {
+/** How long before zero the camera is asked to focus. */
+const PREFOCUS_LEAD_MS = 1_500;
+
+/** Remounted per shot (via key) so each shot gets a fresh countdown and its own pre-focus. */
+function Countdown({ seconds, onZero, onPrefocus }: { seconds: number; onZero: () => void; onPrefocus: () => void }) {
   const n = useCountdown(seconds, onZero);
+  useEffect(() => {
+    const t = setTimeout(onPrefocus, Math.max(0, seconds * 1000 - PREFOCUS_LEAD_MS));
+    return () => clearTimeout(t);
+    // Once per mount: `seconds` is fixed for this shot and the parent's callback identity doesn't matter.
+  }, []);
   return <div className="count display">{Math.max(n, 1)}</div>;
 }
 
@@ -167,6 +175,7 @@ export function GetReady({ session, onDone, onFail, onCancel }: {
             key={shots.length}
             seconds={shots.length === 0 ? session.firstCountdownSeconds : session.betweenShotsSeconds}
             onZero={shoot}
+            onPrefocus={agent.prefocus}
           />
           <div className="tag big">{shots.length === 0 ? "Get ready…" : "Next pose!"}</div>
         </div>
