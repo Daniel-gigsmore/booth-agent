@@ -100,8 +100,9 @@ booth-agent service (64-bit Node)
 - `driver` defaults to `"digicamcontrol"` until phase 5, when it flips to
   `"edsdk"` and the digiCamControl code is deleted.
 - `index.ts` picks `CanonTetheredSource` or `EdsdkSource` based on `driver`.
-- The digiCamControl-only fields (`digiCamControlExePath` and the rest) become
-  optional.
+- The digiCamControl-only fields (`digiCamControlExePath` and the rest) stay
+  as they are, still required, until phase 5 deletes them together with
+  `CanonTetheredSource`.
 
 ### The DLL
 
