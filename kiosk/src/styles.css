@@ -171,6 +171,12 @@ button { font: inherit; color: inherit; cursor: inherit; }
 .corner.br { right: 200px; bottom: 150px; border-bottom-width: 6px; border-right-width: 6px; border-bottom-right-radius: 28px; }
 .overlay { position: absolute; inset: 0; display: flex; }
 .overlay.dim { background: rgba(21, 18, 26, 0.7); }
+.close-x {
+  position: absolute; right: 40px; top: 40px; z-index: 10;
+  width: 104px; height: 104px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  border: 2px solid var(--line); background: rgba(21, 18, 26, 0.6); color: var(--paper);
+}
 .overlay.flash { background: #fff; }
 .count {
   width: 540px;

@@ -18,6 +18,15 @@ const RetakeIcon = ({ size }: { size: number }) => (
   <Icon size={size} d="M3 12a9 9 0 1 0 3-6.7L3 8"><path d="M3 3v5h5" /></Icon>
 );
 
+/** Top-right ✕ on every guest screen that would otherwise trap them: drops the session and goes back to Attract. */
+function CloseButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button type="button" className="close-x" aria-label="Cancel and start over" onClick={onClick}>
+      <Icon size={48} d="M18 6L6 18"><path d="M6 6l12 12" /></Icon>
+    </button>
+  );
+}
+
 const Logo = () => (
   <div className="logo"><span className="logo-dot" />KACHAK</div>
 );
@@ -110,20 +119,25 @@ function Countdown({ seconds, onZero }: { seconds: number; onZero: () => void })
   return <div className="count display">{Math.max(n, 1)}</div>;
 }
 
-export function GetReady({ session, onDone, onFail }: {
-  session: Session; onDone: (captureIds: string[]) => Promise<void>; onFail: () => void;
+export function GetReady({ session, onDone, onFail, onCancel }: {
+  session: Session; onDone: (captureIds: string[]) => Promise<void>; onFail: () => void; onCancel: () => void;
 }) {
   const total = shotCount(session.template);
   const [shots, setShots] = useState<string[]>([]);
   const [phase, setPhase] = useState<"count" | "flash" | "saving" | "composing">("count");
+  // A capture still in flight when the guest taps ✕ must not drag the booth back into this session.
+  const cancelled = useRef(false);
+  useEffect(() => () => { cancelled.current = true; }, []);
 
   async function shoot() {
     setPhase("flash");
     // A Canon capture takes a second or two; keep the flash short and say what's happening after it.
     const shot = captureWithRetry();
     await sleep(450);
+    if (cancelled.current) return;
     setPhase("saving");
     const result = await shot;
+    if (cancelled.current) return;
     if (!result) return onFail();
     const ids = [...shots, result.captureId];
     setShots(ids);
@@ -169,6 +183,7 @@ export function GetReady({ session, onDone, onFail }: {
         </div>
       )}
       {phase === "flash" && <div className="overlay flash" />}
+      <CloseButton onClick={onCancel} />
     </div>
   );
 }
@@ -203,12 +218,13 @@ export function CompositePreview({ src, template, maxW, maxH }: {
 
 const RING = 326.73;
 
-export function Review({ template, captureId, onApprove, onRetake }: {
-  template: Template; captureId: string; onApprove: () => void; onRetake: () => void;
+export function Review({ template, captureId, onApprove, onRetake, onCancel }: {
+  template: Template; captureId: string; onApprove: () => void; onRetake: () => void; onCancel: () => void;
 }) {
   const secs = useCountdown(10, onApprove);
   return (
     <div className="stage review">
+      <CloseButton onClick={onCancel} />
       <div className="review-frame">
         <CompositePreview src={compositeUrl(captureId)} template={template} maxW={1140} maxH={900} />
       </div>
@@ -307,9 +323,10 @@ export function Done({ captureId, onFinish }: { captureId: string; onFinish: () 
   );
 }
 
-export function Oops({ hint, onRetry }: { hint?: string; onRetry: () => void }) {
+export function Oops({ hint, onRetry, onCancel }: { hint?: string; onRetry: () => void; onCancel: () => void }) {
   return (
     <div className="stage oops">
+      <CloseButton onClick={onCancel} />
       <div className="oops-icon"><RetakeIcon size={88} /></div>
       <h1 className="display fs-128 center-text">Let's try that again</h1>
       <p className="lede center-text wide">

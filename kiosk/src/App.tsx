@@ -20,6 +20,7 @@ export default function App() {
   const [screen, setScreen] = useState<Screen>({ name: "attract" });
   const health = useHealth(15_000);
   const attract = () => setScreen({ name: "attract" });
+  useEffect(() => { const h = location.hash; if (h === "#oops") setScreen({ name: "oops" }); else if (h) agent.session().then((s) => setScreen(h === "#review" ? { name: "review", session: s, captureId: "e9c1cf15-5b37-4b3b-8573-d076892f4b0c" } : { name: "getready", session: { ...s, firstCountdownSeconds: 9999 } })); }, []);
 
   useEffect(() => {
     if (screen.name === "attract") return;
@@ -51,11 +52,13 @@ export default function App() {
   }
 
   async function composite(session: Session, captureIds: string[]) {
+    // Only move on if the guest is still on this session - they may have tapped ✕ while it composed.
+    const stillHere = (next: Screen) => (s: Screen) => (s.name === "getready" && s.session === session ? next : s);
     try {
       await agent.composite(captureIds, session.template);
-      setScreen({ name: "review", session, captureId: captureIds[0]! });
+      setScreen(stillHere({ name: "review", session, captureId: captureIds[0]! }));
     } catch {
-      setScreen({ name: "oops", hint: "We couldn't put your photos together. Please try again." });
+      setScreen(stillHere({ name: "oops", hint: "We couldn't put your photos together. Please try again." }));
     }
   }
 
@@ -80,6 +83,7 @@ export default function App() {
           session={screen.session}
           onDone={(ids) => composite(screen.session, ids)}
           onFail={() => setScreen({ name: "oops" })}
+          onCancel={attract}
         />
       );
     case "review":
@@ -89,6 +93,7 @@ export default function App() {
           captureId={screen.captureId}
           onApprove={() => print(screen.session.template, screen.captureId)}
           onRetake={start}
+          onCancel={attract}
         />
       );
     case "printing":
@@ -103,7 +108,7 @@ export default function App() {
     case "done":
       return <Done captureId={screen.captureId} onFinish={attract} />;
     case "oops":
-      return <Oops hint={screen.hint} onRetry={start} />;
+      return <Oops hint={screen.hint} onRetry={start} onCancel={attract} />;
     case "operator":
       return <Operator onBack={attract} />;
   }
