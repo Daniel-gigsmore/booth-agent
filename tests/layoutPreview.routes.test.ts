@@ -73,7 +73,10 @@ async function filesUnder(dir: string): Promise<string[]> {
   return out;
 }
 
-describe("layout preview", () => {
+// The first render in a process pays for loading fonts (and fontconfig
+// failing to find a cache dir); on a cold Windows CI runner that alone has
+// gone past vitest's 5 s default.
+describe("layout preview", { timeout: 20_000 }, () => {
   it("renders an unsaved draft as the portrait print sheet", async () => {
     const res = await post("/layout-preview", draft());
     expect(res.status).toBe(200);
