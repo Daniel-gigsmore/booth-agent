@@ -22,6 +22,27 @@ jobs:
           cache: "npm"
 
       - run: npm ci
+
+      # sharp's text rendering goes through fontconfig. On some Windows
+      # runners it finds no writable cache directory, so every test process
+      # rescans every system font - fonts.test.ts went from 72 ms to 19 s and
+      # tests timed out. The agent always passes the bundled font file itself,
+      # so point fontconfig at just those fonts and a cache it can write.
+      - name: Point fontconfig at the bundled fonts
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          conf="$RUNNER_TEMP/fonts.conf"
+          mkdir -p "$RUNNER_TEMP/fontconfig-cache"
+          cat > "$conf" <<EOF
+          <?xml version="1.0"?>
+          <fontconfig>
+            <dir>$(cygpath -m "$GITHUB_WORKSPACE/assets/fonts")</dir>
+            <cachedir>$(cygpath -m "$RUNNER_TEMP/fontconfig-cache")</cachedir>
+          </fontconfig>
+          EOF
+          echo "FONTCONFIG_FILE=$(cygpath -m "$conf")" >> "$GITHUB_ENV"
+
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
