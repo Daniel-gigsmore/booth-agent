@@ -4,6 +4,7 @@ import { EventBus } from "./events/eventBus";
 import { CameraManager } from "./camera/CameraManager";
 import { CanonTetheredSource } from "./camera/CanonTetheredSource";
 import { EdsdkSource, spawnWorker } from "./camera/edsdk/EdsdkSource";
+import { readSavedCameraSettings } from "./camera/cameraSettingsStore";
 import { WebcamSource } from "./camera/WebcamSource";
 import { openOutboxDb } from "./outbox/db";
 import { OutboxStore } from "./outbox/outboxStore";
@@ -64,7 +65,7 @@ async function main(): Promise<void> {
   const canonConfig = config.capture.canon;
   const canonSource =
     canonConfig.driver === "edsdk"
-      ? new EdsdkSource(() => spawnWorker(canonConfig.edsdkDllPath))
+      ? new EdsdkSource(() => spawnWorker(canonConfig.edsdkDllPath), () => readSavedCameraSettings(config.storage.dataDir))
       : new CanonTetheredSource(canonConfig);
   const webcamSource = new WebcamSource(config.capture.webcam);
   const cameraManager = new CameraManager(

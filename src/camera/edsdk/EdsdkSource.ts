@@ -3,8 +3,8 @@ import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { v4 as uuidv4 } from "uuid";
 import sharp from "sharp";
-import { CameraSource, CaptureResult } from "../CameraSource";
-import { CameraDetail, isResponse, RequestBody, WorkerMessage, WorkerRequest } from "./protocol";
+import { CameraSource, CameraUnavailableError, CaptureResult } from "../CameraSource";
+import { CameraDetail, CameraSettings, isResponse, RequestBody, SettingChanges, WorkerMessage, WorkerRequest } from "./protocol";
 import { createLogger } from "../../util/logger";
 
 const log = createLogger("camera:edsdk");
@@ -38,7 +38,7 @@ export function spawnWorker(dllPath: string): WorkerHandle {
 }
 
 interface Pending {
-  resolve: (result: Uint8Array | null) => void;
+  resolve: (result: Uint8Array | CameraSettings | null) => void;
   reject: (err: Error) => void;
   timer: NodeJS.Timeout;
 }
@@ -65,7 +65,10 @@ export class EdsdkSource implements CameraSource {
   private respawns = 0;
   private stopping = false;
 
-  constructor(private readonly spawn: () => WorkerHandle) {}
+  constructor(
+    private readonly spawn: () => WorkerHandle,
+    private readonly loadSaved: () => SettingChanges = () => ({})
+  ) {}
 
   async initialize(): Promise<boolean> {
     this.start();
@@ -104,11 +107,33 @@ export class EdsdkSource implements CameraSource {
   async getLiveviewFrame(): Promise<Buffer | null> {
     if (!this.connected) return null;
     try {
-      const frame = await this.request({ type: "frame" }, TIMEOUT_MS.frame);
+      const frame = (await this.request({ type: "frame" }, TIMEOUT_MS.frame)) as Uint8Array | null;
       // Structured-clone IPC delivers a Uint8Array; the MJPEG writer wants a Buffer.
       return frame && frame.byteLength > 0 ? Buffer.from(frame.buffer, frame.byteOffset, frame.byteLength) : null;
     } catch {
       return null;
+    }
+  }
+
+  async getSettings(): Promise<CameraSettings> {
+    if (!this.connected) throw new CameraUnavailableError("No Canon camera connected");
+    return (await this.request({ type: "getSettings" }, TIMEOUT_MS.other)) as CameraSettings;
+  }
+
+  async setSettings(changes: SettingChanges): Promise<CameraSettings> {
+    if (!this.connected) throw new CameraUnavailableError("No Canon camera connected");
+    return (await this.request({ type: "setSettings", changes }, TIMEOUT_MS.other)) as CameraSettings;
+  }
+
+  /** Re-applies the operator's saved settings after every (re)connect. */
+  private async applySaved(): Promise<void> {
+    const saved = this.loadSaved();
+    if (Object.keys(saved).length === 0) return;
+    try {
+      const result = await this.setSettings(saved);
+      if (result.rejected.length) log.warn(`Camera refused saved settings in its current mode: ${result.rejected.join(", ")}`);
+    } catch (err) {
+      log.warn("Could not apply saved camera settings", err);
     }
   }
 
@@ -145,16 +170,17 @@ export class EdsdkSource implements CameraSource {
       if (!pending) return;
       this.pending.delete(message.id);
       clearTimeout(pending.timer);
-      // Task 2 widened WorkerResponse.result to include CameraSettings; Task 3 will widen
-      // EdsdkSource's own request/Pending types to carry it through properly.
-      if (message.ok) pending.resolve(message.result as Uint8Array | null);
+      if (message.ok) pending.resolve(message.result);
       else pending.reject(new Error(message.error));
       return;
     }
     if (message.type === "state") {
       this.connected = message.connected;
       this.model = message.model;
-      if (message.connected) this.respawns = 0;
+      if (message.connected) {
+        this.respawns = 0;
+        void this.applySaved();
+      }
       return;
     }
     if (message.type === "status") {
@@ -201,7 +227,7 @@ export class EdsdkSource implements CameraSource {
     }
   }
 
-  private request(body: RequestBody, timeoutMs: number): Promise<Uint8Array | null> {
+  private request(body: RequestBody, timeoutMs: number): Promise<Uint8Array | CameraSettings | null> {
     const worker = this.worker;
     if (!worker) return Promise.reject(new Error("Camera worker is not running"));
     const id = this.nextId++;

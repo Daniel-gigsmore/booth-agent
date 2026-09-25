@@ -1,9 +1,9 @@
-import { CameraSource, CaptureResult } from "./CameraSource";
+import { CameraSource, CameraUnavailableError, CaptureResult } from "./CameraSource";
 import { CameraKind } from "../events/types";
 import { CaptureSourcePreference } from "../config/schema";
 import { EventBus } from "../events/eventBus";
 import { createLogger } from "../util/logger";
-import { CameraDetail } from "./edsdk/protocol";
+import { CameraDetail, CameraSettings, SettingChanges } from "./edsdk/protocol";
 
 const log = createLogger("camera:manager");
 
@@ -136,6 +136,19 @@ export class CameraManager {
     const frame = await this.sources[this.active].getLiveviewFrame();
     if (!frame) return null;
     return { frame, source: this.active };
+  }
+
+  /** Operator-panel camera settings; only a source with settings support (EDSDK) can do this. */
+  async getCanonSettings(): Promise<CameraSettings> {
+    const canon = this.sources.canon;
+    if (!canon.getSettings) throw new CameraUnavailableError("Camera settings need the EDSDK driver");
+    return canon.getSettings();
+  }
+
+  async setCanonSettings(changes: SettingChanges): Promise<CameraSettings> {
+    const canon = this.sources.canon;
+    if (!canon.setSettings) throw new CameraUnavailableError("Camera settings need the EDSDK driver");
+    return canon.setSettings(changes);
   }
 
   private pickInitialActive(): CameraKind {
