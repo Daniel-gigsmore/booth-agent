@@ -3,6 +3,15 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
+/** A minimal fake PE file: e_lfanew at 0x3C points at 0x80, "PE\0\0" there, machine 4 bytes later. */
+function writeFakePe(filePath: string, machine: number): void {
+  const buf = Buffer.alloc(0x100);
+  buf.writeUInt32LE(0x80, 0x3c);
+  buf.write("PE\0\0", 0x80, "latin1");
+  buf.writeUInt16LE(machine, 0x84);
+  writeFileSync(filePath, buf);
+}
+
 const running = vi.fn<() => Promise<boolean>>();
 vi.mock("../src/camera/CanonTetheredSource", () => ({
   APP_LOG_PATH: "C:\\nowhere\\app.log",
@@ -45,7 +54,7 @@ describe("preflight with the EDSDK driver", () => {
   });
 
   it("passes when the DLL exists and digiCamControl is not running", async () => {
-    writeFileSync(dll, "");
+    writeFakePe(dll, 0x8664);
     running.mockResolvedValue(false);
     const checks = await checkCanon(config(dll));
     expect(checks.map((c) => [c.name, c.level])).toEqual([
@@ -59,5 +68,12 @@ describe("preflight with the EDSDK driver", () => {
     const checks = await checkCanon(config(dll));
     expect(checks.find((c) => c.name === "canon.edsdkDll")?.level).toBe("fail");
     expect(checks.find((c) => c.name === "canon.digiCamControlConflict")?.level).toBe("warn");
+  });
+
+  it("fails when the DLL is 32-bit", async () => {
+    writeFakePe(dll, 0x14c);
+    running.mockResolvedValue(false);
+    const checks = await checkCanon(config(dll));
+    expect(checks.find((c) => c.name === "canon.edsdkDll")?.level).toBe("fail");
   });
 });

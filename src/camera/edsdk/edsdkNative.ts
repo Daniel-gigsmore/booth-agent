@@ -143,8 +143,13 @@ export function loadEdsdk(dllPath: string): EdsApi {
           const length = [0];
           f.getPointer(stream[0], pointer);
           f.getLength(stream[0], length);
-          const bytes = koffi.decode(pointer[0], koffi.array("uint8", Number(length[0])));
-          return { err: 0, jpeg: Buffer.from(bytes as Uint8Array) };
+          // koffi.array() interns a distinct type per length, which live-view
+          // frame sizes churn through constantly - koffi.view() reads without
+          // registering a type. The view aliases the stream's own memory, so
+          // it must be copied before the stream is released in the finally
+          // blocks below.
+          const view = koffi.view(pointer[0], Number(length[0]));
+          return { err: 0, jpeg: Buffer.from(new Uint8Array(view)) };
         } finally {
           f.release(evf[0]);
         }

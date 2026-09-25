@@ -1,4 +1,4 @@
-import { access, stat, constants } from "node:fs/promises";
+import { access, stat, constants, open } from "node:fs/promises";
 import path from "node:path";
 import { BoothConfig } from "../config/schema";
 import { hotFolderPathFor, isHotFolderWritable } from "../print/hotFolder";
@@ -62,6 +62,42 @@ async function exists(target: string): Promise<boolean> {
   }
 }
 
+const PE_HEADER_READ_BYTES = 4096;
+const IMAGE_FILE_MACHINE_AMD64 = 0x8664;
+
+/**
+ * A 32-bit EDSDK.dll (the one that ships with digiCamControl) passes a plain
+ * "does the file exist" check, then crash-loops the worker process the
+ * moment it forks, since 64-bit Node can't load it. Checked here instead by
+ * reading the PE header directly, rather than shelling out to anything: the
+ * offset to the PE header (e_lfanew) is a little-endian uint32 at 0x3C in
+ * every PE file, and the machine type is a little-endian uint16 4 bytes into
+ * that header. 0x8664 is IMAGE_FILE_MACHINE_AMD64.
+ */
+async function checkEdsdkDllArch(dllPath: string): Promise<{ ok: true } | { ok: false; message: string }> {
+  try {
+    const fh = await open(dllPath, "r");
+    try {
+      const buf = Buffer.alloc(PE_HEADER_READ_BYTES);
+      const { bytesRead } = await fh.read(buf, 0, PE_HEADER_READ_BYTES, 0);
+      const header = buf.subarray(0, bytesRead);
+      const e_lfanew = header.readUInt32LE(0x3c);
+      const machine = header.readUInt16LE(e_lfanew + 4);
+      if (machine !== IMAGE_FILE_MACHINE_AMD64) {
+        return {
+          ok: false,
+          message: `EDSDK.dll at ${dllPath} is not 64-bit (machine 0x${machine.toString(16)}) - install the 64-bit DLL from Canon's EDSDK`,
+        };
+      }
+      return { ok: true };
+    } finally {
+      await fh.close();
+    }
+  } catch (err) {
+    return { ok: false, message: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 export async function runPreflight(config: BoothConfig): Promise<PreflightResult> {
   const checks: PreflightCheck[] = [];
 
@@ -115,11 +151,12 @@ export async function checkCanon(config: BoothConfig): Promise<PreflightCheck[]>
 
   if (config.capture.canon.driver === "edsdk") {
     const dll = config.capture.canon.edsdkDllPath;
-    results.push(
-      (await exists(dll))
-        ? ok("canon.edsdkDll", `EDSDK found at ${dll}`)
-        : level("canon.edsdkDll", `EDSDK.dll not found at ${dll} - install Canon's 64-bit EDSDK there`)
-    );
+    if (!(await exists(dll))) {
+      results.push(level("canon.edsdkDll", `EDSDK.dll not found at ${dll} - install Canon's 64-bit EDSDK there`));
+    } else {
+      const arch = await checkEdsdkDllArch(dll);
+      results.push(arch.ok ? ok("canon.edsdkDll", `EDSDK found at ${dll}`) : level("canon.edsdkDll", arch.message));
+    }
     // Only one program can hold the camera: digiCamControl would fight the worker for it.
     results.push(
       (await isDigiCamControlRunning())

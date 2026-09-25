@@ -65,9 +65,10 @@ The agent drives the R100 through Canon's EDSDK in its own child process (`src/c
 
 **Setup:**
 1. Register with the Canon developer programme and download EDSDK. Copy the **64-bit** `EDSDK.dll` and `EdsImage.dll` into `C:\BoothAgent\edsdk\`. They're not in git: Canon's licence doesn't allow redistributing them. The 32-bit DLL that ships with digiCamControl won't load into 64-bit Node.
-2. Close digiCamControl and remove it from startup. Only one program can hold the camera, and preflight warns (`canon.digiCamControlConflict`) if both run.
-3. Set `"driver": "edsdk"` under `capture.canon` in `booth.config.json`, then restart the service.
-4. Check `/health/preflight`: `canon.edsdkDll` should be `ok`. Then check that `/health` shows `canonConnected: true`.
+2. Install the worker's dependency (`koffi`) into the live checkout: stop the service (`Stop-Service boothagent` in an admin shell), run `npm ci` in the agent checkout, then start it again (`Start-Service boothagent`). A plain `git pull` + `npm run build` deploy never installs new dependencies, so skipping this leaves `koffi` missing - the worker process would crash-loop on `require("koffi")` while preflight still reports `canon.edsdkDll: ok` (that check only looks at the DLL, not the worker's own dependencies). Never run `npm ci` while the service is running.
+3. Close digiCamControl and remove it from startup. Only one program can hold the camera, and preflight warns (`canon.digiCamControlConflict`) if both run.
+4. Set `"driver": "edsdk"` under `capture.canon` in `booth.config.json`, then restart the service.
+5. Check `/health/preflight`: `canon.edsdkDll` should be `ok`. Then check that `/health` shows `canonConnected: true`.
 
 The worker reconnects on its own after a camera power-cycle or a USB replug. It keeps the camera awake while connected, turns live view on when the kiosk asks for frames, and turns it off again after 10 s without one. If the worker crashes or hangs, the agent restarts it; the webcam covers in the meantime.
 
