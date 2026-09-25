@@ -19,6 +19,7 @@ const KEEP_AWAKE_MS = 60_000;
 const BUSY_RETRY_DELAY_MS = 500;
 const TRANSFER_TIMEOUT_MS = 10_000;
 const EVENT_POLL_MS = 30;
+const LIVEVIEW_IDLE_MS = 10_000;
 
 /**
  * Everything the camera worker process does with the Canon, written against
@@ -35,6 +36,9 @@ export class CameraWorker {
   private shutdownSeen = false;
   /** The capture waiting for its photo; the object handler downloads into it. */
   private pendingTransfer: { destPath: string; done: boolean; err: number } | null = null;
+  private capturing = false;
+  private liveviewOn = false;
+  private lastFrameAt = 0;
 
   constructor(
     private readonly eds: EdsApi,
@@ -64,6 +68,9 @@ export class CameraWorker {
     if (now - this.lastKeepAwakeAt >= KEEP_AWAKE_MS) {
       this.lastKeepAwakeAt = now;
       this.check(this.eds.sendCommand(this.cam, EDS.CMD_EXTEND_SHUTDOWN_TIMER, 0), "keep-awake");
+    }
+    if (this.liveviewOn && !this.capturing && now - this.lastFrameAt >= LIVEVIEW_IDLE_MS) {
+      this.setLiveview(false);
     }
   }
 
@@ -138,6 +145,7 @@ export class CameraWorker {
     const cam = this.cam;
     if (!cam) return;
     this.cam = null;
+    this.liveviewOn = false;
     this.eds.closeSession(cam);
     this.eds.release(cam);
     this.lastScanAt = this.clock.now();
@@ -152,6 +160,7 @@ export class CameraWorker {
   async capture(destPath: string): Promise<void> {
     if (!this.cam) throw new Error("No Canon camera connected");
     const transfer = { destPath, done: false, err: EDS.ERR_OK as number };
+    this.capturing = true;
     this.pendingTransfer = transfer;
     try {
       let err = await this.press(EDS.SHUTTER_COMPLETELY);
@@ -174,6 +183,7 @@ export class CameraWorker {
       }
       if (transfer.err !== EDS.ERR_OK) throw new Error(`Canon photo download failed: ${hex(transfer.err)}`);
     } finally {
+      this.capturing = false;
       this.pendingTransfer = null;
     }
   }
@@ -195,5 +205,42 @@ export class CameraWorker {
     if (err !== EDS.ERR_DEVICE_BUSY) return err;
     await this.clock.sleep(BUSY_RETRY_DELAY_MS);
     return this.cam ? once(this.cam) : EDS.ERR_DEVICE_NOT_FOUND;
+  }
+
+  /** The latest live-view JPEG, or null (no camera, mid-capture, or no frame ready yet). */
+  frame(): Buffer | null {
+    if (!this.cam || this.capturing) return null;
+    this.lastFrameAt = this.clock.now();
+    if (!this.liveviewOn && !this.setLiveview(true)) return null;
+    const { err, jpeg } = this.eds.downloadEvfFrame(this.cam);
+    if (err === EDS.ERR_OBJECT_NOTREADY) return null;
+    if (this.check(err, "live view frame") !== EDS.ERR_OK) return null;
+    return jpeg;
+  }
+
+  /** Flips only the PC bit of Evf_OutputDevice, leaving the camera's own screen as it was. */
+  private setLiveview(on: boolean): boolean {
+    const cam = this.cam;
+    if (!cam) return false;
+    const current = this.eds.getU32(cam, EDS.PROP_EVF_OUTPUT_DEVICE);
+    if (this.check(current.err, "read live view output") !== EDS.ERR_OK) return false;
+    const next = on ? current.value | EDS.EVF_OUTPUT_PC : current.value & ~EDS.EVF_OUTPUT_PC;
+    if (this.check(this.eds.setU32(cam, EDS.PROP_EVF_OUTPUT_DEVICE, next >>> 0), "set live view output") !== EDS.ERR_OK) {
+      return false;
+    }
+    this.liveviewOn = on;
+    return true;
+  }
+
+  shutdown(): void {
+    const cam = this.cam;
+    if (cam) {
+      this.eds.sendCommand(cam, EDS.CMD_PRESS_SHUTTER_BUTTON, EDS.SHUTTER_OFF);
+      if (this.liveviewOn) this.setLiveview(false);
+      this.eds.closeSession(cam);
+      this.eds.release(cam);
+      this.cam = null;
+    }
+    this.eds.terminate();
   }
 }

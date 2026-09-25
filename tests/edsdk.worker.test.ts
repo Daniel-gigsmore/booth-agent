@@ -145,3 +145,59 @@ describe("CameraWorker capture", () => {
     await expect(worker.capture(dest())).rejects.toThrow("No Canon camera connected");
   });
 });
+
+describe("CameraWorker live view", () => {
+  beforeEach(() => {
+    makeWorker();
+    worker.tick();
+  });
+
+  it("turns live view on at the first frame request and returns the frame", () => {
+    expect(worker.frame()).toEqual(Buffer.from("frame"));
+    expect(eds.evfOutput & EDS.EVF_OUTPUT_PC).toBe(EDS.EVF_OUTPUT_PC);
+    expect(eds.evfOutput & 1).toBe(1); // the camera's own screen bit is left alone
+  });
+
+  it("returns null while the camera has no frame ready yet", () => {
+    eds.evfFrame = { err: EDS.ERR_OBJECT_NOTREADY, jpeg: null };
+    expect(worker.frame()).toBeNull();
+  });
+
+  it("turns live view off after 10 s without a frame request, and back on when asked", () => {
+    worker.frame();
+    clock.advance(9_999);
+    worker.tick();
+    expect(eds.evfOutput & EDS.EVF_OUTPUT_PC).toBe(EDS.EVF_OUTPUT_PC);
+    clock.advance(1);
+    worker.tick();
+    expect(eds.evfOutput & EDS.EVF_OUTPUT_PC).toBe(0);
+    worker.frame();
+    expect(eds.evfOutput & EDS.EVF_OUTPUT_PC).toBe(EDS.EVF_OUTPUT_PC);
+  });
+
+  it("returns null during a capture instead of queueing behind it", async () => {
+    eds.photoNames = [];
+    const capture = worker.capture(dest());
+    expect(worker.frame()).toBeNull();
+    await expect(capture).rejects.toThrow("timed out");
+  });
+
+  it("returns null with no camera", () => {
+    eds.unplug();
+    worker.tick();
+    expect(worker.frame()).toBeNull();
+  });
+});
+
+describe("CameraWorker shutdown", () => {
+  it("releases the shutter, stops live view, closes the session and terminates EDSDK", () => {
+    makeWorker();
+    worker.tick();
+    worker.frame();
+    worker.shutdown();
+    expect(eds.presses.at(-1)).toBe(EDS.SHUTTER_OFF);
+    expect(eds.evfOutput & EDS.EVF_OUTPUT_PC).toBe(0);
+    expect(eds.sessionOpen).toBe(false);
+    expect(eds.calls.at(-1)).toBe("terminate");
+  });
+});
