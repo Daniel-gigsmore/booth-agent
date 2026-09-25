@@ -161,3 +161,10 @@ describe("EdsdkSource", () => {
     expect(workers.length).toBe(1);
   });
 });
+
+describe("EdsdkSource pre-focus", () => {
+  it("sends a prefocus request to the worker", async () => {
+    await source.prefocus();
+    expect(current().sent.some((r) => r.type === "prefocus")).toBe(true);
+  });
+});

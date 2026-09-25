@@ -54,7 +54,7 @@ export class FakeEds implements EdsApi {
     this.commands.push({ command, param });
     if (command !== EDS.CMD_PRESS_SHUTTER_BUTTON || param === EDS.SHUTTER_OFF) return 0;
     const err = this.pressResults.shift() ?? 0;
-    if (err === 0) {
+    if (err === 0 && (param === EDS.SHUTTER_COMPLETELY || param === EDS.SHUTTER_COMPLETELY_NON_AF)) {
       for (const name of this.photoNames) {
         this.queued.push(() => this.objectHandler?.(EDS.OBJECT_EVENT_DIR_ITEM_REQUEST_TRANSFER, name));
       }

@@ -225,6 +225,70 @@ describe("CameraWorker live view", () => {
   });
 });
 
+describe("CameraWorker pre-focus", () => {
+  beforeEach(() => {
+    makeWorker();
+    worker.tick(); // connected; the connect-time OFF is presses[0]
+  });
+
+  it("half-presses and holds until the capture presses fully", async () => {
+    worker.prefocus();
+    expect(eds.presses).toEqual([EDS.SHUTTER_OFF, EDS.SHUTTER_HALFWAY]);
+    await worker.capture(dest());
+    expect(eds.presses).toEqual([EDS.SHUTTER_OFF, EDS.SHUTTER_HALFWAY, EDS.SHUTTER_COMPLETELY, EDS.SHUTTER_OFF]);
+  });
+
+  it("releases the half-press by itself after 3 s without a capture", () => {
+    worker.prefocus();
+    clock.advance(2_999);
+    worker.tick();
+    expect(eds.presses.at(-1)).toBe(EDS.SHUTTER_HALFWAY);
+    clock.advance(1);
+    worker.tick();
+    expect(eds.presses.at(-1)).toBe(EDS.SHUTTER_OFF);
+    clock.advance(10_000);
+    worker.tick();
+    expect(eds.presses.filter((p) => p === EDS.SHUTTER_OFF)).toHaveLength(2); // connect + auto-release, not again
+  });
+
+  it("releases right away when the half-press fails", () => {
+    eds.pressResults = [EDS.ERR_TAKE_PICTURE_AF_NG];
+    worker.prefocus();
+    expect(eds.presses).toEqual([EDS.SHUTTER_OFF, EDS.SHUTTER_HALFWAY, EDS.SHUTTER_OFF]);
+    clock.advance(3_000);
+    worker.tick();
+    expect(eds.presses).toHaveLength(3); // nothing left to auto-release
+  });
+
+  it("does nothing with no camera or during a capture", async () => {
+    eds.photoNames = [];
+    const capture = worker.capture(dest());
+    const before = eds.presses.length;
+    worker.prefocus();
+    expect(eds.presses).toHaveLength(before);
+    await expect(capture).rejects.toThrow("timed out");
+
+    eds.unplug();
+    worker.tick();
+    const afterUnplug = eds.presses.length;
+    worker.prefocus();
+    expect(eds.presses).toHaveLength(afterUnplug);
+  });
+
+  it("forgets a held half-press when the camera disconnects", () => {
+    worker.prefocus();
+    eds.unplug();
+    worker.tick();
+    eds.camera = "Canon EOS R100";
+    clock.advance(1_000);
+    worker.tick(); // reconnects
+    const count = eds.presses.length;
+    clock.advance(3_000);
+    worker.tick();
+    expect(eds.presses).toHaveLength(count); // no stale auto-release on the new session
+  });
+});
+
 describe("CameraWorker shutdown", () => {
   it("releases the shutter, stops live view, closes the session and terminates EDSDK", () => {
     makeWorker();

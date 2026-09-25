@@ -30,6 +30,9 @@ export interface CameraSource {
   /** Return a single current live-view JPEG frame, or null if unavailable right now. */
   getLiveviewFrame(): Promise<Buffer | null>;
 
+  /** Optional: start focusing now because a capture is about to happen. Sources without it just capture normally. */
+  prefocus?(): Promise<void>;
+
   /** Best-effort human-readable model/device name for /health, from the last health check. */
   getModel(): string | null;
 }

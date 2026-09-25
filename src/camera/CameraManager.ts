@@ -118,6 +118,16 @@ export class CameraManager {
     }
   }
 
+  /** Best-effort: never rejects, since the capture works the same without it. */
+  async prefocus(): Promise<void> {
+    if (this.active === "none") return;
+    try {
+      await this.sources[this.active].prefocus?.();
+    } catch (err) {
+      log.debug(`Pre-focus failed on ${this.active}`, err);
+    }
+  }
+
   async getLiveviewFrame(): Promise<{ frame: Buffer; source: CameraKind } | null> {
     if (this.active === "none") return null;
     const frame = await this.sources[this.active].getLiveviewFrame();
