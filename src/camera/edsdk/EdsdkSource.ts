@@ -29,6 +29,11 @@ export function spawnWorker(dllPath: string): WorkerHandle {
     serialization: "advanced", // lets photos and frames cross as binary, not JSON
     stdio: ["ignore", "inherit", "inherit", "ipc"],
   });
+  // Without this listener, an IPC send() into a channel that's already
+  // closing (the gap between the worker dying and its 'exit' firing) makes
+  // Node emit 'error' on the ChildProcess with no listener - an uncaught
+  // exception that kills the whole agent.
+  child.on("error", (err) => log.warn("Camera worker process error", err));
   return child as unknown as WorkerHandle;
 }
 
@@ -184,7 +189,14 @@ export class EdsdkSource implements CameraSource {
         reject(new Error(`Camera worker timed out on ${body.type}`));
       }, timeoutMs);
       this.pending.set(id, { resolve, reject, timer });
-      worker.send({ ...body, id });
+      // send() returns false when the channel is already gone (worker died,
+      // 'exit' just hasn't fired yet): fail this request now instead of
+      // waiting out the timeout.
+      if (!worker.send({ ...body, id })) {
+        this.pending.delete(id);
+        clearTimeout(timer);
+        reject(new Error("Camera worker channel is closed"));
+      }
     });
   }
 }

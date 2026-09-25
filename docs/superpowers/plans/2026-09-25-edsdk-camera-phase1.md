@@ -1807,9 +1807,12 @@ gh pr create --base master --title "feat(camera): EDSDK camera worker (phase 1)"
 ```
 
 Merge only when the user says so. Merging is safe before the DLL arrives, because the default driver is still `digicamcontrol`. After the merge:
-1. `git checkout master && git pull --ff-only && npm run build`
-2. The user restarts the service.
-3. Confirm that `ranAt` changed and that the camera still works through digiCamControl.
+1. The user stops the service (`Stop-Service boothagent`, admin shell).
+2. `git checkout master && git pull --ff-only && npm ci && npm run build`
+3. The user starts the service.
+4. Confirm that `ranAt` changed and that the camera still works through digiCamControl.
+
+This merge adds `koffi` as a new dependency: `npm run build` alone won't install it, so without `npm ci` first, `tsc` fails with `TS2307: Cannot find module 'koffi'`. Never run `npm ci` while the service is running.
 
 ---
 

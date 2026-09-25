@@ -16,6 +16,10 @@ export class FakeEds implements EdsApi {
   evfFrame: { err: number; jpeg: Buffer | null } = { err: 0, jpeg: Buffer.from("frame") };
   evfOutput = 1; // TFT only, as the camera starts
   props = new Map<number, number>();
+  /** One-shot error results for setU32, keyed by prop; each call shifts one off, then succeeds. */
+  setU32Fail = new Map<number, number[]>();
+  /** One-shot error results for setObjectHandler; each call shifts one off, then succeeds. */
+  objectHandlerResults: number[] = [];
   commands: Array<{ command: number; param: number }> = [];
   calls: string[] = [];
   downloads: Array<{ name: string; path: string }> = [];
@@ -38,6 +42,9 @@ export class FakeEds implements EdsApi {
     return { err: 0, value: prop === EDS.PROP_EVF_OUTPUT_DEVICE ? this.evfOutput : this.props.get(prop) ?? 0 };
   }
   setU32(_cam: EdsRef, prop: number, value: number): number {
+    const queue = this.setU32Fail.get(prop);
+    const err = queue && queue.length ? queue.shift()! : 0;
+    if (err !== 0) return err;
     if (prop === EDS.PROP_EVF_OUTPUT_DEVICE) this.evfOutput = value;
     else this.props.set(prop, value);
     return 0;
@@ -56,7 +63,7 @@ export class FakeEds implements EdsApi {
   }
   setObjectHandler(_cam: EdsRef, handler: (event: number, ref: EdsRef) => void): number {
     this.objectHandler = handler;
-    return 0;
+    return this.objectHandlerResults.shift() ?? 0;
   }
   setStateHandler(_cam: EdsRef, handler: (event: number) => void): number {
     this.stateHandler = handler;

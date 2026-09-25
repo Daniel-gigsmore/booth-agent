@@ -68,6 +68,37 @@ describe("CameraWorker connection", () => {
     expect(states().at(-1)).toMatchObject({ connected: true });
   });
 
+  it("releases the shutter right after opening a session, before the rest of setup", () => {
+    worker.tick();
+    expect(eds.presses[0]).toBe(EDS.SHUTTER_OFF);
+  });
+
+  it("treats a setup failure (setU32 SaveTo) after openSession as a disconnect, and retries the next scan", () => {
+    eds.setU32Fail.set(EDS.PROP_SAVE_TO, [EDS.ERR_DEVICE_BUSY]);
+    worker.tick();
+    expect(worker.connected).toBe(false);
+    expect(eds.sessionOpen).toBe(false);
+    expect(states().some((s) => s.connected)).toBe(false);
+
+    clock.advance(1000);
+    worker.tick();
+    expect(worker.connected).toBe(true);
+    expect(states().at(-1)).toMatchObject({ connected: true });
+  });
+
+  it("treats a setup failure (setObjectHandler) after openSession as a disconnect, and retries the next scan", () => {
+    eds.objectHandlerResults = [EDS.ERR_DEVICE_BUSY];
+    worker.tick();
+    expect(worker.connected).toBe(false);
+    expect(eds.sessionOpen).toBe(false);
+    expect(states().some((s) => s.connected)).toBe(false);
+
+    clock.advance(1000);
+    worker.tick();
+    expect(worker.connected).toBe(true);
+    expect(states().at(-1)).toMatchObject({ connected: true });
+  });
+
   it("keeps the camera awake every 60 s", () => {
     worker.tick();
     const keepAwakes = () => eds.commands.filter((c) => c.command === EDS.CMD_EXTEND_SHUTDOWN_TIMER).length;
@@ -91,7 +122,7 @@ describe("CameraWorker capture", () => {
   it("presses fully, always releases, and downloads the JPEG to destPath", async () => {
     const file = dest();
     await worker.capture(file);
-    expect(eds.presses).toEqual([EDS.SHUTTER_COMPLETELY, EDS.SHUTTER_OFF]);
+    expect(eds.presses).toEqual([EDS.SHUTTER_OFF, EDS.SHUTTER_COMPLETELY, EDS.SHUTTER_OFF]);
     expect(existsSync(file)).toBe(true);
   });
 
@@ -99,6 +130,7 @@ describe("CameraWorker capture", () => {
     eds.pressResults = [EDS.ERR_TAKE_PICTURE_AF_NG];
     await worker.capture(dest());
     expect(eds.presses).toEqual([
+      EDS.SHUTTER_OFF,
       EDS.SHUTTER_COMPLETELY, EDS.SHUTTER_OFF,
       EDS.SHUTTER_COMPLETELY_NON_AF, EDS.SHUTTER_OFF,
     ]);
@@ -109,14 +141,18 @@ describe("CameraWorker capture", () => {
     eds.pressResults = [EDS.ERR_DEVICE_BUSY];
     const before = clock.now();
     await worker.capture(dest());
-    expect(eds.presses).toEqual([EDS.SHUTTER_COMPLETELY, EDS.SHUTTER_OFF, EDS.SHUTTER_COMPLETELY, EDS.SHUTTER_OFF]);
+    expect(eds.presses).toEqual([
+      EDS.SHUTTER_OFF,
+      EDS.SHUTTER_COMPLETELY, EDS.SHUTTER_OFF,
+      EDS.SHUTTER_COMPLETELY, EDS.SHUTTER_OFF,
+    ]);
     expect(clock.now() - before).toBeGreaterThanOrEqual(500);
   });
 
   it("fails on any other shutter error, still releasing the button", async () => {
     eds.pressResults = [0x2a];
     await expect(worker.capture(dest())).rejects.toThrow("0x2A");
-    expect(eds.presses).toEqual([EDS.SHUTTER_COMPLETELY, EDS.SHUTTER_OFF]);
+    expect(eds.presses).toEqual([EDS.SHUTTER_OFF, EDS.SHUTTER_COMPLETELY, EDS.SHUTTER_OFF]);
   });
 
   it("cancels a non-JPEG transfer and keeps the JPEG", async () => {

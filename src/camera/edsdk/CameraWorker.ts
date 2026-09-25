@@ -103,16 +103,41 @@ export class CameraWorker {
     }
     this.cam = cam;
     this.shutdownSeen = false;
-    this.eds.setObjectHandler(cam, (event, ref) => this.onObject(event, ref));
-    this.eds.setStateHandler(cam, (event) => {
-      if (event === EDS.STATE_EVENT_SHUTDOWN) this.shutdownSeen = true;
-    });
+
+    // If a previous worker was killed between a press and its release, the
+    // camera is left wedged at 0x81 (busy) until the shutter is released.
+    // Do that before anything else touches the session.
+    const offErr = this.eds.sendCommand(cam, EDS.CMD_PRESS_SHUTTER_BUTTON, EDS.SHUTTER_OFF);
+    if (offErr !== EDS.ERR_OK) this.log("debug", `Shutter release on connect returned ${hex(offErr)}`);
+
+    if (this.setupFailed(this.eds.setObjectHandler(cam, (event, ref) => this.onObject(event, ref)), "set object handler")) return;
+    if (
+      this.setupFailed(
+        this.eds.setStateHandler(cam, (event) => {
+          if (event === EDS.STATE_EVENT_SHUTDOWN) this.shutdownSeen = true;
+        }),
+        "set state handler"
+      )
+    )
+      return;
     // Photos come straight to the PC; nothing is written to the card.
-    if (this.check(this.eds.setU32(cam, EDS.PROP_SAVE_TO, EDS.SAVE_TO_HOST), "set SaveTo=Host") !== EDS.ERR_OK) return;
-    if (this.check(this.eds.setCapacityHost(cam), "set host capacity") !== EDS.ERR_OK) return;
+    if (this.setupFailed(this.eds.setU32(cam, EDS.PROP_SAVE_TO, EDS.SAVE_TO_HOST), "set SaveTo=Host")) return;
+    if (this.setupFailed(this.eds.setCapacityHost(cam), "set host capacity")) return;
     this.lastKeepAwakeAt = this.clock.now();
     this.log("info", `Connected to ${found.description}`);
     this.emit({ type: "state", connected: true, model: found.description });
+  }
+
+  /**
+   * Any failure while setting up a just-opened session means the camera
+   * isn't usable: drop it so the next scan (after SCAN_INTERVAL_MS) retries,
+   * rather than leaving `cam` held with the camera never reported connected.
+   */
+  private setupFailed(err: number, what: string): boolean {
+    if (err === EDS.ERR_OK) return false;
+    this.log("warn", `${what} failed: ${hex(err)}`);
+    this.disconnect(`session setup failed: ${what} ${hex(err)}`);
+    return true;
   }
 
   private onObject(event: number, ref: EdsRef): void {

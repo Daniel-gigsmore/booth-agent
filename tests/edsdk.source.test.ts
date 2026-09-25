@@ -11,9 +11,12 @@ import { WorkerMessage, WorkerRequest } from "../src/camera/edsdk/protocol";
 class FakeWorker extends EventEmitter implements WorkerHandle {
   sent: WorkerRequest[] = [];
   killed = false;
+  /** When false, send() reports the channel as closed instead of delivering the request. */
+  sendOk = true;
   reply: (req: WorkerRequest) => WorkerMessage | Promise<WorkerMessage> | null = (req) => ({ id: req.id, ok: true, result: null });
 
   send(req: WorkerRequest): boolean {
+    if (!this.sendOk) return false;
     this.sent.push(req);
     void Promise.resolve(this.reply(req)).then((m) => m && this.emit("message", m));
     return true;
@@ -114,6 +117,16 @@ describe("EdsdkSource", () => {
     current().emit("exit", 1);
     await vi.advanceTimersByTimeAsync(1_000);
     expect(workers.length).toBe(3);
+  });
+
+  it("fails fast, without waiting for the timeout, when send() reports the channel closed", async () => {
+    current().push({ type: "state", connected: true, model: "Canon EOS R100" });
+    current().sendOk = false;
+    await expect(source.getLiveviewFrame()).resolves.toBeNull();
+    await expect(source.capture(mkdtempSync(path.join(tmpdir(), "edsdk-src-")))).rejects.toThrow(
+      "channel is closed"
+    );
+    current().sendOk = true; // let afterEach's shutdown() request reach the worker
   });
 
   it("rejects in-flight requests when the worker dies", async () => {

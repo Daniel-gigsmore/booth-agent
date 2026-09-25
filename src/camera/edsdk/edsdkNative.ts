@@ -167,10 +167,16 @@ export function loadEdsdk(dllPath: string): EdsApi {
     downloadToFile(item, size, filePath) {
       const stream: unknown[] = [null];
       let err = f.createFileStream(filePath, FILE_CREATE_ALWAYS, ACCESS_READ_WRITE, stream);
-      if (err !== 0) return err;
+      if (err !== 0) {
+        f.downloadCancel(item);
+        return err;
+      }
       try {
         err = f.download(item, size, stream[0]);
-        if (err !== 0) return err;
+        if (err !== 0) {
+          f.downloadCancel(item);
+          return err;
+        }
         return f.downloadComplete(item);
       } finally {
         f.release(stream[0]);
