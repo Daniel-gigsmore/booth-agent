@@ -227,6 +227,8 @@ export default function Operator({ onBack }: { onBack: () => void }) {
               <button type="button" className={tab === "settings" ? "on" : ""} onClick={() => setTab("settings")}>Settings</button>
             </div>
             <button type="button" className="btn outline sm" onClick={onBack}>Back to kiosk</button>
+            {/* Chrome lets a page close its own window when it was opened straight from the command line (start-kiosk.ps1). */}
+            <button type="button" className="btn outline sm" onClick={() => window.close()}>Close kiosk</button>
           </div>
         )}
       </div>
