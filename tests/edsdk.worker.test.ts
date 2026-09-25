@@ -418,6 +418,15 @@ describe("CameraWorker settings", () => {
     worker.tick();
     expect(() => worker.getSettings()).toThrow("No Canon camera connected");
   });
+
+  it("stops touching the camera once a change disconnects it mid-loop", () => {
+    eds.rejectSet.set(EDS.PROP_ISO, EDS.ERR_COMM_DISCONNECTED);
+    expect(() => worker.setSettings({ iso: 0x60, wb: 1 })).toThrow("No Canon camera connected");
+    expect(worker.connected).toBe(false);
+    // wb comes after iso in SETTING_KEYS; the disconnect must stop the loop before it's touched.
+    expect(eds.setCalls).not.toContain(EDS.PROP_WHITE_BALANCE);
+    expect(eds.propReads).not.toContain(EDS.PROP_WHITE_BALANCE);
+  });
 });
 
 describe("CameraWorker shutdown", () => {

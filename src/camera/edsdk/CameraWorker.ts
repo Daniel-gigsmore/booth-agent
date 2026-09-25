@@ -392,6 +392,10 @@ export class CameraWorker {
       if (err !== EDS.ERR_OK) {
         rejected.push(key);
         if (err !== -1) this.check(err, `set ${key}`);
+        // check() may have disconnected (closed and released `cam`): stop touching
+        // the now-invalid handle for the remaining keys. getSettings() below then
+        // throws "No Canon camera connected", the right outcome for the caller.
+        if (!this.cam) break;
       }
     }
     return this.getSettings(rejected);
