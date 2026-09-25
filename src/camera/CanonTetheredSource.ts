@@ -16,8 +16,6 @@ const REMOTE_CMD_TIMEOUT_MS = 3000;
 const CAPTURE_POLL_INTERVAL_MS = 250;
 const CAPTURE_POLL_TIMEOUT_MS = 10000;
 const LIVEVIEW_FETCH_TIMEOUT_MS = 1500;
-/** What CameraControlRemoteCmd.exe prints when a Capture fails autofocus: ":;response:error;message:Canon error code: 8D01". */
-const AF_FAILED_CODE = "Canon error code: 8D01";
 
 /** The main digiCamControl session process. Its mere existence is a prerequisite for a healthy Canon path. */
 const GUI_PROCESS_NAME = "CameraControl.exe";
@@ -202,18 +200,7 @@ export class CanonTetheredSource implements CameraSource {
 
     await this.runRemoteCmd(`set session.folder ${destDir}`);
     await this.runRemoteCmd(`set session.filenametemplate ${baseName}`);
-    try {
-      await this.runRemoteCmd("Capture");
-    } catch (err) {
-      // 8D01 is EDSDK's EDS_ERR_TAKE_PICTURE_AF_NG: autofocus found nothing
-      // to lock on (an empty or low-contrast frame), so the shutter never
-      // fired. Confirmed live 2026-09-25 - the kiosk then retried the same
-      // doomed shot until the camera wedged at "Device Busy". A slightly soft
-      // photo beats a dead session, so take this one shot without autofocus.
-      if (!(err instanceof Error && err.message.includes(AF_FAILED_CODE))) throw err;
-      log.warn("Autofocus failed (Canon 8D01) - retaking this shot without autofocus");
-      await this.runRemoteCmd("CaptureNoAf");
-    }
+    await this.runRemoteCmd("Capture");
 
     await this.waitForFile(filePath);
 
