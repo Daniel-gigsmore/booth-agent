@@ -7,7 +7,7 @@ The guest-facing touchscreen UI lives in [`kiosk/`](kiosk/) (React + Vite). It i
 ## Contents
 
 - [Architecture](#architecture)
-- [Canon control: why digiCamControl, not EDSDK](#canon-control-why-digicamcontrol-not-edsdk)
+- [Canon control](#canon-control)
 - [Setup](#setup)
 - [DNP Hot Folder Print setup](#dnp-hot-folder-print-setup)
 - [Supabase schema setup](#supabase-schema-setup)
@@ -57,7 +57,24 @@ booth-agent uses Node's **built-in `node:sqlite`** module rather than `better-sq
 
 `POST /print` never touches the disk itself synchronously - it validates the capture has been composited, records the job, and returns a queue position immediately. The actual file copy into the DNP hot folder happens on an internally serialized promise chain, so five `/print` calls fired back to back all return instantly and still land in the hot folder in the order they were requested. There is no printer driver integration in this codebase; the DNP DS-RX1HS's own **Hot Folder Print** utility is the thing that actually talks to the printer.
 
-## Canon control: why digiCamControl, not EDSDK
+## Canon control
+
+### EDSDK driver (`capture.canon.driver: "edsdk"`)
+
+The agent drives the R100 through Canon's EDSDK in its own child process (`src/camera/edsdk/`), instead of through digiCamControl. We switched because digiCamControl never releases the shutter button after a failed autofocus (`8D01`); the camera then answers `0x81` (busy) to everything until it is power-cycled. The worker always releases the shutter button, and on `8D01` it retakes the shot without autofocus. See `docs/superpowers/specs/2026-09-25-edsdk-camera-design.md`.
+
+**Only works from the built `dist/`** (the Windows service, or `npm start`). `EdsdkSource` forks `dist/camera/edsdk/worker.js` next to its own compiled file; under `npm run dev` (ts-node-dev) that file doesn't exist, so the worker process exits immediately and the agent just keeps respawning it. Run `npm run build && npm start` to actually exercise this driver.
+
+**Setup:**
+1. Register with the Canon developer programme and download EDSDK. Copy the **64-bit** `EDSDK.dll` and `EdsImage.dll` into `C:\BoothAgent\edsdk\`. They're not in git: Canon's licence doesn't allow redistributing them. The 32-bit DLL that ships with digiCamControl won't load into 64-bit Node.
+2. Install the worker's dependency (`koffi`) into the live checkout: stop the service (`Stop-Service boothagent` in an admin shell), run `npm ci` in the agent checkout, then start it again (`Start-Service boothagent`). A plain `git pull` + `npm run build` deploy never installs new dependencies, so skipping this leaves `koffi` missing - the worker process would crash-loop on `require("koffi")` while preflight still reports `canon.edsdkDll: ok` (that check only looks at the DLL, not the worker's own dependencies). Never run `npm ci` while the service is running.
+3. Close digiCamControl and remove it from startup. Only one program can hold the camera, and preflight warns (`canon.digiCamControlConflict`) if both run.
+4. Set `"driver": "edsdk"` under `capture.canon` in `booth.config.json`, then restart the service.
+5. Check `/health/preflight`: `canon.edsdkDll` should be `ok`. Then check that `/health` shows `canonConnected: true`.
+
+The worker reconnects on its own after a camera power-cycle or a USB replug. It keeps the camera awake while connected, turns live view on when the kiosk asks for frames, and turns it off again after 10 s without one. If the worker crashes or hangs, the agent restarts it; the webcam covers in the meantime.
+
+### digiCamControl driver (legacy)
 
 Canon's own EDSDK is a native C SDK. Using it from Node means maintaining a compiled N-API/FFI addon, tying the agent to a specific Canon developer-program agreement, and rebuilding that binary on every Node/Windows update - a lot of fragile surface area for a single in-house booth with one person maintaining it.
 
@@ -195,6 +212,8 @@ See `booth.config.example.json` for the full shape (validated by `src/config/sch
 | `agent.sharedSecret` | Required on every request as `Authorization: Bearer <secret>` (or `?token=` for `<img>`/WS clients that can't set headers). Loopback binding is the real security boundary; this just stops other local processes from poking the agent by accident. |
 | `agent.allowedOrigins` | Origins allowed to make cross-origin requests to the agent - the kiosk UI's own origin, when it isn't served from `127.0.0.1` itself (e.g. a dev server on another port, or a kiosk browser pointed at a hostname). Empty (`[]`) by default: CORS is opt-in per deployment. Without the kiosk's origin listed here, its `Authorization`-bearing requests never get past the browser's own CORS preflight - the agent itself stays healthy and answering, but DevTools reports a CORS error and `fetch()` calls fail, while `<img src="/liveview?token=">` keeps working since images aren't subject to CORS. See `src/server/cors.ts`. |
 | `capture.sourcePreference` | `"canon"` or `"webcam"` - which one the manager prefers when both are healthy. |
+| `capture.canon.driver` | `"digicamcontrol"` (default) or `"edsdk"`: how the Canon is controlled. Read at startup; restart the service after changing it. |
+| `capture.canon.edsdkDllPath` | Where the 64-bit `EDSDK.dll` lives. Default `C:\BoothAgent\edsdk\EDSDK.dll`. |
 | `printing.hotFolderPath` | HFP's `Prints` folder (typically `C:\DNP\HotFolderPrint\Prints`); the agent writes into its `s4x6`/`s6x2_2` subfolders (see above). |
 | `printing.hotFolderStallSeconds` | How long a dropped file may sit in the hot folder before `/health` reports `hot-folder-stalled`. Default 120s. HFP claims a file by moving it, normally within a second or two, and doesn't wait for the print to finish - so this doesn't need to cover print time. |
 | `compositing.templateDir` | Where `<templateId>.json` template files and the images their layouts use live. 4x6 cells are 1200x1800 (portrait) or 1800x1200 (landscape, turned onto the sheet at print time); 2x6-strip cells are 600x1800. Each photo element takes one shot (its `shot` number); the highest shot + 1 is how many photos a guest takes. Old `photoSlots` templates still load and are converted. Copy `assets/templates/*.json` here on setup: `default-4r-grid` (landscape, 4 photos), `default-4r-three` (landscape, 1 big + 2 small), `default` (portrait, 1 photo), `default-strip` (2x6 strips, 3 photos). The kiosk's layout editor adds more. |

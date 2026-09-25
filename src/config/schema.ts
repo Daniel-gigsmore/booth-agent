@@ -6,6 +6,21 @@ export type CaptureSourcePreference = z.infer<typeof CaptureSourcePreferenceSche
 export const PrintSizeSchema = z.enum(["4x6", "2x6-strip"]);
 export type PrintSize = z.infer<typeof PrintSizeSchema>;
 
+/**
+ * `driver` picks how the Canon is controlled: through digiCamControl
+ * (CanonTetheredSource) or through our own EDSDK worker (EdsdkSource). The
+ * digiCamControl fields stay required until that driver is removed.
+ */
+export const CanonConfigSchema = z.object({
+  driver: z.enum(["digicamcontrol", "edsdk"]).default("digicamcontrol"),
+  edsdkDllPath: z.string().default("C:\\BoothAgent\\edsdk\\EDSDK.dll"),
+  digiCamControlExePath: z.string(),
+  digiCamControlHttpPort: z.number().int().positive().default(5513),
+  digiCamControlHttpHost: z.string().default("127.0.0.1"),
+  sessionDir: z.string(),
+  pollIntervalMs: z.number().int().positive().default(1000),
+});
+
 export const BoothConfigSchema = z.object({
   agent: z.object({
     port: z.number().int().positive().default(7070),
@@ -17,13 +32,7 @@ export const BoothConfigSchema = z.object({
   }),
   capture: z.object({
     sourcePreference: CaptureSourcePreferenceSchema.default("canon"),
-    canon: z.object({
-      digiCamControlExePath: z.string(),
-      digiCamControlHttpPort: z.number().int().positive().default(5513),
-      digiCamControlHttpHost: z.string().default("127.0.0.1"),
-      sessionDir: z.string(),
-      pollIntervalMs: z.number().int().positive().default(1000),
-    }),
+    canon: CanonConfigSchema,
     webcam: z.object({
       ffmpegPath: z.string().default("ffmpeg"),
       deviceName: z.string(),
