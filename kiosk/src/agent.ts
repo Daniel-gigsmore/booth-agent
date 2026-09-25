@@ -127,4 +127,8 @@ export const agent = {
   health: () => call<Health>("GET", "/health"),
   history: () => call<{ jobs: PrintJob[] }>("GET", "/print/history?limit=3"),
   reprint: (jobId: string) => call("POST", "/print/reprint", { jobId }),
+  /** Fire-and-forget: tells the camera a shot is ~1.5 s away. A failure never affects the countdown. */
+  prefocus: () => {
+    void call("POST", "/camera/prefocus").catch(() => undefined);
+  },
 };

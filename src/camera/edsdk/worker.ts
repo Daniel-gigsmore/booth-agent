@@ -46,6 +46,9 @@ async function handle(request: RequestBody): Promise<Uint8Array | null> {
       return null;
     case "frame":
       return worker.frame();
+    case "prefocus":
+      worker.prefocus();
+      return null;
     case "ping":
       return null;
     case "shutdown":

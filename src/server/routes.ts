@@ -228,6 +228,15 @@ export function buildRouter(ctx: AgentContext): Router {
     }
   }));
 
+  // The kiosk calls this ~1.5 s before each shot so autofocus is done by the
+  // time /capture arrives. Fire-and-forget: the answer never waits on the camera.
+  router.post("/camera/prefocus", (_req: Request, res: Response) => {
+    // prefocus() never rejects, but a floating promise must not become an
+    // unhandled rejection if that ever changes (or a test double rejects).
+    ctx.cameraManager.prefocus().catch(() => undefined);
+    res.status(202).json({});
+  });
+
   // The kiosk's review screen shows the still the guest just took. /capture
   // only hands back a local path the browser cannot open, so serve the file
   // here. The path comes from the outbox row, never from the request, so the

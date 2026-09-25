@@ -20,6 +20,7 @@ const BUSY_RETRY_DELAY_MS = 500;
 const TRANSFER_TIMEOUT_MS = 10_000;
 const EVENT_POLL_MS = 30;
 const LIVEVIEW_IDLE_MS = 10_000;
+const PREFOCUS_HOLD_MS = 3_000;
 
 /**
  * Everything the camera worker process does with the Canon, written against
@@ -39,6 +40,8 @@ export class CameraWorker {
   private capturing = false;
   private liveviewOn = false;
   private lastFrameAt = 0;
+  /** When the pre-focus half-press started, or null when the shutter isn't held. */
+  private halfPressedAt: number | null = null;
 
   constructor(
     private readonly eds: EdsApi,
@@ -71,6 +74,11 @@ export class CameraWorker {
     }
     if (this.liveviewOn && !this.capturing && now - this.lastFrameAt >= LIVEVIEW_IDLE_MS) {
       this.setLiveview(false);
+    }
+    // A guest who tapped ✕, or a kiosk that went away, must not leave the shutter half-pressed.
+    if (this.halfPressedAt !== null && !this.capturing && now - this.halfPressedAt >= PREFOCUS_HOLD_MS) {
+      this.halfPressedAt = null;
+      this.eds.sendCommand(this.cam, EDS.CMD_PRESS_SHUTTER_BUTTON, EDS.SHUTTER_OFF);
     }
   }
 
@@ -171,6 +179,7 @@ export class CameraWorker {
     if (!cam) return;
     this.cam = null;
     this.liveviewOn = false;
+    this.halfPressedAt = null;
     this.eds.closeSession(cam);
     this.eds.release(cam);
     this.lastScanAt = this.clock.now();
@@ -186,6 +195,7 @@ export class CameraWorker {
     if (!this.cam) throw new Error("No Canon camera connected");
     const transfer = { destPath, done: false, err: EDS.ERR_OK as number };
     this.capturing = true;
+    this.halfPressedAt = null; // the full press takes over; press() releases afterwards
     this.pendingTransfer = transfer;
     try {
       let err = await this.press(EDS.SHUTTER_COMPLETELY);
@@ -230,6 +240,23 @@ export class CameraWorker {
     if (err !== EDS.ERR_DEVICE_BUSY) return err;
     await this.clock.sleep(BUSY_RETRY_DELAY_MS);
     return this.cam ? once(this.cam) : EDS.ERR_DEVICE_NOT_FOUND;
+  }
+
+  /**
+   * Half-presses the shutter so AF has already locked when the countdown hits
+   * zero (the kiosk calls this ~1.5 s early). Purely an optimisation: capture()
+   * presses fully either way, and its OFF releases this hold too.
+   */
+  prefocus(): void {
+    const cam = this.cam;
+    if (!cam || this.capturing) return;
+    const err = this.eds.sendCommand(cam, EDS.CMD_PRESS_SHUTTER_BUTTON, EDS.SHUTTER_HALFWAY);
+    if (err !== EDS.ERR_OK) {
+      this.eds.sendCommand(cam, EDS.CMD_PRESS_SHUTTER_BUTTON, EDS.SHUTTER_OFF);
+      this.check(err, "pre-focus");
+      return;
+    }
+    this.halfPressedAt = this.clock.now();
   }
 
   /** The latest live-view JPEG, or null (no camera, mid-capture, or no frame ready yet). */

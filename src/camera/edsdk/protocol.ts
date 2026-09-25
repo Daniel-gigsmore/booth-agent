@@ -3,6 +3,7 @@
 export type RequestBody =
   | { type: "capture"; destPath: string }
   | { type: "frame" }
+  | { type: "prefocus" }
   | { type: "ping" }
   | { type: "shutdown" };
 

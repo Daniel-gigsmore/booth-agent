@@ -91,6 +91,11 @@ export class EdsdkSource implements CameraSource {
     return { filePath, width: metadata.width, height: metadata.height };
   }
 
+  /** Asks the worker to half-press now so focus is ready at zero. */
+  async prefocus(): Promise<void> {
+    await this.request({ type: "prefocus" }, TIMEOUT_MS.other);
+  }
+
   async getLiveviewFrame(): Promise<Buffer | null> {
     if (!this.connected) return null;
     try {
