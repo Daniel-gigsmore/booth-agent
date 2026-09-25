@@ -16,6 +16,9 @@ const SCAN_INTERVAL_MS = 1_000;
 // camera; re-initializing the SDK now and then forces a fresh device list.
 const REINIT_AFTER_EMPTY_SCANS = 5;
 const KEEP_AWAKE_MS = 60_000;
+const BUSY_RETRY_DELAY_MS = 500;
+const TRANSFER_TIMEOUT_MS = 10_000;
+const EVENT_POLL_MS = 30;
 
 /**
  * Everything the camera worker process does with the Canon, written against
@@ -30,6 +33,8 @@ export class CameraWorker {
   private lastKeepAwakeAt = 0;
   /** Set by the state handler; acted on after getEvent() returns, never re-entrantly inside it. */
   private shutdownSeen = false;
+  /** The capture waiting for its photo; the object handler downloads into it. */
+  private pendingTransfer: { destPath: string; done: boolean; err: number } | null = null;
 
   constructor(
     private readonly eds: EdsApi,
@@ -103,8 +108,23 @@ export class CameraWorker {
     this.emit({ type: "state", connected: true, model: found.description });
   }
 
-  /** Placeholder until Task 2 handles photo transfers. */
-  private onObject(_event: number, _ref: EdsRef): void {}
+  private onObject(event: number, ref: EdsRef): void {
+    try {
+      if (event !== EDS.OBJECT_EVENT_DIR_ITEM_REQUEST_TRANSFER) return;
+      const transfer = this.pendingTransfer;
+      const { err, item } = this.eds.dirItem(ref);
+      if (!transfer || transfer.done || err !== EDS.ERR_OK || !item || !/\.jpe?g$/i.test(item.fileName)) {
+        // Nobody is waiting, or it's the RAW half of RAW+JPEG: let the camera move on.
+        this.eds.downloadCancel(ref);
+        this.log("info", `Skipped transfer of ${item?.fileName ?? "an unreadable item"}`);
+        return;
+      }
+      transfer.err = this.eds.downloadToFile(ref, item.size, transfer.destPath);
+      transfer.done = true;
+    } finally {
+      this.eds.release(ref);
+    }
+  }
 
   /** Logs a failed call and drops the session when the error means the camera is gone. Returns err unchanged. */
   private check(err: number, what: string): number {
@@ -127,5 +147,53 @@ export class CameraWorker {
 
   private log(level: LogLevel, message: string): void {
     this.emit({ type: "log", level, message });
+  }
+
+  async capture(destPath: string): Promise<void> {
+    if (!this.cam) throw new Error("No Canon camera connected");
+    const transfer = { destPath, done: false, err: EDS.ERR_OK as number };
+    this.pendingTransfer = transfer;
+    try {
+      let err = await this.press(EDS.SHUTTER_COMPLETELY);
+      if (err === EDS.ERR_TAKE_PICTURE_AF_NG) {
+        this.log("warn", "Autofocus failed (8D01) - taking this shot without autofocus");
+        err = await this.press(EDS.SHUTTER_COMPLETELY_NON_AF);
+      }
+      if (err !== EDS.ERR_OK) {
+        this.check(err, "shutter");
+        throw new Error(`Canon shutter failed: ${hex(err)}`);
+      }
+      const start = this.clock.now();
+      while (!transfer.done) {
+        if (!this.cam) throw new Error("Camera disconnected during capture");
+        if (this.clock.now() - start >= TRANSFER_TIMEOUT_MS) {
+          throw new Error("Canon capture timed out waiting for the photo");
+        }
+        this.pumpEvents();
+        if (!transfer.done) await this.clock.sleep(EVENT_POLL_MS);
+      }
+      if (transfer.err !== EDS.ERR_OK) throw new Error(`Canon photo download failed: ${hex(transfer.err)}`);
+    } finally {
+      this.pendingTransfer = null;
+    }
+  }
+
+  /**
+   * One shutter press, ALWAYS followed by a release. digiCamControl skips the
+   * release when the press fails, which leaves the R100 answering 0x81 (busy)
+   * to everything until it is power-cycled - the bug this worker exists to fix.
+   */
+  private async press(param: number): Promise<number> {
+    const once = (cam: EdsRef): number => {
+      const err = this.eds.sendCommand(cam, EDS.CMD_PRESS_SHUTTER_BUTTON, param);
+      this.eds.sendCommand(cam, EDS.CMD_PRESS_SHUTTER_BUTTON, EDS.SHUTTER_OFF);
+      return err;
+    };
+    const cam = this.cam;
+    if (!cam) return EDS.ERR_DEVICE_NOT_FOUND;
+    const err = once(cam);
+    if (err !== EDS.ERR_DEVICE_BUSY) return err;
+    await this.clock.sleep(BUSY_RETRY_DELAY_MS);
+    return this.cam ? once(this.cam) : EDS.ERR_DEVICE_NOT_FOUND;
   }
 }

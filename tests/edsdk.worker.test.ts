@@ -1,4 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
+import { mkdtempSync, existsSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { CameraWorker } from "../src/camera/edsdk/CameraWorker";
 import { EDS } from "../src/camera/edsdk/edsdkApi";
 import { WorkerEvent } from "../src/camera/edsdk/protocol";
@@ -74,5 +77,71 @@ describe("CameraWorker connection", () => {
     clock.advance(1_000);
     worker.tick();
     expect(keepAwakes()).toBe(1);
+  });
+});
+
+const dest = () => path.join(mkdtempSync(path.join(tmpdir(), "edsdk-")), "canon-x.jpg");
+
+describe("CameraWorker capture", () => {
+  beforeEach(() => {
+    makeWorker();
+    worker.tick(); // connected
+  });
+
+  it("presses fully, always releases, and downloads the JPEG to destPath", async () => {
+    const file = dest();
+    await worker.capture(file);
+    expect(eds.presses).toEqual([EDS.SHUTTER_COMPLETELY, EDS.SHUTTER_OFF]);
+    expect(existsSync(file)).toBe(true);
+  });
+
+  it("on autofocus failure (8D01) releases, then takes the shot without autofocus", async () => {
+    eds.pressResults = [EDS.ERR_TAKE_PICTURE_AF_NG];
+    await worker.capture(dest());
+    expect(eds.presses).toEqual([
+      EDS.SHUTTER_COMPLETELY, EDS.SHUTTER_OFF,
+      EDS.SHUTTER_COMPLETELY_NON_AF, EDS.SHUTTER_OFF,
+    ]);
+    expect(events).toContainEqual(expect.objectContaining({ type: "log", level: "warn" }));
+  });
+
+  it("on busy (81) releases, waits 500 ms and retries once", async () => {
+    eds.pressResults = [EDS.ERR_DEVICE_BUSY];
+    const before = clock.now();
+    await worker.capture(dest());
+    expect(eds.presses).toEqual([EDS.SHUTTER_COMPLETELY, EDS.SHUTTER_OFF, EDS.SHUTTER_COMPLETELY, EDS.SHUTTER_OFF]);
+    expect(clock.now() - before).toBeGreaterThanOrEqual(500);
+  });
+
+  it("fails on any other shutter error, still releasing the button", async () => {
+    eds.pressResults = [0x2a];
+    await expect(worker.capture(dest())).rejects.toThrow("0x2A");
+    expect(eds.presses).toEqual([EDS.SHUTTER_COMPLETELY, EDS.SHUTTER_OFF]);
+  });
+
+  it("cancels a non-JPEG transfer and keeps the JPEG", async () => {
+    eds.photoNames = ["IMG_0001.CR3", "IMG_0001.JPG"];
+    const file = dest();
+    await worker.capture(file);
+    expect(eds.cancels).toEqual(["IMG_0001.CR3"]);
+    expect(eds.downloads).toEqual([{ name: "IMG_0001.JPG", path: file }]);
+  });
+
+  it("times out after 10 s with no photo", async () => {
+    eds.photoNames = [];
+    await expect(worker.capture(dest())).rejects.toThrow("timed out");
+  });
+
+  it("fails fast when the camera is unplugged mid-capture", async () => {
+    eds.photoNames = [];
+    eds.unplug();
+    await expect(worker.capture(dest())).rejects.toThrow("disconnected");
+    expect(worker.connected).toBe(false);
+  });
+
+  it("refuses to capture with no camera", async () => {
+    eds.unplug();
+    worker.tick();
+    await expect(worker.capture(dest())).rejects.toThrow("No Canon camera connected");
   });
 });
