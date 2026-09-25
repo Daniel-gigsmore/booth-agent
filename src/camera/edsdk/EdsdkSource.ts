@@ -156,7 +156,7 @@ export class EdsdkSource implements CameraSource {
       return;
     }
     if (message.type === "status") {
-      this.detail = message.detail;
+      this.detail = { ...message.detail, lastError: message.detail.lastError ?? this.detail?.lastError ?? null };
       return;
     }
     log[message.level](message.message);
