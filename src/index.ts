@@ -3,6 +3,7 @@ import { ConfigStore } from "./config/config";
 import { EventBus } from "./events/eventBus";
 import { CameraManager } from "./camera/CameraManager";
 import { CanonTetheredSource } from "./camera/CanonTetheredSource";
+import { EdsdkSource, spawnWorker } from "./camera/edsdk/EdsdkSource";
 import { WebcamSource } from "./camera/WebcamSource";
 import { openOutboxDb } from "./outbox/db";
 import { OutboxStore } from "./outbox/outboxStore";
@@ -59,7 +60,12 @@ async function main(): Promise<void> {
   const preflight = await runPreflight(config);
   logPreflight(preflight);
 
-  const canonSource = new CanonTetheredSource(config.capture.canon);
+  // `driver` is read once at startup; switching it needs a service restart.
+  const canonConfig = config.capture.canon;
+  const canonSource =
+    canonConfig.driver === "edsdk"
+      ? new EdsdkSource(() => spawnWorker(canonConfig.edsdkDllPath))
+      : new CanonTetheredSource(canonConfig);
   const webcamSource = new WebcamSource(config.capture.webcam);
   const cameraManager = new CameraManager(
     { canon: canonSource, webcam: webcamSource },

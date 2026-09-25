@@ -108,10 +108,26 @@ function checkSharedSecret(config: BoothConfig): PreflightCheck {
   return ok("agent.sharedSecret", "set");
 }
 
-async function checkCanon(config: BoothConfig): Promise<PreflightCheck[]> {
+export async function checkCanon(config: BoothConfig): Promise<PreflightCheck[]> {
   const results: PreflightCheck[] = [];
   const preferred = config.capture.sourcePreference === "canon";
   const level = preferred ? fail : warn;
+
+  if (config.capture.canon.driver === "edsdk") {
+    const dll = config.capture.canon.edsdkDllPath;
+    results.push(
+      (await exists(dll))
+        ? ok("canon.edsdkDll", `EDSDK found at ${dll}`)
+        : level("canon.edsdkDll", `EDSDK.dll not found at ${dll} - install Canon's 64-bit EDSDK there`)
+    );
+    // Only one program can hold the camera: digiCamControl would fight the worker for it.
+    results.push(
+      (await isDigiCamControlRunning())
+        ? warn("canon.digiCamControlConflict", "CameraControl.exe is running - close it (and remove it from startup) while using the EDSDK driver")
+        : ok("canon.digiCamControlConflict", "digiCamControl is not running")
+    );
+    return results;
+  }
 
   const exePath = config.capture.canon.digiCamControlExePath;
   if (await exists(exePath)) {
