@@ -345,13 +345,23 @@ describe("CameraWorker status", () => {
   });
 
   it("never reads properties during a capture", async () => {
+    const statusProps = [EDS.PROP_BATTERY_LEVEL, EDS.PROP_AE_MODE, EDS.PROP_AF_MODE, EDS.PROP_IMAGE_QUALITY];
+    const readAnyStatusProp = () => eds.propReads.some((p) => statusProps.includes(p));
+
+    // Goes through the AF-fallback branch, which calls recordError() while capturing is still true.
+    eds.propReads = [];
+    eds.pressResults = [EDS.ERR_TAKE_PICTURE_AF_NG];
+    await worker.capture(dest());
+    expect(readAnyStatusProp()).toBe(false);
+    // The lastError status still carries the readings taken before the capture started.
+    expect(statuses().at(-1)).toMatchObject({ detail: { battery: 80, mode: "M" } });
+
+    // A thrown failure (timeout) goes through the catch, which also calls recordError().
+    eds.propReads = [];
     eds.photoNames = [];
-    const capture = worker.capture(dest());
-    eds.props.set(EDS.PROP_BATTERY_LEVEL, 10);
-    clock.advance(5_000);
-    worker.tick();
-    expect(statuses().some((s) => s.type === "status" && s.detail.battery === 10)).toBe(false);
-    await expect(capture).rejects.toThrow("timed out");
+    await expect(worker.capture(dest())).rejects.toThrow("timed out");
+    expect(readAnyStatusProp()).toBe(false);
+    expect(statuses().at(-1)).toMatchObject({ detail: { battery: 80, mode: "M" } });
   });
 });
 

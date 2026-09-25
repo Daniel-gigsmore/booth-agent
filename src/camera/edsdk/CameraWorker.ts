@@ -48,6 +48,8 @@ export class CameraWorker {
   private lastError: CameraDetail["lastError"] = null;
   /** JSON of the last status sent, so an unchanged poll sends nothing. */
   private lastStatusSent = "";
+  /** The last property readings taken; held steady during a capture so recordError() never touches EDSDK mid-shot. */
+  private lastReadings: Omit<CameraDetail, "lastError"> = { battery: null, mode: null, afMode: null, quality: null };
 
   constructor(
     private readonly eds: EdsApi,
@@ -195,6 +197,8 @@ export class CameraWorker {
     this.eds.closeSession(cam);
     this.eds.release(cam);
     this.lastScanAt = this.clock.now();
+    // No camera to read from any more, whether or not a capture is still unwinding.
+    this.lastReadings = { battery: null, mode: null, afMode: null, quality: null };
     this.log("warn", `Camera disconnected (${reason})`);
     this.emit({ type: "state", connected: false, model: null });
     this.recordError(`Camera disconnected (${reason})`);
@@ -204,9 +208,19 @@ export class CameraWorker {
     this.emit({ type: "log", level, message });
   }
 
+  /**
+   * The worker must never touch EDSDK while a capture is in flight (that's
+   * the shutter/transfer's exclusive access), so a capture-time status -
+   * the AF-fallback notice, a thrown failure - reuses the last readings
+   * taken instead of reading fresh ones.
+   */
   private readStatus(): Omit<CameraDetail, "lastError"> {
+    if (this.capturing) return this.lastReadings;
     const cam = this.cam;
-    if (!cam) return { battery: null, mode: null, afMode: null, quality: null };
+    if (!cam) {
+      this.lastReadings = { battery: null, mode: null, afMode: null, quality: null };
+      return this.lastReadings;
+    }
     const read = (prop: number) => {
       const r = this.eds.getU32(cam, prop);
       return r.err === EDS.ERR_OK ? r.value : null;
@@ -215,12 +229,13 @@ export class CameraWorker {
     const mode = read(EDS.PROP_AE_MODE);
     const af = read(EDS.PROP_AF_MODE);
     const quality = read(EDS.PROP_IMAGE_QUALITY);
-    return {
+    this.lastReadings = {
       battery: battery === null ? null : batteryLevel(battery),
       mode: mode === null ? null : aeModeLabel(mode),
       afMode: af === null ? null : afModeLabel(af),
       quality: quality === null ? null : imageQuality(quality),
     };
+    return this.lastReadings;
   }
 
   /** Sends the current status if it differs from the last one sent. */
