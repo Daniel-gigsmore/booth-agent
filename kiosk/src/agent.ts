@@ -34,6 +34,21 @@ async function call<T>(method: "GET" | "POST", path: string, body?: object | Blo
   return data as T;
 }
 
+/** Like call(), for endpoints that answer with an image. */
+async function callBlob(path: string, body: object): Promise<Blob> {
+  const res = await fetch(base + path, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error ?? `POST ${path} failed (${res.status})`);
+  }
+  return res.blob();
+}
+
 export type HealthLevel = "ok" | "warn" | "error";
 
 export interface Health {
@@ -103,6 +118,12 @@ export const agent = {
   deleteTemplate: (id: string) => call("POST", `/templates/${id}/delete`),
   uploadAsset: (id: string, file: Blob) => call<{ file: string }>("POST", `/templates/${id}/assets`, file),
   fonts: () => call<{ fonts: BundledFont[] }>("GET", "/fonts").then((r) => r.fonts),
+  previewLayout: (t: Template) => callBlob("/layout-preview", templateBody(t)),
+  testPrintLayout: (t: Template) => call<{ jobId: string }>("POST", "/layout-preview/print", templateBody(t)),
+  exportLayout: (id: string) => call<object>("GET", `/templates/${id}/export`),
+  importLayout: (bundle: object) => call<Template>("POST", "/layout-import", bundle),
+  copyLayout: (sourceId: string, t: Template, name: string) =>
+    call<Template>("POST", `/templates/${sourceId}/copy`, { name, template: templateBody(t) }),
   health: () => call<Health>("GET", "/health"),
   history: () => call<{ jobs: PrintJob[] }>("GET", "/print/history?limit=3"),
   reprint: (jobId: string) => call("POST", "/print/reprint", { jobId }),

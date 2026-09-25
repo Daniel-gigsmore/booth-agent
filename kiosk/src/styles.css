@@ -403,3 +403,9 @@ select.text-input { padding: 0 16px; }
 }
 .icon-btn { min-width: 52px; height: 52px; padding: 0 12px; border-radius: 12px; border: 2px solid var(--line); background: var(--bg); color: var(--text); font: 700 20px var(--body); }
 .icon-btn:disabled { opacity: 0.35; }
+
+/* Layout preview dialog, over the whole operator stage. */
+.modal { position: absolute; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center; background: rgba(21, 18, 26, 0.88); }
+.modal-card { padding: 36px 44px; border-radius: 28px; background: var(--surface); align-items: center; }
+/* Eight top-bar buttons have to fit beside the name field. */
+.editor-top .btn.sm { padding: 0 28px; font-size: 26px; }

@@ -1,4 +1,4 @@
-import { mkdir } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import sharp, { Sharp, OverlayOptions } from "sharp";
 import { v4 as uuidv4 } from "uuid";
@@ -32,6 +32,9 @@ export interface CompositeResult {
   width: number;
   height: number;
 }
+
+/** Everything renderComposite needs except where to save the file. */
+export type SheetParams = Omit<CompositeParams, "outputDir">;
 
 interface CellParams {
   sourceImagePaths: string[];
@@ -161,20 +164,17 @@ async function renderCell(params: CellParams): Promise<Buffer> {
 }
 
 /**
- * Produces the final print-ready JPEG at 300dpi. For "4x6" the cell fills the
+ * The print-ready JPEG at 300dpi, in memory. For "4x6" the cell fills the
  * whole sheet. For "2x6-strip" the same cell is rendered once and mirrored at
  * left and right halves of the sheet, so the DNP's two-up strip cutter
- * produces two identical strips per print.
+ * produces two identical strips per print. Layout previews use this directly.
  */
-export async function renderComposite(params: CompositeParams): Promise<CompositeResult> {
+export async function renderSheet(params: SheetParams): Promise<Buffer> {
   if (params.template.printSize !== params.printSize) {
     throw new Error(
       `Template "${params.template.id}" is for ${params.template.printSize} but ${params.printSize} was requested`
     );
   }
-  await mkdir(params.outputDir, { recursive: true });
-  const fileName = `composite-${uuidv4()}.jpg`;
-  const filePath = path.join(params.outputDir, fileName);
 
   let finalImage: Sharp;
 
@@ -204,10 +204,14 @@ export async function renderComposite(params: CompositeParams): Promise<Composit
     ]);
   }
 
-  await finalImage
-    .jpeg({ quality: params.jpegQuality })
-    .withMetadata({ density: DPI })
-    .toFile(filePath);
+  return finalImage.jpeg({ quality: params.jpegQuality }).withMetadata({ density: DPI }).toBuffer();
+}
 
+/** Renders the print-ready sheet and saves it under outputDir. */
+export async function renderComposite(params: CompositeParams): Promise<CompositeResult> {
+  const jpeg = await renderSheet(params);
+  await mkdir(params.outputDir, { recursive: true });
+  const filePath = path.join(params.outputDir, `composite-${uuidv4()}.jpg`);
+  await writeFile(filePath, jpeg);
   return { filePath, width: SHEET_WIDTH_PX, height: SHEET_HEIGHT_PX };
 }

@@ -1,5 +1,5 @@
 import express, { Router, Request, Response } from "express";
-import { access, mkdir, writeFile } from "node:fs/promises";
+import { access, mkdir, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { v4 as uuidv4 } from "uuid";
 import { z } from "zod";
@@ -15,13 +15,17 @@ import {
   saveAsset,
   assetPath,
   shotCount,
+  validateTemplate,
+  assertImagesAllowed,
 } from "../compositor/template";
+import { exportLayout, importLayout, copyLayout } from "../compositor/templateTransfer";
 import { FONTS, fontFilePath } from "../compositor/fonts";
 import { textVariables } from "../compositor/variables";
 import { readSessionSettings, writeSessionSettings, SessionSettingsSchema } from "../session/sessionSettings";
-import { renderComposite } from "../compositor/compositor";
-import { originalsDir, compositesDir, aiDownloadsDir } from "../util/paths";
-import { isHotFolderWritable } from "../print/hotFolder";
+import { renderComposite, renderSheet } from "../compositor/compositor";
+import { samplePhotos } from "../compositor/samples";
+import { originalsDir, compositesDir, aiDownloadsDir, samplesDir } from "../util/paths";
+import { isHotFolderWritable, dropIntoHotFolder } from "../print/hotFolder";
 import { readPrinterStatus, defaultPrinterStatusPath } from "../print/printerStatus";
 import { reconcileHotFolderDrops } from "../print/hotFolderStall";
 import { buildHealthReport } from "../health/healthReport";
@@ -451,6 +455,101 @@ export function buildRouter(ctx: AgentContext): Router {
     const dir = ctx.configStore.current.compositing.templateDir;
     res.json({ templates: listTemplates(dir) });
   });
+
+  /** A draft layout (saved or not) rendered with sample photos, exactly as it would print. */
+  async function renderDraft(body: unknown) {
+    const config = ctx.configStore.current;
+    const dir = config.compositing.templateDir;
+    const template = validateTemplate(body);
+    assertImagesAllowed(dir, template);
+    const jpeg = await renderSheet({
+      sourceImagePaths: await samplePhotos(samplesDir(config), shotCount(template)),
+      template,
+      assetDir: dir,
+      variables: textVariables(config.event.name || config.event.id, "a1b2c3d4"),
+      printSize: template.printSize,
+      jpegQuality: config.compositing.jpegQuality,
+    });
+    return { template, jpeg };
+  }
+
+  router.post("/layout-preview", asyncHandler(async (req: Request, res: Response) => {
+    try {
+      const { jpeg } = await renderDraft(req.body);
+      res.type("image/jpeg").send(jpeg);
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  }));
+
+  // One sheet of paper for the operator: the preview, straight into the hot
+  // folder. No capture or print-job row is made, so nothing syncs to Supabase
+  // and the guest print history stays clean.
+  router.post("/layout-preview/print", asyncHandler(async (req: Request, res: Response) => {
+    const config = ctx.configStore.current;
+    let file: string | null = null;
+    try {
+      const { template, jpeg } = await renderDraft(req.body);
+      const dir = compositesDir(config);
+      await mkdir(dir, { recursive: true });
+      const jobId = `test-${uuidv4()}`;
+      file = path.join(dir, `${jobId}.jpg`);
+      await writeFile(file, jpeg);
+      await dropIntoHotFolder(config.printing.hotFolderPath, template.printSize, jobId, file);
+      log.info(`Test print of layout ${template.id} dropped into the hot folder (${jobId})`);
+      res.status(202).json({ jobId });
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    } finally {
+      // The hot folder has its own copy; nothing else uses the source, so
+      // don't leave test-print JPEGs accumulating under composites/. A
+      // missing file (e.g. the drop never got this far) must never turn
+      // the response into an error.
+      if (file) await unlink(file).catch(() => {});
+    }
+  }));
+
+  router.get("/templates/:id/export", asyncHandler(async (req: Request, res: Response) => {
+    const dir = ctx.configStore.current.compositing.templateDir;
+    try {
+      res.json(await exportLayout(dir, String(req.params["id"])));
+    } catch (err) {
+      res.status(404).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  }));
+
+  router.post(
+    "/layout-import",
+    express.json({ limit: "60mb" }),
+    asyncHandler(async (req: Request, res: Response) => {
+      const dir = ctx.configStore.current.compositing.templateDir;
+      try {
+        const template = await importLayout(dir, req.body);
+        log.info(`Imported layout ${template.id}`);
+        res.status(201).json(template);
+      } catch (err) {
+        res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+      }
+    })
+  );
+
+  const CopyRequestSchema = z.object({ name: z.string().trim().min(1).max(80), template: z.unknown() });
+
+  router.post("/templates/:id/copy", asyncHandler(async (req: Request, res: Response) => {
+    const dir = ctx.configStore.current.compositing.templateDir;
+    const parsed = CopyRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "give the new layout a name" });
+      return;
+    }
+    try {
+      const template = await copyLayout(dir, String(req.params["id"]), parsed.data.template, parsed.data.name);
+      log.info(`Saved layout ${req.params["id"]} as new layout ${template.id}`);
+      res.status(201).json(template);
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  }));
 
   router.post("/templates/:id", (req: Request<{ id: string }>, res: Response) => {
     const dir = ctx.configStore.current.compositing.templateDir;

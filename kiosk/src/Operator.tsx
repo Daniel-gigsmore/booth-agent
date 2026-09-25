@@ -101,6 +101,7 @@ function SettingsTab({ onEdit }: { onEdit: (t: Template, all: Template[], inUseI
   const [settings, setSettings] = useState<SessionSettings | null>(null);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
+  const [note, setNote] = useState("");
 
   useEffect(() => {
     agent.templates().then(setTemplates, (e: Error) => setError(e.message));
@@ -123,16 +124,51 @@ function SettingsTab({ onEdit }: { onEdit: (t: Template, all: Template[], inUseI
     }
   }
 
+  async function importFile(file: File | undefined) {
+    if (!file) return;
+    try {
+      const t = await agent.importLayout(JSON.parse(await file.text()));
+      setTemplates(await agent.templates());
+      setError("");
+      setNote(`Imported "${t.name ?? t.id}".`);
+    } catch (e) {
+      setError(e instanceof SyntaxError ? "That file isn't a layout file." : (e as Error).message);
+    }
+  }
+
+  async function exportLayout(t: Template) {
+    try {
+      const bundle = await agent.exportLayout(t.id);
+      const url = URL.createObjectURL(new Blob([JSON.stringify(bundle)], { type: "application/json" }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${t.id}.kachak-layout.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setNote(`Exported "${t.name ?? t.id}" to Downloads.`);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
   if (!settings) return <div className="muted fs-28">Loading…</div>;
   return (
     <div className="settings">
       <div className="col gap-16 grow">
         <div className="row between">
           <div className="display fs-36">Layout</div>
-          <button type="button" className="btn primary sm" onClick={() => onEdit(newTemplate(), templates, settings.templateId)}>
-            New layout
-          </button>
+          <div className="row gap-16">
+            <label className="btn outline sm file-btn">
+              Import
+              <input type="file" accept=".json,application/json"
+                onChange={(e) => { importFile(e.target.files?.[0]); e.target.value = ""; }} />
+            </label>
+            <button type="button" className="btn primary sm" onClick={() => onEdit(newTemplate(), templates, settings.templateId)}>
+              New layout
+            </button>
+          </div>
         </div>
+        {note && <div className="muted fs-24">{note}</div>}
         <div className="layout-list">
           {templates.map((t) => (
             <div key={t.id} className={`layout-card ${t.id === settings.templateId ? "on" : ""}`}>
@@ -146,9 +182,14 @@ function SettingsTab({ onEdit }: { onEdit: (t: Template, all: Template[], inUseI
                   {t.id === settings.templateId && <div className="in-use">In use</div>}
                 </div>
               </button>
-              <button type="button" className="btn outline row-btn" onClick={() => onEdit(t, templates, settings.templateId)}>
-                Edit
-              </button>
+              <div className="col gap-6">
+                <button type="button" className="btn outline row-btn" onClick={() => onEdit(t, templates, settings.templateId)}>
+                  Edit
+                </button>
+                <button type="button" className="btn outline row-btn" onClick={() => exportLayout(t)}>
+                  Export
+                </button>
+              </div>
             </div>
           ))}
         </div>

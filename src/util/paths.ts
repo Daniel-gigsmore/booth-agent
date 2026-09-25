@@ -12,3 +12,7 @@ export function compositesDir(config: BoothConfig): string {
 export function aiDownloadsDir(config: BoothConfig): string {
   return path.join(config.storage.dataDir, "ai-downloads");
 }
+
+export function samplesDir(config: BoothConfig): string {
+  return path.join(config.storage.dataDir, "samples");
+}

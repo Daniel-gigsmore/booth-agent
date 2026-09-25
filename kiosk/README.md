@@ -11,6 +11,8 @@ Flow: Attract → Get ready (live view; one countdown and shot per photo slot in
 
 **Layout editor:** the left column adds a photo (each photo number is one shot), an image (PNG or JPEG, uploaded to booth-agent), a text or a shape, and sets the background colour and paper. Drag an element to move it and its orange corner dot to resize it. The Selected panel has exact X/Y/W/H, rotation, keep-aspect-ratio, align-to-paper and "Fill paper" controls, plus text (font, size, colour, bold, alignment, and the `{event}` `{date}` `{time}` `{code}` variables filled in per print), shape and photo-number settings. The Layers panel lists elements top first, with show/hide, up/down and delete. Undo/Redo keep the last 50 steps. The editor draws text with booth-agent's own font files, so it looks like the print; line breaks may differ slightly.
 
+**Preview and test print:** Preview renders the layout on booth-agent with numbered sample photos, so it is exactly what prints. From the preview, Test print sends one sheet to the printer (tap twice; it uses paper, and nothing is uploaded). **Save as new** stores the current draft as a separate layout ("<name> copy" unless you renamed it). In Settings, **Export** saves a layout and its images to one `.kachak-layout.json` file in Downloads, and **Import** loads such a file as a new layout.
+
 ## Setup
 
 1. Copy `.env.example` to `.env`. Set `VITE_AGENT_TOKEN` to booth-agent's `agent.sharedSecret`.

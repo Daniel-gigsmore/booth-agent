@@ -1,7 +1,8 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { agent, agentUrl, config, LayoutElement, Template } from "./agent";
 import { AddPanel, LayersPanel, PropsPanel } from "./EditorPanels";
 import { cssFamily, useAgentFonts } from "./fonts";
+import { CompositePreview } from "./screens";
 import {
   addElement, addImage, AddKind, changePaper, History, historyCommit, historyCommitFrom, historyOf, historyRedo,
   historyReplace, historyUndo, moveLayer, movedBox, removeElement, resizedBox, sampleText, updateElement,
@@ -86,12 +87,20 @@ export default function LayoutEditor({ initial, takenIds, inUseId, onClose }: {
   // Saves and uploads write to booth-agent at once, so the list needs a refresh even on Cancel.
   const [wrote, setWrote] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [preview, setPreview] = useState<string | null>(null); // object URL of the rendered sheet
+  const [confirmPrint, setConfirmPrint] = useState(false);
+  const [printNote, setPrintNote] = useState("");
   const fonts = useAgentFonts();
   const canvas = useRef<HTMLDivElement>(null);
   const drag = useRef<Drag | null>(null);
   // The saved id lives outside undo history: pre-save snapshots have id "", and
   // undoing past the first save must not make a later save mint a second layout.
   const savedId = useRef(initial.id);
+  // The name saved under savedId.current, so saveAsNew can tell "still the
+  // layout I loaded" from "a new layout auto-saved under this name by an
+  // upload" - initial.name is "" for the latter, which isn't useful to
+  // compare against once a save has actually happened.
+  const savedName = useRef((initial.name ?? "").trim());
   const isNew = initial.id === "";
   const selected = t.elements.find((e) => e.id === selectedId) ?? null;
 
@@ -141,10 +150,75 @@ export default function LayoutEditor({ initial, takenIds, inUseId, onClose }: {
       setH((cur) => historyReplace(cur, stored));
       setWrote(true);
       savedId.current = stored.id;
+      savedName.current = stored.name ?? "";
       return stored;
     } catch (e) {
       setError((e as Error).message);
       return null;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** The draft as booth-agent should see it: an unsaved new layout still needs a valid id and a name. */
+  const draft = (): Template => ({ ...t, id: t.id || savedId.current || "draft", name: (t.name ?? "").trim() || "Draft" });
+
+  async function openPreview() {
+    setBusy(true);
+    setError("");
+    try {
+      setPreview(URL.createObjectURL(await agent.previewLayout(draft())));
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Revoke the rendered sheet when it's replaced or the editor goes away (e.g. the idle timer).
+  useEffect(() => () => {
+    if (preview) URL.revokeObjectURL(preview);
+  }, [preview]);
+
+  function closePreview() {
+    setPreview(null);
+    setConfirmPrint(false);
+    setPrintNote("");
+  }
+
+  /** Uses a sheet of paper, so it takes a second tap. */
+  async function testPrint() {
+    if (!confirmPrint) {
+      setConfirmPrint(true);
+      return;
+    }
+    setBusy(true);
+    try {
+      await agent.testPrintLayout(draft());
+      setPrintNote("Sent to the printer.");
+    } catch (e) {
+      setPrintNote((e as Error).message);
+    } finally {
+      setConfirmPrint(false);
+      setBusy(false);
+    }
+  }
+
+  /** Saves this draft as a separate new layout; the one being edited stays as it was. */
+  async function saveAsNew() {
+    const name = (t.name ?? "").trim();
+    if (!name) {
+      setError("Give the layout a name first.");
+      return;
+    }
+    const newName = name === savedName.current ? `${name} copy` : name;
+    setBusy(true);
+    setError("");
+    try {
+      await agent.copyLayout(savedId.current, t, newName);
+      onClose(true);
+    } catch (e) {
+      setError((e as Error).message);
     } finally {
       setBusy(false);
     }
@@ -202,9 +276,13 @@ export default function LayoutEditor({ initial, takenIds, inUseId, onClose }: {
           onChange={(e) => setH((cur) => historyReplace(cur, { ...cur.present, name: e.target.value }))} />
         <button type="button" className="btn outline sm" disabled={busy || !h.past.length} onClick={() => setH(historyUndo)}>Undo</button>
         <button type="button" className="btn outline sm" disabled={busy || !h.future.length} onClick={() => setH(historyRedo)}>Redo</button>
+        <button type="button" className="btn outline sm" disabled={busy} onClick={openPreview}>Preview</button>
         <button type="button" className="btn primary sm" disabled={busy} onClick={async () => { if (await save()) onClose(true); }}>
           Save
         </button>
+        {savedId.current && (
+          <button type="button" className="btn outline sm" disabled={busy} onClick={saveAsNew}>Save as new</button>
+        )}
         <button type="button" className="btn outline sm" disabled={busy} onClick={() => onClose(wrote)}>Cancel</button>
         {!isNew && t.id !== inUseId && (
           <button type="button" className="btn outline sm danger" disabled={busy} onClick={removeLayout}>
@@ -258,6 +336,22 @@ export default function LayoutEditor({ initial, takenIds, inUseId, onClose }: {
             }} />
         </div>
       </div>
+
+      {preview && (
+        <div className="modal">
+          <div className="modal-card col gap-24">
+            <div className="panel-title">Preview: exactly what prints (sample photos)</div>
+            <CompositePreview src={preview} template={t} maxW={1100} maxH={640} />
+            {printNote && <div className="muted fs-24">{printNote}</div>}
+            <div className="row gap-16">
+              <button type="button" className="btn primary sm" disabled={busy} onClick={testPrint}>
+                {confirmPrint ? "Tap again: prints 1 sheet" : "Test print"}
+              </button>
+              <button type="button" className="btn outline sm" disabled={busy} onClick={closePreview}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
