@@ -4,7 +4,7 @@ import path from "node:path";
 import { v4 as uuidv4 } from "uuid";
 import sharp from "sharp";
 import { CameraSource, CaptureResult } from "../CameraSource";
-import { isResponse, RequestBody, WorkerMessage, WorkerRequest } from "./protocol";
+import { CameraDetail, isResponse, RequestBody, WorkerMessage, WorkerRequest } from "./protocol";
 import { createLogger } from "../../util/logger";
 
 const log = createLogger("camera:edsdk");
@@ -56,6 +56,7 @@ export class EdsdkSource implements CameraSource {
   private worker: WorkerHandle | null = null;
   private connected = false;
   private model: string | null = null;
+  private detail: CameraDetail | null = null;
   private nextId = 1;
   private readonly pending = new Map<number, Pending>();
   private pingTimer: NodeJS.Timeout | undefined;
@@ -78,6 +79,10 @@ export class EdsdkSource implements CameraSource {
 
   getModel(): string | null {
     return this.model;
+  }
+
+  getDetail(): CameraDetail | null {
+    return this.detail;
   }
 
   async capture(destDir: string): Promise<CaptureResult> {
@@ -150,6 +155,10 @@ export class EdsdkSource implements CameraSource {
       if (message.connected) this.respawns = 0;
       return;
     }
+    if (message.type === "status") {
+      this.detail = message.detail;
+      return;
+    }
     log[message.level](message.message);
   }
 
@@ -157,6 +166,12 @@ export class EdsdkSource implements CameraSource {
     if (this.worker !== worker) return; // an old worker we already replaced
     this.worker = null;
     this.connected = false;
+    if (!this.stopping) {
+      this.detail = {
+        battery: null, mode: null, afMode: null, quality: null,
+        lastError: { message: `Camera worker exited (code ${String(code)})`, at: new Date().toISOString() },
+      };
+    }
     for (const [id, pending] of this.pending) {
       clearTimeout(pending.timer);
       pending.reject(new Error(`Camera worker exited (code ${String(code)})`));

@@ -1,5 +1,6 @@
 import { DISCONNECT_ERRORS, EDS, EdsApi, EdsRef, hex } from "./edsdkApi";
-import { LogLevel, WorkerEvent } from "./protocol";
+import { aeModeLabel, afModeLabel, batteryLevel, imageQuality } from "./cameraLabels";
+import { CameraDetail, LogLevel, WorkerEvent } from "./protocol";
 
 export interface Clock {
   now(): number;
@@ -21,6 +22,7 @@ const TRANSFER_TIMEOUT_MS = 10_000;
 const EVENT_POLL_MS = 30;
 const LIVEVIEW_IDLE_MS = 10_000;
 const PREFOCUS_HOLD_MS = 3_000;
+const STATUS_POLL_MS = 5_000;
 
 /**
  * Everything the camera worker process does with the Canon, written against
@@ -42,6 +44,10 @@ export class CameraWorker {
   private lastFrameAt = 0;
   /** When the pre-focus half-press started, or null when the shutter isn't held. */
   private halfPressedAt: number | null = null;
+  private lastStatusAt = 0;
+  private lastError: CameraDetail["lastError"] = null;
+  /** JSON of the last status sent, so an unchanged poll sends nothing. */
+  private lastStatusSent = "";
 
   constructor(
     private readonly eds: EdsApi,
@@ -79,6 +85,10 @@ export class CameraWorker {
     if (this.halfPressedAt !== null && !this.capturing && now - this.halfPressedAt >= PREFOCUS_HOLD_MS) {
       this.halfPressedAt = null;
       this.eds.sendCommand(this.cam, EDS.CMD_PRESS_SHUTTER_BUTTON, EDS.SHUTTER_OFF);
+    }
+    if (!this.capturing && now - this.lastStatusAt >= STATUS_POLL_MS) {
+      this.lastStatusAt = now;
+      this.publishStatus();
     }
   }
 
@@ -134,6 +144,8 @@ export class CameraWorker {
     this.lastKeepAwakeAt = this.clock.now();
     this.log("info", `Connected to ${found.description}`);
     this.emit({ type: "state", connected: true, model: found.description });
+    this.lastStatusAt = this.clock.now();
+    this.publishStatus();
   }
 
   /**
@@ -185,10 +197,45 @@ export class CameraWorker {
     this.lastScanAt = this.clock.now();
     this.log("warn", `Camera disconnected (${reason})`);
     this.emit({ type: "state", connected: false, model: null });
+    this.recordError(`Camera disconnected (${reason})`);
   }
 
   private log(level: LogLevel, message: string): void {
     this.emit({ type: "log", level, message });
+  }
+
+  private readStatus(): Omit<CameraDetail, "lastError"> {
+    const cam = this.cam;
+    if (!cam) return { battery: null, mode: null, afMode: null, quality: null };
+    const read = (prop: number) => {
+      const r = this.eds.getU32(cam, prop);
+      return r.err === EDS.ERR_OK ? r.value : null;
+    };
+    const battery = read(EDS.PROP_BATTERY_LEVEL);
+    const mode = read(EDS.PROP_AE_MODE);
+    const af = read(EDS.PROP_AF_MODE);
+    const quality = read(EDS.PROP_IMAGE_QUALITY);
+    return {
+      battery: battery === null ? null : batteryLevel(battery),
+      mode: mode === null ? null : aeModeLabel(mode),
+      afMode: af === null ? null : afModeLabel(af),
+      quality: quality === null ? null : imageQuality(quality),
+    };
+  }
+
+  /** Sends the current status if it differs from the last one sent. */
+  private publishStatus(): void {
+    const detail: CameraDetail = { ...this.readStatus(), lastError: this.lastError };
+    const json = JSON.stringify(detail);
+    if (json === this.lastStatusSent) return;
+    this.lastStatusSent = json;
+    this.emit({ type: "status", detail });
+  }
+
+  /** Remembers a problem an operator should see on the Status tab, and publishes it. */
+  private recordError(message: string): void {
+    this.lastError = { message, at: new Date(this.clock.now()).toISOString() };
+    this.publishStatus();
   }
 
   async capture(destPath: string): Promise<void> {
@@ -201,6 +248,7 @@ export class CameraWorker {
       let err = await this.press(EDS.SHUTTER_COMPLETELY);
       if (err === EDS.ERR_TAKE_PICTURE_AF_NG) {
         this.log("warn", "Autofocus failed (8D01) - taking this shot without autofocus");
+        this.recordError("Autofocus failed - took the shot without autofocus");
         err = await this.press(EDS.SHUTTER_COMPLETELY_NON_AF);
       }
       if (err !== EDS.ERR_OK) {
@@ -217,6 +265,9 @@ export class CameraWorker {
         if (!transfer.done) await this.clock.sleep(EVENT_POLL_MS);
       }
       if (transfer.err !== EDS.ERR_OK) throw new Error(`Canon photo download failed: ${hex(transfer.err)}`);
+    } catch (err) {
+      this.recordError(err instanceof Error ? err.message : String(err));
+      throw err;
     } finally {
       this.capturing = false;
       this.pendingTransfer = null;

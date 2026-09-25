@@ -162,6 +162,21 @@ describe("EdsdkSource", () => {
   });
 });
 
+describe("EdsdkSource detail", () => {
+  it("caches the worker's status and keeps lastError when the worker dies", async () => {
+    expect(source.getDetail()).toBeNull();
+    const detail = { battery: "ac" as const, mode: "M", afMode: "AI Servo", quality: { label: "JPEG", hasJpeg: true }, lastError: null };
+    current().push({ type: "status", detail });
+    expect(source.getDetail()).toEqual(detail);
+
+    current().emit("exit", 3);
+    expect(source.getDetail()).toMatchObject({
+      battery: null, mode: null, afMode: null, quality: null,
+      lastError: { message: "Camera worker exited (code 3)" },
+    });
+  });
+});
+
 describe("EdsdkSource pre-focus", () => {
   it("sends a prefocus request to the worker", async () => {
     await source.prefocus();

@@ -1,4 +1,5 @@
 import { CameraKind } from "../events/types";
+import { CameraDetail } from "./edsdk/protocol";
 
 export interface CaptureResult {
   filePath: string;
@@ -35,4 +36,7 @@ export interface CameraSource {
 
   /** Best-effort human-readable model/device name for /health, from the last health check. */
   getModel(): string | null;
+
+  /** Optional: live camera detail for /health (battery, mode, ...). Null when unknown. */
+  getDetail?(): CameraDetail | null;
 }
