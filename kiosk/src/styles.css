@@ -415,3 +415,6 @@ select.text-input { padding: 0 16px; }
 .modal-card { padding: 36px 44px; border-radius: 28px; background: var(--surface); align-items: center; }
 /* Eight top-bar buttons have to fit beside the name field. */
 .editor-top .btn.sm { padding: 0 28px; font-size: 26px; }
+
+/* Operator Camera tab: live view and the last test shot, side by side with the controls. */
+.camera-live { width: 640px; aspect-ratio: 3 / 2; object-fit: contain; border-radius: 16px; background: #000; }

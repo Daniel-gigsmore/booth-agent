@@ -95,6 +95,15 @@ export interface Template {
 /** A font booth-agent bundles for text elements. */
 export interface BundledFont { family: string; file: string; hasBold: boolean }
 
+export type SettingKey = "iso" | "av" | "tv" | "wb" | "ev" | "quality";
+export interface SettingOption { code: number; label: string }
+export interface CameraSettings {
+  mode: string | null;
+  settings: Record<SettingKey, { value: SettingOption | null; options: SettingOption[] }>;
+  rejected: SettingKey[];
+  saved: Partial<Record<SettingKey, number>>;
+}
+
 export interface SessionSettings {
   templateId: string;
   firstCountdownSeconds: number;
@@ -140,4 +149,8 @@ export const agent = {
   prefocus: () => {
     void call("POST", "/camera/prefocus").catch(() => undefined);
   },
+  cameraSettings: () => call<CameraSettings>("GET", "/camera/settings"),
+  setCameraSettings: (changes: Partial<Record<SettingKey, number>>) => call<CameraSettings>("POST", "/camera/settings", changes),
+  resetCameraSettings: () => call<{ saved: Record<string, never> }>("POST", "/camera/settings/reset"),
+  testShot: () => callBlob("/camera/test-shot", {}),
 };
