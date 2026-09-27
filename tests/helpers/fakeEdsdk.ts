@@ -85,6 +85,11 @@ export class FakeEds implements EdsApi {
     this.stateHandler = handler;
     return 0;
   }
+  clearHandlers(): void {
+    this.calls.push("clearHandlers");
+    this.objectHandler = null;
+    this.stateHandler = null;
+  }
   getEvent(): void {
     const due = this.queued;
     this.queued = [];

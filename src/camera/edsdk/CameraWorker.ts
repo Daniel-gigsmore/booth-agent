@@ -24,11 +24,16 @@ const SCAN_INTERVAL_MS = 1_000;
 const REINIT_AFTER_EMPTY_SCANS = 5;
 const KEEP_AWAKE_MS = 60_000;
 const BUSY_RETRY_DELAY_MS = 500;
-const TRANSFER_TIMEOUT_MS = 10_000;
+// The whole capture, press included, must give up just before the agent's
+// 12 s request timeout, so a photo never lands after the agent stopped waiting.
+const CAPTURE_DEADLINE_MS = 11_000;
 const EVENT_POLL_MS = 30;
 const LIVEVIEW_IDLE_MS = 10_000;
 const PREFOCUS_HOLD_MS = 3_000;
 const STATUS_POLL_MS = 5_000;
+// A failure that repeats (a session another program holds, live view refused
+// on every frame) is logged and recorded once per this window, not every time.
+const REPEAT_QUIET_MS = 60_000;
 
 /**
  * Everything the camera worker process does with the Canon, written against
@@ -56,6 +61,10 @@ export class CameraWorker {
   private lastStatusSent = "";
   /** The last property readings taken; held steady during a capture so recordError() never touches EDSDK mid-shot. */
   private lastReadings: Omit<CameraDetail, "lastError"> = { battery: null, mode: null, afMode: null, quality: null };
+  /** Whether the agent has heard the outcome of the first scan (connected or not). */
+  private announced = false;
+  /** Last time each warning was logged, keyed by its text. */
+  private readonly lastWarnAt = new Map<string, number>();
 
   constructor(
     private readonly eds: EdsApi,
@@ -79,6 +88,9 @@ export class CameraWorker {
       if (now - this.lastScanAt >= SCAN_INTERVAL_MS) {
         this.lastScanAt = now;
         this.scan();
+        // Let the agent stop waiting at startup: no camera is an answer too.
+        if (!this.announced && !this.cam) this.emit({ type: "state", connected: false, model: null });
+        this.announced = true;
       }
       return;
     }
@@ -92,7 +104,7 @@ export class CameraWorker {
     // A guest who tapped ✕, or a kiosk that went away, must not leave the shutter half-pressed.
     if (this.halfPressedAt !== null && !this.capturing && now - this.halfPressedAt >= PREFOCUS_HOLD_MS) {
       this.halfPressedAt = null;
-      this.eds.sendCommand(this.cam, EDS.CMD_PRESS_SHUTTER_BUTTON, EDS.SHUTTER_OFF);
+      this.check(this.eds.sendCommand(this.cam, EDS.CMD_PRESS_SHUTTER_BUTTON, EDS.SHUTTER_OFF), "pre-focus release");
     }
     if (!this.capturing && now - this.lastStatusAt >= STATUS_POLL_MS) {
       this.lastStatusAt = now;
@@ -123,7 +135,7 @@ export class CameraWorker {
     const cam = found.ref;
     const err = this.eds.openSession(cam);
     if (err !== EDS.ERR_OK) {
-      this.log("warn", `Opening a session with ${found.description} failed: ${hex(err)}`);
+      this.warn(`Opening a session with ${found.description} failed: ${hex(err)}`);
       this.eds.release(cam);
       return;
     }
@@ -163,7 +175,7 @@ export class CameraWorker {
    */
   private setupFailed(err: number, what: string): boolean {
     if (err === EDS.ERR_OK) return false;
-    this.log("warn", `${what} failed: ${hex(err)}`);
+    this.warn(`${what} failed: ${hex(err)}`);
     this.disconnect(`session setup failed: ${what} ${hex(err)}`);
     return true;
   }
@@ -189,7 +201,7 @@ export class CameraWorker {
   /** Logs a failed call and drops the session when the error means the camera is gone. Returns err unchanged. */
   private check(err: number, what: string): number {
     if (err === EDS.ERR_OK) return err;
-    this.log("warn", `${what} failed: ${hex(err)}`);
+    this.warn(`${what} failed: ${hex(err)}`);
     if (DISCONNECT_ERRORS.has(err)) this.disconnect(`${what} returned ${hex(err)}`);
     return err;
   }
@@ -200,18 +212,33 @@ export class CameraWorker {
     this.cam = null;
     this.liveviewOn = false;
     this.halfPressedAt = null;
-    this.eds.closeSession(cam);
-    this.eds.release(cam);
+    this.closeCamera(cam);
     this.lastScanAt = this.clock.now();
     // No camera to read from any more, whether or not a capture is still unwinding.
     this.lastReadings = { battery: null, mode: null, afMode: null, quality: null };
-    this.log("warn", `Camera disconnected (${reason})`);
+    this.warn(`Camera disconnected (${reason})`);
     this.emit({ type: "state", connected: false, model: null });
     this.recordError(`Camera disconnected (${reason})`);
   }
 
+  /** Unhooks our callbacks first, so EDSDK can't call into a handler for a closed session. */
+  private closeCamera(cam: EdsRef): void {
+    this.eds.clearHandlers(cam);
+    this.eds.closeSession(cam);
+    this.eds.release(cam);
+  }
+
   private log(level: LogLevel, message: string): void {
     this.emit({ type: "log", level, message });
+  }
+
+  /** A warning, but the same text at most once per REPEAT_QUIET_MS. */
+  private warn(message: string): void {
+    const now = this.clock.now();
+    const last = this.lastWarnAt.get(message);
+    if (last !== undefined && now - last < REPEAT_QUIET_MS) return;
+    this.lastWarnAt.set(message, now);
+    this.log("warn", message);
   }
 
   /**
@@ -255,7 +282,10 @@ export class CameraWorker {
 
   /** Remembers a problem an operator should see on the Status tab, and publishes it. */
   private recordError(message: string): void {
-    this.lastError = { message, at: new Date(this.clock.now()).toISOString() };
+    const now = this.clock.now();
+    // A retry loop failing the same way every second shouldn't re-send status each time.
+    if (this.lastError?.message === message && now - Date.parse(this.lastError.at) < REPEAT_QUIET_MS) return;
+    this.lastError = { message, at: new Date(now).toISOString() };
     this.publishStatus();
   }
 
@@ -265,6 +295,7 @@ export class CameraWorker {
     this.capturing = true;
     this.halfPressedAt = null; // the full press takes over; press() releases afterwards
     this.pendingTransfer = transfer;
+    const start = this.clock.now();
     try {
       let err = await this.press(EDS.SHUTTER_COMPLETELY);
       if (err === EDS.ERR_TAKE_PICTURE_AF_NG) {
@@ -276,10 +307,9 @@ export class CameraWorker {
         this.check(err, "shutter");
         throw new Error(`Canon shutter failed: ${hex(err)}`);
       }
-      const start = this.clock.now();
       while (!transfer.done) {
         if (!this.cam) throw new Error("Camera disconnected during capture");
-        if (this.clock.now() - start >= TRANSFER_TIMEOUT_MS) {
+        if (this.clock.now() - start >= CAPTURE_DEADLINE_MS) {
           throw new Error("Canon capture timed out waiting for the photo");
         }
         this.pumpEvents();
@@ -287,7 +317,8 @@ export class CameraWorker {
       }
       if (transfer.err !== EDS.ERR_OK) throw new Error(`Canon photo download failed: ${hex(transfer.err)}`);
     } catch (err) {
-      this.recordError(err instanceof Error ? err.message : String(err));
+      // After a disconnect, lastError already says why - more useful than "shutter failed".
+      if (this.cam) this.recordError(err instanceof Error ? err.message : String(err));
       throw err;
     } finally {
       this.capturing = false;
@@ -408,8 +439,7 @@ export class CameraWorker {
     if (cam) {
       this.eds.sendCommand(cam, EDS.CMD_PRESS_SHUTTER_BUTTON, EDS.SHUTTER_OFF);
       if (this.liveviewOn) this.setLiveview(false);
-      this.eds.closeSession(cam);
-      this.eds.release(cam);
+      this.closeCamera(cam);
       this.cam = null;
     }
     this.eds.terminate();

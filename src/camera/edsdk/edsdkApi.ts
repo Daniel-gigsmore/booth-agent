@@ -80,6 +80,8 @@ export interface EdsApi {
   /** Handlers run synchronously inside getEvent(). The object handler must not release the ref - the caller does. */
   setObjectHandler(cam: EdsRef, handler: (event: number, ref: EdsRef) => void): number;
   setStateHandler(cam: EdsRef, handler: (event: number) => void): number;
+  /** Unregisters both handlers; call before closeSession. */
+  clearHandlers(cam: EdsRef): void;
   /** Pumps EDSDK's event queue; handlers fire from inside this call. */
   getEvent(): void;
   downloadEvfFrame(cam: EdsRef): { err: number; jpeg: Buffer | null };

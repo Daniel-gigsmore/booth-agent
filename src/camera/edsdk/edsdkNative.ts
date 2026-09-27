@@ -54,7 +54,8 @@ export function loadEdsdk(dllPath: string): EdsApi {
     setStateHandler: lib.func("uint32 __stdcall EdsSetCameraStateEventHandler(void *cam, uint32 event, EdsStateEventHandler *handler, void *ctx)"),
     getEvent: lib.func("uint32 __stdcall EdsGetEvent()"),
     createMemoryStream: lib.func("uint32 __stdcall EdsCreateMemoryStream(uint64 size, _Out_ void **stream)"),
-    createFileStream: lib.func("uint32 __stdcall EdsCreateFileStream(str path, uint32 disposition, uint32 access, _Out_ void **stream)"),
+    // The wide-char variant, so a data folder with non-ASCII characters still works.
+    createFileStream: lib.func("uint32 __stdcall EdsCreateFileStreamEx(str16 path, uint32 disposition, uint32 access, _Out_ void **stream)"),
     createEvfImageRef: lib.func("uint32 __stdcall EdsCreateEvfImageRef(void *stream, _Out_ void **evf)"),
     downloadEvfImage: lib.func("uint32 __stdcall EdsDownloadEvfImage(void *cam, void *evf)"),
     getPointer: lib.func("uint32 __stdcall EdsGetPointer(void *stream, _Out_ void **pointer)"),
@@ -140,6 +141,13 @@ export function loadEdsdk(dllPath: string): EdsApi {
       }, koffi.pointer(StateHandler));
       return f.setStateHandler(cam, STATE_EVENT_ALL, stateCallback, null);
     },
+    clearHandlers(cam) {
+      f.setObjectHandler(cam, OBJECT_EVENT_ALL, null, null);
+      f.setStateHandler(cam, STATE_EVENT_ALL, null, null);
+      unregister(objectCallback);
+      unregister(stateCallback);
+      objectCallback = stateCallback = null;
+    },
     getEvent: () => {
       f.getEvent();
     },
@@ -156,8 +164,10 @@ export function loadEdsdk(dllPath: string): EdsApi {
           if (err !== 0) return { err, jpeg: null };
           const pointer: unknown[] = [null];
           const length = [0];
-          f.getPointer(stream[0], pointer);
-          f.getLength(stream[0], length);
+          err = f.getPointer(stream[0], pointer);
+          if (err !== 0) return { err, jpeg: null };
+          err = f.getLength(stream[0], length);
+          if (err !== 0) return { err, jpeg: null };
           // koffi.array() interns a distinct type per length, which live-view
           // frame sizes churn through constantly - koffi.view() reads without
           // registering a type. The view aliases the stream's own memory, so

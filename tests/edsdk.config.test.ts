@@ -77,3 +77,32 @@ describe("preflight with the EDSDK driver", () => {
     expect(checks.find((c) => c.name === "canon.edsdkDll")?.level).toBe("fail");
   });
 });
+
+describe("preflight with the digiCamControl driver", () => {
+  const config = (digiCamControlExePath: string) =>
+    ({
+      capture: { sourcePreference: "canon", canon: CanonConfigSchema.parse({ ...baseCanon, digiCamControlExePath }) },
+    }) as unknown as BoothConfig;
+
+  beforeEach(() => running.mockReset());
+
+  it("fails when CameraControlRemoteCmd.exe is missing and digiCamControl isn't running", async () => {
+    running.mockResolvedValue(false);
+    const checks = await checkCanon(config("C:\\nowhere\\CameraControlRemoteCmd.exe"));
+    expect(checks.map((c) => [c.name, c.level])).toEqual([
+      ["canon.exe", "fail"],
+      ["canon.appLog", "fail"],
+    ]);
+  });
+
+  it("passes the exe check and warns when digiCamControl runs but has never written its log", async () => {
+    const exe = path.join(mkdtempSync(path.join(tmpdir(), "dcc-")), "CameraControlRemoteCmd.exe");
+    writeFileSync(exe, "");
+    running.mockResolvedValue(true);
+    const checks = await checkCanon(config(exe));
+    expect(checks.map((c) => [c.name, c.level])).toEqual([
+      ["canon.exe", "ok"],
+      ["canon.appLog", "warn"],
+    ]);
+  });
+});
