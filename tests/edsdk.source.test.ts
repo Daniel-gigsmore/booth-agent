@@ -223,3 +223,87 @@ describe("EdsdkSource pre-focus", () => {
     expect(current().sent.some((r) => r.type === "prefocus")).toBe(true);
   });
 });
+
+describe("EdsdkSource settings", () => {
+  it("refuses settings until the camera is connected", async () => {
+    await expect(source.getSettings()).rejects.toThrow("No Canon camera connected");
+  });
+
+  it("applies the saved settings when the camera connects, and forwards get/set", async () => {
+    // The old source's worker never answers "shutdown" specially, so it only
+    // stops once the shutdown grace timer fires - advance it under fake timers.
+    const oldShutdown = source.shutdown();
+    await vi.advanceTimersByTimeAsync(3_000);
+    await oldShutdown;
+    workers = [];
+    source = new EdsdkSource(() => {
+      const w = new FakeWorker();
+      workers.push(w);
+      return w;
+    }, () => ({ iso: 0x58 }));
+    await source.initialize();
+    const settings = { mode: "M", settings: {} as never, rejected: [] };
+    current().reply = (req) => ({ id: req.id, ok: true, result: settings as never });
+    current().push({ type: "state", connected: true, model: "Canon EOS R100" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(current().sent.find((r) => r.type === "setSettings")).toMatchObject({ changes: { iso: 0x58 } });
+    await expect(source.getSettings()).resolves.toEqual(settings);
+    await source.setSettings({ av: 0x30 });
+    expect(current().sent.at(-1)).toMatchObject({ type: "setSettings", changes: { av: 0x30 } });
+  });
+
+  it("retries a wholesale-rejected apply once, 1.5s later", async () => {
+    workers = [];
+    source = new EdsdkSource(() => {
+      const w = new FakeWorker();
+      workers.push(w);
+      return w;
+    }, () => ({ iso: 0x58 }));
+    await source.initialize();
+    let setCalls = 0;
+    current().reply = (req) => {
+      if (req.type !== "setSettings") return { id: req.id, ok: true, result: null };
+      setCalls += 1;
+      const rejected = setCalls === 1 ? ["iso"] : [];
+      return { id: req.id, ok: true, result: { mode: "M", settings: {}, rejected } as never };
+    };
+    current().push({ type: "state", connected: true, model: "Canon EOS R100" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(current().sent.filter((r) => r.type === "setSettings")).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(1_500);
+    const setSettingsCalls = current().sent.filter((r) => r.type === "setSettings");
+    expect(setSettingsCalls).toHaveLength(2);
+    expect(setSettingsCalls[1]).toMatchObject({ changes: { iso: 0x58 } });
+  });
+
+  it("sends no setSettings request on connect when nothing is saved", async () => {
+    workers = [];
+    source = new EdsdkSource(() => {
+      const w = new FakeWorker();
+      workers.push(w);
+      return w;
+    }, () => ({}));
+    await source.initialize();
+    current().push({ type: "state", connected: true, model: "Canon EOS R100" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(current().sent.some((r) => r.type === "setSettings")).toBe(false);
+  });
+
+  it("does not retry a partial rejection", async () => {
+    workers = [];
+    source = new EdsdkSource(() => {
+      const w = new FakeWorker();
+      workers.push(w);
+      return w;
+    }, () => ({ iso: 0x58, tv: 0x10 }));
+    await source.initialize();
+    current().reply = (req) =>
+      req.type === "setSettings"
+        ? { id: req.id, ok: true, result: { mode: "M", settings: {}, rejected: ["tv"] } as never }
+        : { id: req.id, ok: true, result: null };
+    current().push({ type: "state", connected: true, model: "Canon EOS R100" });
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(1_500);
+    expect(current().sent.filter((r) => r.type === "setSettings")).toHaveLength(1);
+  });
+});

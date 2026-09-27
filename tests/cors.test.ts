@@ -40,6 +40,7 @@ describe("corsMiddleware", () => {
     );
 
     expect(headers["Access-Control-Allow-Origin"]).toBe("https://kiosk.example");
+    expect(headers["Access-Control-Expose-Headers"]).toBe("X-Capture-Source");
     expect(next).toHaveBeenCalledOnce();
     expect((res.sendStatus as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
   });

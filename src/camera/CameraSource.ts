@@ -1,11 +1,14 @@
 import { CameraKind } from "../events/types";
-import { CameraDetail } from "./edsdk/protocol";
+import { CameraDetail, CameraSettings, SettingChanges } from "./edsdk/protocol";
 
 export interface CaptureResult {
   filePath: string;
   width: number;
   height: number;
 }
+
+/** The camera can't do what was asked right now (wrong driver, or not connected) - the routes turn this into 409. */
+export class CameraUnavailableError extends Error {}
 
 /**
  * Contract every physical capture device must satisfy. The camera manager
@@ -39,4 +42,9 @@ export interface CameraSource {
 
   /** Optional: live camera detail for /health (battery, mode, ...). Null when unknown. */
   getDetail?(): CameraDetail | null;
+
+  /** Optional: read the operator-adjustable settings and what they may be set to. */
+  getSettings?(): Promise<CameraSettings>;
+  /** Optional: change settings; refused ones come back in `rejected`. */
+  setSettings?(changes: SettingChanges): Promise<CameraSettings>;
 }

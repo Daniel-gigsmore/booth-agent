@@ -16,10 +16,16 @@ export class FakeEds implements EdsApi {
   evfFrame: { err: number; jpeg: Buffer | null } = { err: 0, jpeg: Buffer.from("frame") };
   evfOutput = 1; // TFT only, as the camera starts
   props = new Map<number, number>();
-  /** Every prop code passed to getU32, in order - lets a test prove properties were (not) read. */
+  /** Every prop code passed to getU32 or getPropertyDesc, in order - lets a test prove properties were (not) read. */
   propReads: number[] = [];
+  /** Every prop code passed to setU32, in order (whether or not it succeeded) - lets a test prove a write was (not) attempted. */
+  setCalls: number[] = [];
   /** One-shot error results for setU32, keyed by prop; each call shifts one off, then succeeds. */
   setU32Fail = new Map<number, number[]>();
+  /** Allowed values per property, as EdsGetPropertyDesc would report; missing = empty (not settable now). */
+  descs = new Map<number, number[]>();
+  /** Props whose setU32 fails with this error code. */
+  rejectSet = new Map<number, number>();
   /** One-shot error results for setObjectHandler; each call shifts one off, then succeeds. */
   objectHandlerResults: number[] = [];
   commands: Array<{ command: number; param: number }> = [];
@@ -45,12 +51,19 @@ export class FakeEds implements EdsApi {
     return { err: 0, value: prop === EDS.PROP_EVF_OUTPUT_DEVICE ? this.evfOutput : this.props.get(prop) ?? 0 };
   }
   setU32(_cam: EdsRef, prop: number, value: number): number {
+    this.setCalls.push(prop);
+    const reject = this.rejectSet.get(prop);
+    if (reject) return reject;
     const queue = this.setU32Fail.get(prop);
     const err = queue && queue.length ? queue.shift()! : 0;
     if (err !== 0) return err;
     if (prop === EDS.PROP_EVF_OUTPUT_DEVICE) this.evfOutput = value;
     else this.props.set(prop, value);
     return 0;
+  }
+  getPropertyDesc(_cam: EdsRef, prop: number): { err: number; values: number[] } {
+    this.propReads.push(prop);
+    return { err: 0, values: this.descs.get(prop) ?? [] };
   }
   setCapacityHost(): number { return 0; }
   sendCommand(_cam: EdsRef, command: number, param: number): number {

@@ -1,5 +1,5 @@
 import express, { Router, Request, Response } from "express";
-import { access, mkdir, unlink, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { v4 as uuidv4 } from "uuid";
 import { z } from "zod";
@@ -7,6 +7,9 @@ import { AgentContext } from "./context";
 import { asyncHandler } from "./asyncHandler";
 import { writeBackpressureAware } from "./streamWrite";
 import { PrintSizeSchema } from "../config/schema";
+import { CameraUnavailableError } from "../camera/CameraSource";
+import { readSavedCameraSettings, saveCameraSettings, clearSavedCameraSettings, SettingChangesSchema } from "../camera/cameraSettingsStore";
+import { SettingKey, SettingChanges } from "../camera/edsdk/protocol";
 import {
   loadTemplate,
   listTemplates,
@@ -239,6 +242,63 @@ export function buildRouter(ctx: AgentContext): Router {
     ctx.cameraManager.prefocus().catch(() => undefined);
     res.status(202).json({});
   });
+
+  // --- Camera settings (operator panel) ---------------------------------
+  const cameraError = (res: Response, err: unknown) => {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(err instanceof CameraUnavailableError ? 409 : 500).json({ error: message });
+  };
+
+  router.get("/camera/settings", asyncHandler(async (_req: Request, res: Response) => {
+    try {
+      const settings = await ctx.cameraManager.getCanonSettings();
+      res.json({ ...settings, saved: readSavedCameraSettings(ctx.configStore.current.storage.dataDir) });
+    } catch (err) {
+      cameraError(res, err);
+    }
+  }));
+
+  router.post("/camera/settings", asyncHandler(async (req: Request, res: Response) => {
+    const parsed = SettingChangesSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "expected { iso?, av?, tv?, wb?, ev?, quality? } as EDSDK codes" });
+      return;
+    }
+    try {
+      // See cameraSettingsStore.ts: zod's `.partial()` output is stricter than SettingChanges
+      // needs to be under exactOptionalPropertyTypes.
+      const settings = await ctx.cameraManager.setCanonSettings(parsed.data as SettingChanges);
+      // Save only what the camera took, so a reconnect doesn't keep retrying a value it refuses.
+      const accepted = Object.fromEntries(
+        Object.entries(parsed.data).filter(([key]) => !settings.rejected.includes(key as SettingKey))
+      );
+      const saved = saveCameraSettings(ctx.configStore.current.storage.dataDir, accepted);
+      res.json({ ...settings, saved });
+    } catch (err) {
+      cameraError(res, err);
+    }
+  }));
+
+  router.post("/camera/settings/reset", (_req: Request, res: Response) => {
+    clearSavedCameraSettings(ctx.configStore.current.storage.dataDir);
+    res.json({ saved: {} });
+  });
+
+  // A photo for the operator to judge the settings by: never a capture row,
+  // never printed, never synced, and deleted once sent.
+  router.post("/camera/test-shot", asyncHandler(async (_req: Request, res: Response) => {
+    let file: string | null = null;
+    try {
+      const shot = await ctx.cameraManager.capture(path.join(ctx.configStore.current.storage.dataDir, "test-shots"));
+      file = shot.filePath;
+      res.setHeader("X-Capture-Source", shot.source);
+      res.type("image/jpeg").send(await readFile(file));
+    } catch (err) {
+      res.status(503).json({ error: err instanceof Error ? err.message : String(err) });
+    } finally {
+      if (file) await unlink(file).catch(() => undefined);
+    }
+  }));
 
   // The kiosk's review screen shows the still the guest just took. /capture
   // only hands back a local path the browser cannot open, so serve the file

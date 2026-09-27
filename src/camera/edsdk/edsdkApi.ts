@@ -24,8 +24,13 @@ export const EDS = {
   PROP_SAVE_TO: 0x0b,
   PROP_BATTERY_LEVEL: 0x08,
   PROP_IMAGE_QUALITY: 0x100,
+  PROP_WHITE_BALANCE: 0x106,
   PROP_AE_MODE: 0x400,
+  PROP_ISO: 0x402,
   PROP_AF_MODE: 0x404,
+  PROP_AV: 0x405,
+  PROP_TV: 0x406,
+  PROP_EXPOSURE_COMP: 0x407,
   PROP_EVF_OUTPUT_DEVICE: 0x500,
   SAVE_TO_HOST: 2,
   EVF_OUTPUT_PC: 2,
@@ -67,6 +72,8 @@ export interface EdsApi {
   release(ref: EdsRef): void;
   getU32(cam: EdsRef, prop: number): { err: number; value: number };
   setU32(cam: EdsRef, prop: number, value: number): number;
+  /** Values this property may be set to right now (empty = not settable in the current mode). */
+  getPropertyDesc(cam: EdsRef, prop: number): { err: number; values: number[] };
   /** Tells the camera the host has room for the photo; required with SaveTo = Host. */
   setCapacityHost(cam: EdsRef): number;
   sendCommand(cam: EdsRef, command: number, param: number): number;

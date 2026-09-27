@@ -1,6 +1,12 @@
 import { DISCONNECT_ERRORS, EDS, EdsApi, EdsRef, hex } from "./edsdkApi";
-import { aeModeLabel, afModeLabel, batteryLevel, imageQuality } from "./cameraLabels";
-import { CameraDetail, LogLevel, WorkerEvent } from "./protocol";
+import { aeModeLabel, afModeLabel, batteryLevel, imageQuality, SettingKey, settingLabel } from "./cameraLabels";
+import { CameraDetail, CameraSettings, LogLevel, SettingChanges, WorkerEvent } from "./protocol";
+
+const SETTING_PROPS: Record<SettingKey, number> = {
+  iso: EDS.PROP_ISO, av: EDS.PROP_AV, tv: EDS.PROP_TV,
+  wb: EDS.PROP_WHITE_BALANCE, ev: EDS.PROP_EXPOSURE_COMP, quality: EDS.PROP_IMAGE_QUALITY,
+};
+const SETTING_KEYS = Object.keys(SETTING_PROPS) as SettingKey[];
 
 export interface Clock {
   now(): number;
@@ -348,6 +354,53 @@ export class CameraWorker {
     }
     this.liveviewOn = on;
     return true;
+  }
+
+  private settingsCam(): EdsRef {
+    if (!this.cam) throw new Error("No Canon camera connected");
+    // A backstop only: EdsdkSource's captureLock already keeps settings calls
+    // from overlapping a capture.
+    if (this.capturing) throw new Error("Camera is busy capturing");
+    return this.cam;
+  }
+
+  /** Current value and allowed options for each setting the operator panel can change. */
+  getSettings(rejected: SettingKey[] = []): CameraSettings {
+    const cam = this.settingsCam();
+    const mode = this.eds.getU32(cam, EDS.PROP_AE_MODE);
+    const settings = {} as CameraSettings["settings"];
+    for (const key of SETTING_KEYS) {
+      const prop = SETTING_PROPS[key];
+      const current = this.eds.getU32(cam, prop);
+      const desc = this.eds.getPropertyDesc(cam, prop);
+      settings[key] = {
+        value: current.err === EDS.ERR_OK ? { code: current.value, label: settingLabel(key, current.value) } : null,
+        options: (desc.err === EDS.ERR_OK ? desc.values : []).map((code) => ({ code, label: settingLabel(key, code) })),
+      };
+    }
+    return { mode: mode.err === EDS.ERR_OK ? aeModeLabel(mode.value) : null, settings, rejected };
+  }
+
+  /** Applies each change the camera allows in its current mode; the rest come back in `rejected`. */
+  setSettings(changes: SettingChanges): CameraSettings {
+    const cam = this.settingsCam();
+    const rejected: SettingKey[] = [];
+    for (const key of SETTING_KEYS) {
+      const code = changes[key];
+      if (code === undefined) continue;
+      const prop = SETTING_PROPS[key];
+      const allowed = this.eds.getPropertyDesc(cam, prop);
+      const err = allowed.err === EDS.ERR_OK && allowed.values.includes(code >>> 0) ? this.eds.setU32(cam, prop, code >>> 0) : -1;
+      if (err !== EDS.ERR_OK) {
+        rejected.push(key);
+        if (err !== -1) this.check(err, `set ${key}`);
+        // check() may have disconnected (closed and released `cam`): stop touching
+        // the now-invalid handle for the remaining keys. getSettings() below then
+        // throws "No Canon camera connected", the right outcome for the caller.
+        if (!this.cam) break;
+      }
+    }
+    return this.getSettings(rejected);
   }
 
   shutdown(): void {

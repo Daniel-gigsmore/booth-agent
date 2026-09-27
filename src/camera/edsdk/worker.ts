@@ -5,7 +5,7 @@
  */
 import { CameraWorker } from "./CameraWorker";
 import { loadEdsdk } from "./edsdkNative";
-import { RequestBody, WorkerMessage, WorkerRequest } from "./protocol";
+import { CameraSettings, RequestBody, WorkerMessage, WorkerRequest } from "./protocol";
 import { AsyncMutex } from "../../util/mutex";
 
 const TICK_MS = 30;
@@ -39,7 +39,7 @@ function stop(): never {
   process.exit(0);
 }
 
-async function handle(request: RequestBody): Promise<Uint8Array | null> {
+async function handle(request: RequestBody): Promise<Uint8Array | CameraSettings | null> {
   switch (request.type) {
     case "capture":
       await captureLock.run(() => worker.capture(request.destPath));
@@ -54,6 +54,11 @@ async function handle(request: RequestBody): Promise<Uint8Array | null> {
     case "shutdown":
       setImmediate(stop); // answer first, then exit
       return null;
+    // Same lock as capture: a settings change must never land mid-shot.
+    case "getSettings":
+      return captureLock.run(async () => worker.getSettings());
+    case "setSettings":
+      return captureLock.run(async () => worker.setSettings(request.changes));
   }
 }
 

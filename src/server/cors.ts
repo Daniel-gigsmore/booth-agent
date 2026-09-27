@@ -35,6 +35,9 @@ export function corsMiddleware(getAllowedOrigins: () => readonly string[]): Requ
       // does that - but because "*" is incompatible with credentialed requests,
       // so echoing keeps the door open if the kiosk ever needs cookies.
       res.setHeader("Access-Control-Allow-Origin", origin);
+      // The kiosk's test shot reads this to tell a Canon photo from a webcam
+      // fallback; a cross-origin fetch can't see it unless it is exposed.
+      res.setHeader("Access-Control-Expose-Headers", "X-Capture-Source");
     }
 
     // A real preflight always carries Origin. An OPTIONS without one isn't a

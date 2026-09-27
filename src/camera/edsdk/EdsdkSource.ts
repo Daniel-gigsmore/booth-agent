@@ -3,8 +3,17 @@ import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { v4 as uuidv4 } from "uuid";
 import sharp from "sharp";
-import { CameraSource, CaptureResult } from "../CameraSource";
-import { CameraDetail, isResponse, RequestBody, WorkerMessage, WorkerRequest } from "./protocol";
+import { CameraSource, CameraUnavailableError, CaptureResult } from "../CameraSource";
+import {
+  CameraDetail,
+  CameraSettings,
+  isResponse,
+  RequestBody,
+  SettingChanges,
+  SettingKey,
+  WorkerMessage,
+  WorkerRequest,
+} from "./protocol";
 import { createLogger } from "../../util/logger";
 
 const log = createLogger("camera:edsdk");
@@ -14,6 +23,7 @@ const PING_INTERVAL_MS = 2_000;
 const MAX_MISSED_PINGS = 2;
 const RESPAWN_BACKOFF_MS = [1_000, 2_000, 5_000] as const;
 const SHUTDOWN_GRACE_MS = 3_000;
+const APPLY_SAVED_RETRY_DELAY_MS = 1_500;
 
 /** The parts of ChildProcess EdsdkSource uses, so tests can hand it an in-process fake. */
 export interface WorkerHandle {
@@ -38,7 +48,7 @@ export function spawnWorker(dllPath: string): WorkerHandle {
 }
 
 interface Pending {
-  resolve: (result: Uint8Array | null) => void;
+  resolve: (result: Uint8Array | CameraSettings | null) => void;
   reject: (err: Error) => void;
   timer: NodeJS.Timeout;
 }
@@ -65,7 +75,10 @@ export class EdsdkSource implements CameraSource {
   private respawns = 0;
   private stopping = false;
 
-  constructor(private readonly spawn: () => WorkerHandle) {}
+  constructor(
+    private readonly spawn: () => WorkerHandle,
+    private readonly loadSaved: () => SettingChanges = () => ({})
+  ) {}
 
   async initialize(): Promise<boolean> {
     this.start();
@@ -104,11 +117,45 @@ export class EdsdkSource implements CameraSource {
   async getLiveviewFrame(): Promise<Buffer | null> {
     if (!this.connected) return null;
     try {
-      const frame = await this.request({ type: "frame" }, TIMEOUT_MS.frame);
+      const frame = (await this.request({ type: "frame" }, TIMEOUT_MS.frame)) as Uint8Array | null;
       // Structured-clone IPC delivers a Uint8Array; the MJPEG writer wants a Buffer.
       return frame && frame.byteLength > 0 ? Buffer.from(frame.buffer, frame.byteOffset, frame.byteLength) : null;
     } catch {
       return null;
+    }
+  }
+
+  async getSettings(): Promise<CameraSettings> {
+    if (!this.connected) throw new CameraUnavailableError("No Canon camera connected");
+    return (await this.request({ type: "getSettings" }, TIMEOUT_MS.other)) as CameraSettings;
+  }
+
+  async setSettings(changes: SettingChanges): Promise<CameraSettings> {
+    if (!this.connected) throw new CameraUnavailableError("No Canon camera connected");
+    return (await this.request({ type: "setSettings", changes }, TIMEOUT_MS.other)) as CameraSettings;
+  }
+
+  /**
+   * Re-applies the operator's saved settings after every (re)connect. EDSDK
+   * fills its property-desc cache from events that arrive just after the
+   * session opens, so an apply right on connect can get every key rejected
+   * for no reason other than bad timing: if that happens, wait a moment for
+   * the cache to catch up and try once more before giving up on any of them.
+   */
+  private async applySaved(): Promise<void> {
+    try {
+      const saved = this.loadSaved();
+      const keys = Object.keys(saved) as SettingKey[];
+      if (keys.length === 0) return;
+      let result = await this.setSettings(saved);
+      if (result.rejected.length === keys.length && this.connected && !this.stopping) {
+        await new Promise((resolve) => setTimeout(resolve, APPLY_SAVED_RETRY_DELAY_MS));
+        if (!this.connected || this.stopping) return;
+        result = await this.setSettings(saved);
+      }
+      if (result.rejected.length) log.warn(`Camera refused saved settings in its current mode: ${result.rejected.join(", ")}`);
+    } catch (err) {
+      log.warn("Could not apply saved camera settings", err);
     }
   }
 
@@ -152,7 +199,10 @@ export class EdsdkSource implements CameraSource {
     if (message.type === "state") {
       this.connected = message.connected;
       this.model = message.model;
-      if (message.connected) this.respawns = 0;
+      if (message.connected) {
+        this.respawns = 0;
+        void this.applySaved();
+      }
       return;
     }
     if (message.type === "status") {
@@ -199,7 +249,7 @@ export class EdsdkSource implements CameraSource {
     }
   }
 
-  private request(body: RequestBody, timeoutMs: number): Promise<Uint8Array | null> {
+  private request(body: RequestBody, timeoutMs: number): Promise<Uint8Array | CameraSettings | null> {
     const worker = this.worker;
     if (!worker) return Promise.reject(new Error("Camera worker is not running"));
     const id = this.nextId++;
