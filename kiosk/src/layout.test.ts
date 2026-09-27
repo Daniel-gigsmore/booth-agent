@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import type { LayoutElement, Template } from "./agent";
 import {
   addElement, addImage, alignPatch, canAdd, canRemove, changePaper, compactShots, elementLabel, fillPatch,
-  historyCommit, historyCommitFrom, historyOf, historyRedo, historyReplace, historyUndo, HISTORY_LIMIT,
+  historyCommit, historyCommitFrom, historyOf, historyRedo, historyReplace, historyUndo, HISTORY_LIMIT, MERGE_MS,
   MAX_SHOTS, movedBox, moveLayer, newId, newTemplate, normalizeAngle, removeElement, resizedBox,
   sampleText, shotCount, sizePatch, templateBody, updateElement,
 } from "./layout";
@@ -190,6 +190,23 @@ describe("undo history", () => {
     expect(dragged.past).toEqual([a]);
     expect(dragged.present).toBe(c);
     expect(historyCommitFrom(dragged, dragged.present)).toBe(dragged);
+  });
+
+  it("merges a burst of edits to the same field into one undo step", () => {
+    let h = historyCommit(historyOf(a), b, "el:text", 1_000);
+    h = historyCommit(h, c, "el:text", 1_500);
+    expect(h.past).toEqual([a]);
+    expect(historyUndo(h).present).toBe(a);
+  });
+
+  it("starts a new step after a pause, for another field, or after an undo", () => {
+    const d = layout([photo("d", 0)]);
+    const paused = historyCommit(historyCommit(historyOf(a), b, "el:text", 1_000), c, "el:text", 1_000 + MERGE_MS);
+    expect(paused.past).toEqual([a, b]);
+    const other = historyCommit(historyCommit(historyOf(a), b, "el:text", 1_000), c, "el:size", 1_100);
+    expect(other.past).toEqual([a, b]);
+    const undone = historyUndo(historyCommit(historyCommit(historyOf(a), b), c, "el:text", 1_000));
+    expect(historyCommit(undone, d, "el:text", 1_100).past).toEqual([a, b]);
   });
 
   it("keeps at most HISTORY_LIMIT undo steps", () => {
