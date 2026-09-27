@@ -251,4 +251,59 @@ describe("EdsdkSource settings", () => {
     await source.setSettings({ av: 0x30 });
     expect(current().sent.at(-1)).toMatchObject({ type: "setSettings", changes: { av: 0x30 } });
   });
+
+  it("retries a wholesale-rejected apply once, 1.5s later", async () => {
+    workers = [];
+    source = new EdsdkSource(() => {
+      const w = new FakeWorker();
+      workers.push(w);
+      return w;
+    }, () => ({ iso: 0x58 }));
+    await source.initialize();
+    let setCalls = 0;
+    current().reply = (req) => {
+      if (req.type !== "setSettings") return { id: req.id, ok: true, result: null };
+      setCalls += 1;
+      const rejected = setCalls === 1 ? ["iso"] : [];
+      return { id: req.id, ok: true, result: { mode: "M", settings: {}, rejected } as never };
+    };
+    current().push({ type: "state", connected: true, model: "Canon EOS R100" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(current().sent.filter((r) => r.type === "setSettings")).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(1_500);
+    const setSettingsCalls = current().sent.filter((r) => r.type === "setSettings");
+    expect(setSettingsCalls).toHaveLength(2);
+    expect(setSettingsCalls[1]).toMatchObject({ changes: { iso: 0x58 } });
+  });
+
+  it("sends no setSettings request on connect when nothing is saved", async () => {
+    workers = [];
+    source = new EdsdkSource(() => {
+      const w = new FakeWorker();
+      workers.push(w);
+      return w;
+    }, () => ({}));
+    await source.initialize();
+    current().push({ type: "state", connected: true, model: "Canon EOS R100" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(current().sent.some((r) => r.type === "setSettings")).toBe(false);
+  });
+
+  it("does not retry a partial rejection", async () => {
+    workers = [];
+    source = new EdsdkSource(() => {
+      const w = new FakeWorker();
+      workers.push(w);
+      return w;
+    }, () => ({ iso: 0x58, tv: 0x10 }));
+    await source.initialize();
+    current().reply = (req) =>
+      req.type === "setSettings"
+        ? { id: req.id, ok: true, result: { mode: "M", settings: {}, rejected: ["tv"] } as never }
+        : { id: req.id, ok: true, result: null };
+    current().push({ type: "state", connected: true, model: "Canon EOS R100" });
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(1_500);
+    expect(current().sent.filter((r) => r.type === "setSettings")).toHaveLength(1);
+  });
 });

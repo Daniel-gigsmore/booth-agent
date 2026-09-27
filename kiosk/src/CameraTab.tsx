@@ -12,6 +12,7 @@ export default function CameraTab() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [shot, setShot] = useState<string | null>(null);
+  const [shotSource, setShotSource] = useState<string | null>(null);
 
   const load = () => agent.cameraSettings().then((r) => { setS(r); setError(""); }, (e: Error) => setError(e.message));
   useEffect(() => { void load(); }, []);
@@ -40,9 +41,19 @@ export default function CameraTab() {
       <div className="col gap-20">
         <img className="camera-live" src={agentUrl("/liveview")} alt="Live view" />
         {shot && <img className="camera-live" src={shot} alt="Test shot" />}
+        {shot && shotSource !== "canon" && (
+          <div className="banner warn fs-24">
+            This test shot came from the webcam (the Canon did not take it) - it does not show the Canon's settings.
+          </div>
+        )}
         <div className="row gap-20">
           <button type="button" className="btn primary sm" disabled={busy}
-            onClick={() => run(async () => setShot(URL.createObjectURL(await agent.testShot())))}>Test shot</button>
+            onClick={() => run(async () => {
+              const { blob, source } = await agent.testShot();
+              setShot(URL.createObjectURL(blob));
+              setShotSource(source);
+              setError("");
+            })}>Test shot</button>
           <button type="button" className="btn outline sm" disabled={busy}
             onClick={() => run(async () => { await agent.resetCameraSettings(); await load(); })}>Use camera's current settings</button>
         </div>
@@ -58,6 +69,7 @@ export default function CameraTab() {
               <span className="op-label">{LABELS[key]}</span>
               <select className="text-input" disabled={busy || f.options.length === 0}
                 value={current?.code ?? ""} onChange={(e) => void change(key, Number(e.target.value))}>
+                {!current && <option value="">–</option>}
                 {current && !f.options.some((o) => o.code === current.code) && <option value={current.code}>{current.label}</option>}
                 {f.options.map((o) => <option key={o.code} value={o.code}>{o.label}</option>)}
               </select>

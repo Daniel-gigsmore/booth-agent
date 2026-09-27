@@ -358,6 +358,8 @@ export class CameraWorker {
 
   private settingsCam(): EdsRef {
     if (!this.cam) throw new Error("No Canon camera connected");
+    // A backstop only: EdsdkSource's captureLock already keeps settings calls
+    // from overlapping a capture.
     if (this.capturing) throw new Error("Camera is busy capturing");
     return this.cam;
   }

@@ -36,6 +36,10 @@ async function call<T>(method: "GET" | "POST", path: string, body?: object | Blo
 
 /** Like call(), for endpoints that answer with an image. */
 async function callBlob(path: string, body: object): Promise<Blob> {
+  return (await blobResponse(path, body)).blob();
+}
+
+async function blobResponse(path: string, body: object): Promise<Response> {
   const res = await fetch(base + path, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
@@ -46,7 +50,7 @@ async function callBlob(path: string, body: object): Promise<Blob> {
     const data = await res.json().catch(() => ({}));
     throw new Error(data.error ?? `POST ${path} failed (${res.status})`);
   }
-  return res.blob();
+  return res;
 }
 
 export type HealthLevel = "ok" | "warn" | "error";
@@ -152,5 +156,8 @@ export const agent = {
   cameraSettings: () => call<CameraSettings>("GET", "/camera/settings"),
   setCameraSettings: (changes: Partial<Record<SettingKey, number>>) => call<CameraSettings>("POST", "/camera/settings", changes),
   resetCameraSettings: () => call<{ saved: Record<string, never> }>("POST", "/camera/settings/reset"),
-  testShot: () => callBlob("/camera/test-shot", {}),
+  testShot: async () => {
+    const res = await blobResponse("/camera/test-shot", {});
+    return { blob: await res.blob(), source: res.headers.get("X-Capture-Source") ?? "unknown" };
+  },
 };

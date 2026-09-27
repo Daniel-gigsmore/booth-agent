@@ -239,10 +239,10 @@ existing bearer auth.
 
 | Route | What it does |
 |---|---|
-| `GET /camera/settings` | `{ connected, mode, values: {iso, av, tv, wb, ev, quality}, options: {...}, saved: {...} }` |
-| `POST /camera/settings` | Takes a partial `{ iso?, av?, tv?, wb?, ev?, quality? }`, applies it, saves it, and returns the same shape as GET |
+| `GET /camera/settings` | `{ mode, settings: { iso, av, tv, wb, ev, quality: { value, options } }, rejected: [], saved: {...} }`, where each value and option is `{ code, label }` |
+| `POST /camera/settings` | Takes a partial `{ iso?, av?, tv?, wb?, ev?, quality? }` of EDSDK codes, applies it, saves only the accepted keys, and returns the same shape as GET with the refused keys in `rejected` |
 | `POST /camera/settings/reset` | Deletes `camera.json` |
-| `POST /camera/test-shot` | Captures to a temp file and returns it as `image/jpeg`, then deletes it. No capture row, no print, no sync |
+| `POST /camera/test-shot` | Captures to a temp file and returns it as `image/jpeg`, then deletes it. The `X-Capture-Source` header names the source (`canon` or the webcam fallback). Works with any driver. No capture row, no print, no sync |
 | `POST /camera/prefocus` | Returns 202 whatever happens |
 
 When the source isn't EDSDK or no camera is connected, the settings routes

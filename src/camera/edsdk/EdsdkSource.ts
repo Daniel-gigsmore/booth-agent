@@ -4,7 +4,16 @@ import path from "node:path";
 import { v4 as uuidv4 } from "uuid";
 import sharp from "sharp";
 import { CameraSource, CameraUnavailableError, CaptureResult } from "../CameraSource";
-import { CameraDetail, CameraSettings, isResponse, RequestBody, SettingChanges, WorkerMessage, WorkerRequest } from "./protocol";
+import {
+  CameraDetail,
+  CameraSettings,
+  isResponse,
+  RequestBody,
+  SettingChanges,
+  SettingKey,
+  WorkerMessage,
+  WorkerRequest,
+} from "./protocol";
 import { createLogger } from "../../util/logger";
 
 const log = createLogger("camera:edsdk");
@@ -14,6 +23,7 @@ const PING_INTERVAL_MS = 2_000;
 const MAX_MISSED_PINGS = 2;
 const RESPAWN_BACKOFF_MS = [1_000, 2_000, 5_000] as const;
 const SHUTDOWN_GRACE_MS = 3_000;
+const APPLY_SAVED_RETRY_DELAY_MS = 1_500;
 
 /** The parts of ChildProcess EdsdkSource uses, so tests can hand it an in-process fake. */
 export interface WorkerHandle {
@@ -125,12 +135,24 @@ export class EdsdkSource implements CameraSource {
     return (await this.request({ type: "setSettings", changes }, TIMEOUT_MS.other)) as CameraSettings;
   }
 
-  /** Re-applies the operator's saved settings after every (re)connect. */
+  /**
+   * Re-applies the operator's saved settings after every (re)connect. EDSDK
+   * fills its property-desc cache from events that arrive just after the
+   * session opens, so an apply right on connect can get every key rejected
+   * for no reason other than bad timing: if that happens, wait a moment for
+   * the cache to catch up and try once more before giving up on any of them.
+   */
   private async applySaved(): Promise<void> {
-    const saved = this.loadSaved();
-    if (Object.keys(saved).length === 0) return;
     try {
-      const result = await this.setSettings(saved);
+      const saved = this.loadSaved();
+      const keys = Object.keys(saved) as SettingKey[];
+      if (keys.length === 0) return;
+      let result = await this.setSettings(saved);
+      if (result.rejected.length === keys.length && this.connected && !this.stopping) {
+        await new Promise((resolve) => setTimeout(resolve, APPLY_SAVED_RETRY_DELAY_MS));
+        if (!this.connected || this.stopping) return;
+        result = await this.setSettings(saved);
+      }
       if (result.rejected.length) log.warn(`Camera refused saved settings in its current mode: ${result.rejected.join(", ")}`);
     } catch (err) {
       log.warn("Could not apply saved camera settings", err);
