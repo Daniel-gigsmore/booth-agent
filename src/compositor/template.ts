@@ -49,7 +49,6 @@ export const LayoutElementSchema = z.discriminatedUnion("type", [
 ]);
 
 export type LayoutElement = z.infer<typeof LayoutElementSchema>;
-export type PhotoElement = Extract<LayoutElement, { type: "photo" }>;
 export type TextElement = Extract<LayoutElement, { type: "text" }>;
 
 /**

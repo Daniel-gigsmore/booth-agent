@@ -101,14 +101,14 @@ export default function LayoutEditor({ initial, takenIds, inUseId, onClose }: {
   // upload" - initial.name is "" for the latter, which isn't useful to
   // compare against once a save has actually happened.
   const savedName = useRef((initial.name ?? "").trim());
-  const isNew = initial.id === "";
   const selected = t.elements.find((e) => e.id === selectedId) ?? null;
 
   // The canvas gets a fixed area of the stage; cell pixels map onto it.
   const view = Math.min(960 / t.cellWidthPx, 680 / t.cellHeightPx);
 
-  const change = (next: Template) => setH((cur) => historyCommit(cur, next));
-  const patch = (id: string, p: Partial<LayoutElement>) => setH((cur) => historyCommit(cur, updateElement(cur.present, id, p)));
+  const change = (next: Template, key?: string) => setH((cur) => historyCommit(cur, next, key));
+  const patch = (id: string, p: Partial<LayoutElement>, key?: string) =>
+    setH((cur) => historyCommit(cur, updateElement(cur.present, id, p), key));
 
   function startDrag(e: React.PointerEvent, el: LayoutElement, mode: Drag["mode"]) {
     e.stopPropagation();
@@ -284,7 +284,8 @@ export default function LayoutEditor({ initial, takenIds, inUseId, onClose }: {
           <button type="button" className="btn outline sm" disabled={busy} onClick={saveAsNew}>Save as new</button>
         )}
         <button type="button" className="btn outline sm" disabled={busy} onClick={() => onClose(wrote)}>Cancel</button>
-        {!isNew && t.id !== inUseId && (
+        {/* savedId, not initial.id: a new layout saved by an image upload can be deleted too. */}
+        {savedId.current && savedId.current !== inUseId && (
           <button type="button" className="btn outline sm danger" disabled={busy} onClick={removeLayout}>
             {confirmDelete ? "Tap again to delete" : "Delete layout"}
           </button>
@@ -294,7 +295,7 @@ export default function LayoutEditor({ initial, takenIds, inUseId, onClose }: {
 
       <div className={`editor-body ${busy ? "busy" : ""}`}>
         <AddPanel t={t} busy={busy} onAdd={add} onImage={addImageFile}
-          onPaper={(key) => change(changePaper(t, key))} onBackground={(background) => change({ ...t, background })} />
+          onPaper={(key) => change(changePaper(t, key))} onBackground={(background) => change({ ...t, background }, "background")} />
 
         <div className="editor-stage">
           <div
@@ -327,7 +328,7 @@ export default function LayoutEditor({ initial, takenIds, inUseId, onClose }: {
 
         <div className="editor-side">
           <PropsPanel key={selected?.id ?? "none"} el={selected} t={t} fonts={fonts} lock={lock} onLock={setLock}
-            onPatch={(p) => selected && patch(selected.id, p)} />
+            onPatch={(p) => selected && patch(selected.id, p, `${selected.id}:${Object.keys(p).sort().join(",")}`)} />
           <LayersPanel t={t} selectedId={selectedId} onSelect={setSelectedId} onPatch={patch}
             onMove={(id, dir) => change(moveLayer(t, id, dir))}
             onDelete={(id) => {

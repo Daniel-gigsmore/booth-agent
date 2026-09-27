@@ -235,15 +235,29 @@ export function elementLabel(el: LayoutElement): string {
   }
 }
 
-export interface History { past: Template[]; present: Template; future: Template[] }
+export interface History {
+  past: Template[];
+  present: Template;
+  future: Template[];
+  /** The last commit's merge key and time, so a burst of edits to one field is one undo step. */
+  last: { key: string; at: number } | null;
+}
 export const HISTORY_LIMIT = 50;
+/** Edits with the same key closer together than this merge into one undo step. */
+export const MERGE_MS = 1_000;
 
-export const historyOf = (t: Template): History => ({ past: [], present: t, future: [] });
+export const historyOf = (t: Template): History => ({ past: [], present: t, future: [], last: null });
 
-/** A new undo step; clears redo. */
-export function historyCommit(h: History, next: Template): History {
+/**
+ * A new undo step; clears redo. With a key (e.g. "el-3:text"), an edit that
+ * follows one with the same key within MERGE_MS joins its step instead, so
+ * typing a word or dragging a colour picker undoes in one go.
+ */
+export function historyCommit(h: History, next: Template, key?: string, now = Date.now()): History {
   if (next === h.present) return h;
-  return { past: [...h.past, h.present].slice(-HISTORY_LIMIT), present: next, future: [] };
+  const last = key ? { key, at: now } : null;
+  if (key && h.last?.key === key && now - h.last.at < MERGE_MS) return { ...h, present: next, future: [], last };
+  return { past: [...h.past, h.present].slice(-HISTORY_LIMIT), present: next, future: [], last };
 }
 
 /** Changes the layout without an undo step (mid-drag, or a save's response). */
@@ -254,15 +268,15 @@ export function historyReplace(h: History, next: Template): History {
 /** Records a finished gesture (a drag) as one undo step, back to where it began. */
 export function historyCommitFrom(h: History, before: Template): History {
   if (h.present === before) return h;
-  return { past: [...h.past, before].slice(-HISTORY_LIMIT), present: h.present, future: [] };
+  return { past: [...h.past, before].slice(-HISTORY_LIMIT), present: h.present, future: [], last: null };
 }
 
 export function historyUndo(h: History): History {
   const prev = h.past[h.past.length - 1];
-  return prev ? { past: h.past.slice(0, -1), present: prev, future: [h.present, ...h.future] } : h;
+  return prev ? { past: h.past.slice(0, -1), present: prev, future: [h.present, ...h.future], last: null } : h;
 }
 
 export function historyRedo(h: History): History {
   const next = h.future[0];
-  return next ? { past: [...h.past, h.present], present: next, future: h.future.slice(1) } : h;
+  return next ? { past: [...h.past, h.present], present: next, future: h.future.slice(1), last: null } : h;
 }
