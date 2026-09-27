@@ -39,6 +39,17 @@ import { createLogger } from "../util/logger";
 
 const log = createLogger("server:routes");
 
+// tasklist is a process spawn and the kiosk polls /health every few seconds;
+// whether digiCamControl is running doesn't change that fast.
+const DIGICAM_CHECK_TTL_MS = 10_000;
+let digiCamCheck: { at: number; running: Promise<boolean> } | null = null;
+function digiCamControlRunningCached(): Promise<boolean> {
+  if (!digiCamCheck || Date.now() - digiCamCheck.at >= DIGICAM_CHECK_TTL_MS) {
+    digiCamCheck = { at: Date.now(), running: isDigiCamControlRunning().catch(() => false) };
+  }
+  return digiCamCheck.running;
+}
+
 const CompositeRequestSchema = z.object({
   captureId: z.string().min(1),
   /**
@@ -91,7 +102,7 @@ export function buildRouter(ctx: AgentContext): Router {
         staleAfterMs: config.printing.printerStatusStaleMs,
       }),
       reconcileHotFolderDrops(ctx.outboxStore, config.printing.hotFolderStallSeconds),
-      config.capture.canon.driver === "edsdk" ? isDigiCamControlRunning().catch(() => false) : Promise.resolve(false),
+      config.capture.canon.driver === "edsdk" ? digiCamControlRunningCached() : Promise.resolve(false),
     ]);
 
     res.json(

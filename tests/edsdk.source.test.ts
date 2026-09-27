@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { EventEmitter } from "node:events";
-import { mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import sharp from "sharp";
@@ -14,6 +14,14 @@ class FakeWorker extends EventEmitter implements WorkerHandle {
   /** When false, send() reports the channel as closed instead of delivering the request. */
   sendOk = true;
   reply: (req: WorkerRequest) => WorkerMessage | Promise<WorkerMessage> | null = (req) => ({ id: req.id, ok: true, result: null });
+
+  /** firstState: what the worker's first scan reports (like the real worker), or null for a worker that never answers. */
+  constructor(firstState: boolean | null = false) {
+    super();
+    if (firstState !== null) {
+      queueMicrotask(() => this.emit("message", { type: "state", connected: firstState, model: firstState ? "Canon EOS R100" : null }));
+    }
+  }
 
   send(req: WorkerRequest): boolean {
     if (!this.sendOk) return false;
@@ -305,5 +313,56 @@ describe("EdsdkSource settings", () => {
     await vi.advanceTimersByTimeAsync(0);
     await vi.advanceTimersByTimeAsync(1_500);
     expect(current().sent.filter((r) => r.type === "setSettings")).toHaveLength(1);
+  });
+});
+
+describe("EdsdkSource startup and supervision", () => {
+  const withWorker = (firstState: boolean | null) => {
+    workers = [];
+    source = new EdsdkSource(() => {
+      const w = new FakeWorker(firstState);
+      workers.push(w);
+      return w;
+    });
+  };
+
+  it("initialize() reports a Canon that is already plugged in", async () => {
+    withWorker(true);
+    expect(await source.initialize()).toBe(true);
+  });
+
+  it("initialize() gives up waiting after 5 s", async () => {
+    withWorker(null);
+    let result: boolean | undefined;
+    void source.initialize().then((r) => (result = r));
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(result).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(result).toBe(false);
+  });
+
+  it("doesn't kill a worker that misses pings during a capture, and removes the failed shot's file", async () => {
+    vi.useRealTimers();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
+    // A fresh source, so its ping timer lives on this clock (real I/O is needed for mkdir).
+    withWorker(false);
+    await source.initialize();
+    current().push({ type: "state", connected: true, model: "Canon EOS R100" });
+    const stuck = current();
+    stuck.reply = () => null; // stuck in a long press: answers nothing, pings included
+    const dir = mkdtempSync(path.join(tmpdir(), "edsdk-stuck-"));
+    const shot = source.capture(dir).catch((e: Error) => e);
+    await vi.waitFor(() => expect(stuck.sent.some((r) => r.type === "capture")).toBe(true));
+    const destPath = (stuck.sent.find((r) => r.type === "capture") as { destPath: string }).destPath;
+    writeFileSync(destPath, "late photo");
+
+    await vi.advanceTimersByTimeAsync(11_000);
+    expect(stuck.killed).toBe(false);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(await shot).toBeInstanceOf(Error);
+    expect(existsSync(destPath)).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(6_000);
+    expect(stuck.killed).toBe(true); // once the capture is over, missed pings count again
   });
 });

@@ -1,5 +1,5 @@
 import { fork } from "node:child_process";
-import { mkdir } from "node:fs/promises";
+import { mkdir, unlink } from "node:fs/promises";
 import path from "node:path";
 import { v4 as uuidv4 } from "uuid";
 import sharp from "sharp";
@@ -24,6 +24,9 @@ const MAX_MISSED_PINGS = 2;
 const RESPAWN_BACKOFF_MS = [1_000, 2_000, 5_000] as const;
 const SHUTDOWN_GRACE_MS = 3_000;
 const APPLY_SAVED_RETRY_DELAY_MS = 1_500;
+// How long initialize() waits for the worker's first connected/not-connected
+// answer. Loading the DLL and the first scan take well under a second.
+const FIRST_STATE_TIMEOUT_MS = 5_000;
 
 /** The parts of ChildProcess EdsdkSource uses, so tests can hand it an in-process fake. */
 export interface WorkerHandle {
@@ -74,15 +77,32 @@ export class EdsdkSource implements CameraSource {
   private missedPings = 0;
   private respawns = 0;
   private stopping = false;
+  /** Captures waiting on the worker; a long AF hunt can block it from answering pings. */
+  private capturesInFlight = 0;
+  /** Resolves initialize() once the worker's first state arrives (or it exits). */
+  private onFirstState: (() => void) | null = null;
 
   constructor(
     private readonly spawn: () => WorkerHandle,
     private readonly loadSaved: () => SettingChanges = () => ({})
   ) {}
 
+  /**
+   * Waits for the worker's first answer, so CameraManager doesn't start on
+   * "no Canon" and flip to the Canon a moment later.
+   */
   async initialize(): Promise<boolean> {
+    const firstState = new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, FIRST_STATE_TIMEOUT_MS);
+      this.onFirstState = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+    });
     this.start();
     this.pingTimer = setInterval(() => void this.ping(), PING_INTERVAL_MS);
+    await firstState;
+    this.onFirstState = null;
     return this.connected;
   }
 
@@ -101,12 +121,21 @@ export class EdsdkSource implements CameraSource {
   async capture(destDir: string): Promise<CaptureResult> {
     await mkdir(destDir, { recursive: true });
     const filePath = path.join(destDir, `canon-${uuidv4()}.jpg`);
-    await this.request({ type: "capture", destPath: filePath }, TIMEOUT_MS.capture);
-    const metadata = await sharp(filePath).metadata();
-    if (!metadata.width || !metadata.height) {
-      throw new Error(`Canon capture produced an unreadable image: ${filePath}`);
+    this.capturesInFlight += 1;
+    try {
+      await this.request({ type: "capture", destPath: filePath }, TIMEOUT_MS.capture);
+      const metadata = await sharp(filePath).metadata();
+      if (!metadata.width || !metadata.height) {
+        throw new Error(`Canon capture produced an unreadable image: ${filePath}`);
+      }
+      return { filePath, width: metadata.width, height: metadata.height };
+    } catch (err) {
+      // A failed shot may still have left a partial or late file behind.
+      await unlink(filePath).catch(() => undefined);
+      throw err;
+    } finally {
+      this.capturesInFlight -= 1;
     }
-    return { filePath, width: metadata.width, height: metadata.height };
   }
 
   /** Asks the worker to half-press now so focus is ready at zero. */
@@ -197,6 +226,7 @@ export class EdsdkSource implements CameraSource {
       return;
     }
     if (message.type === "state") {
+      this.onFirstState?.();
       this.connected = message.connected;
       this.model = message.model;
       if (message.connected) {
@@ -216,6 +246,7 @@ export class EdsdkSource implements CameraSource {
     if (this.worker !== worker) return; // an old worker we already replaced
     this.worker = null;
     this.connected = false;
+    this.onFirstState?.();
     if (!this.stopping) {
       this.detail = {
         battery: null, mode: null, afMode: null, quality: null,
@@ -241,6 +272,8 @@ export class EdsdkSource implements CameraSource {
       await this.request({ type: "ping" }, PING_INTERVAL_MS);
       this.missedPings = 0;
     } catch {
+      // The capture has its own timeout; a worker stuck in a long press isn't dead.
+      if (this.capturesInFlight > 0) return;
       this.missedPings += 1;
       if (this.missedPings >= MAX_MISSED_PINGS && this.worker === worker) {
         log.warn("Camera worker stopped answering; killing it");

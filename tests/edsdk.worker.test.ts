@@ -99,6 +99,32 @@ describe("CameraWorker connection", () => {
     expect(states().at(-1)).toMatchObject({ connected: true });
   });
 
+  it("tells the agent once when its first scan finds no camera", () => {
+    eds.camera = null;
+    worker.tick();
+    clock.advance(1000);
+    worker.tick();
+    expect(states()).toEqual([{ type: "state", connected: false, model: null }]);
+  });
+
+  it("logs and records a setup failure that repeats every scan only once a minute", () => {
+    eds.setU32Fail.set(EDS.PROP_SAVE_TO, Array(5).fill(EDS.ERR_DEVICE_BUSY));
+    for (let i = 0; i < 5; i++) {
+      worker.tick();
+      clock.advance(1000);
+    }
+    const warnings = events.filter((e) => e.type === "log" && e.level === "warn" && e.message.startsWith("set SaveTo=Host failed"));
+    expect(warnings).toHaveLength(1);
+    expect(events.filter((e) => e.type === "status")).toHaveLength(1);
+  });
+
+  it("unhooks the event handlers before closing the session", () => {
+    worker.tick();
+    eds.unplug();
+    worker.tick();
+    expect(eds.calls.slice(-2)).toEqual(["clearHandlers", "closeSession"]);
+  });
+
   it("keeps the camera awake every 60 s", () => {
     worker.tick();
     const keepAwakes = () => eds.commands.filter((c) => c.command === EDS.CMD_EXTEND_SHUTDOWN_TIMER).length;
@@ -163,7 +189,7 @@ describe("CameraWorker capture", () => {
     expect(eds.downloads).toEqual([{ name: "IMG_0001.JPG", path: file }]);
   });
 
-  it("times out after 10 s with no photo", async () => {
+  it("times out 11 s after the press starts with no photo", async () => {
     eds.photoNames = [];
     await expect(worker.capture(dest())).rejects.toThrow("timed out");
   });
@@ -336,6 +362,12 @@ describe("CameraWorker status", () => {
     expect(statuses().at(-1)).toMatchObject({ detail: { lastError: { message: "Canon capture timed out waiting for the photo" } } });
   });
 
+  it("keeps the disconnect reason when a capture fails because the camera went away", async () => {
+    eds.pressResults = [EDS.ERR_COMM_DISCONNECTED];
+    await expect(worker.capture(dest())).rejects.toThrow("shutter failed");
+    expect(statuses().at(-1)).toMatchObject({ detail: { lastError: { message: "Camera disconnected (shutter returned 0xC1)" } } });
+  });
+
   it("clears the readings on disconnect but keeps why as lastError", () => {
     eds.unplug();
     worker.tick();
@@ -438,6 +470,6 @@ describe("CameraWorker shutdown", () => {
     expect(eds.presses.at(-1)).toBe(EDS.SHUTTER_OFF);
     expect(eds.evfOutput & EDS.EVF_OUTPUT_PC).toBe(0);
     expect(eds.sessionOpen).toBe(false);
-    expect(eds.calls.at(-1)).toBe("terminate");
+    expect(eds.calls.slice(-3)).toEqual(["clearHandlers", "closeSession", "terminate"]);
   });
 });
