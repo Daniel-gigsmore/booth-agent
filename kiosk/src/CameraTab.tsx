@@ -14,7 +14,7 @@ const KEYS = Object.keys(LABELS) as SettingKey[];
  * `compact` stacks it into one column for the two-camera view. `offline` hides the live view, because
  * the agent would otherwise stream the other camera (live view follows the capture's fallback).
  */
-function CameraPanel({ slot, compact, offline }: { slot: CameraSlot; compact: boolean; offline: boolean }) {
+function CameraPanel({ slot, compact, offline, serial }: { slot: CameraSlot; compact: boolean; offline: boolean; serial: string | null }) {
   const [s, setS] = useState<CameraSettings | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -22,8 +22,8 @@ function CameraPanel({ slot, compact, offline }: { slot: CameraSlot; compact: bo
   const [shotSource, setShotSource] = useState<string | null>(null);
 
   const load = () => agent.cameraSettings(slot).then((r) => { setS(r); setError(""); }, (e: Error) => setError(e.message));
-  // Reload when the camera comes back (after a Swap/Remember restart or a replug).
-  useEffect(() => { void load(); }, [slot, offline]);
+  // Reload when the camera comes back (after a Swap/Remember restart or a replug), or when the camera body in the slot changes.
+  useEffect(() => { void load(); }, [slot, offline, serial]);
   useEffect(() => () => { if (shot) URL.revokeObjectURL(shot); }, [shot]);
 
   async function run(fn: () => Promise<void>) {
@@ -106,7 +106,7 @@ export default function CameraTab() {
   const loadPairing = () => agent.cameras().then(setPairing, (e: Error) => setError(e.message));
   useEffect(() => { void loadPairing(); }, []);
 
-  if (!hasLowSlot(health)) return <CameraPanel slot="high" compact={false} offline={false} />;
+  if (!hasLowSlot(health)) return <CameraPanel slot="high" compact={false} offline={false} serial={null} />;
 
   const pair = (fn: () => Promise<unknown>) => async () => {
     setBusy(true);
@@ -138,7 +138,7 @@ export default function CameraTab() {
               <div className="muted fs-24">
                 {c?.connected ? `${c.model ?? "Canon"} · serial ${c.serial ?? "unknown"}` : "Not connected"}
               </div>
-              <CameraPanel slot={slot} compact offline={!c?.connected} />
+              <CameraPanel slot={slot} compact offline={!c?.connected} serial={c?.serial ?? null} />
             </div>
           );
         })}
