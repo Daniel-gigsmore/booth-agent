@@ -28,7 +28,7 @@ describe("CameraWorker connection", () => {
   it("connects on the first tick and puts the camera in host-save mode", () => {
     worker.tick();
     expect(worker.connected).toBe(true);
-    expect(states()).toEqual([{ type: "state", connected: true, model: "Canon EOS R100" }]);
+    expect(states()).toEqual([{ type: "state", connected: true, model: "Canon EOS R100", serial: "SN-A" }]);
     expect(eds.props.get(EDS.PROP_SAVE_TO)).toBe(EDS.SAVE_TO_HOST);
   });
 
@@ -39,7 +39,7 @@ describe("CameraWorker connection", () => {
     worker.tick();
     clock.advance(500);
     worker.tick();
-    expect(eds.calls.filter((c) => c === "firstCamera")).toHaveLength(2);
+    expect(eds.calls.filter((c) => c === "cameras")).toHaveLength(2);
     expect(worker.connected).toBe(false);
   });
 
@@ -59,7 +59,7 @@ describe("CameraWorker connection", () => {
     worker.tick();
     expect(worker.connected).toBe(false);
     expect(eds.sessionOpen).toBe(false);
-    expect(states().at(-1)).toEqual({ type: "state", connected: false, model: null });
+    expect(states().at(-1)).toEqual({ type: "state", connected: false, model: null, serial: null });
 
     eds.camera = "Canon EOS R100";
     clock.advance(1000);
@@ -104,7 +104,7 @@ describe("CameraWorker connection", () => {
     worker.tick();
     clock.advance(1000);
     worker.tick();
-    expect(states()).toEqual([{ type: "state", connected: false, model: null }]);
+    expect(states()).toEqual([{ type: "state", connected: false, model: null, serial: null }]);
   });
 
   it("logs and records a setup failure that repeats every scan only once a minute", () => {
@@ -471,5 +471,86 @@ describe("CameraWorker shutdown", () => {
     expect(eds.evfOutput & EDS.EVF_OUTPUT_PC).toBe(0);
     expect(eds.sessionOpen).toBe(false);
     expect(eds.calls.slice(-3)).toEqual(["clearHandlers", "closeSession", "terminate"]);
+  });
+});
+
+describe("CameraWorker with two cameras", () => {
+  const twoBodies = () => [
+    { name: "Canon EOS R100", serial: "SN-A" },
+    { name: "Canon EOS R100", serial: "SN-B" },
+  ];
+  const make = (target: { serial: string | null; avoid: string | null }) => {
+    eds = new FakeEds();
+    eds.bodies = twoBodies();
+    clock = fakeClock(1_000_000);
+    events = [];
+    worker = new CameraWorker(eds, (e) => events.push(e), clock, target);
+    worker.start();
+  };
+
+  it("keeps only the body with its serial, closing and releasing the other", () => {
+    make({ serial: "SN-B", avoid: null });
+    worker.tick();
+    expect(states().at(-1)).toEqual({ type: "state", connected: true, model: "Canon EOS R100", serial: "SN-B" });
+    expect(eds.calls.filter((c) => c === "closeSession")).toHaveLength(1); // SN-A opened, read, closed
+    expect(eds.released).toContain("SN-A");
+    expect(eds.released).not.toContain("SN-B");
+  });
+
+  it("skips a body another worker holds", () => {
+    make({ serial: null, avoid: null });
+    eds.bodies[0]!.held = true;
+    worker.tick();
+    expect(states().at(-1)).toMatchObject({ connected: true, serial: "SN-B" });
+    expect(eds.released).toContain("SN-A");
+  });
+
+  it("with no serial, takes the first free body but never the avoided one", () => {
+    make({ serial: null, avoid: "SN-A" });
+    worker.tick();
+    expect(states().at(-1)).toMatchObject({ connected: true, serial: "SN-B" });
+  });
+
+  it("stays unconnected when its serial isn't plugged in, and says so once", () => {
+    make({ serial: "SN-C", avoid: null });
+    worker.tick();
+    expect(worker.connected).toBe(false);
+    expect(states()).toEqual([{ type: "state", connected: false, model: null, serial: null }]);
+    expect(eds.released).toEqual(["SN-A", "SN-B"]);
+  });
+
+  // Spike 2026-09-28 (two R100s): opening a body another process holds blocks ~3 s before
+  // failing with 0xC0, so a scan must not retry it every second.
+  it("doesn't re-open a body whose serial it already read and isn't its own", () => {
+    make({ serial: "SN-C", avoid: null });
+    worker.tick();
+    clock.advance(1000);
+    worker.tick();
+    expect(eds.calls.filter((c) => c === "openSession")).toHaveLength(2); // once per body, not per scan
+  });
+
+  it("retries a body another worker holds only every 15 s", () => {
+    make({ serial: "SN-B", avoid: null });
+    eds.bodies[1]!.held = true;
+    const opens = () => eds.calls.filter((c) => c === "openSession").length;
+    worker.tick(); // SN-A: opened, not mine, remembered; SN-B: held
+    expect(opens()).toBe(2);
+    clock.advance(1000);
+    worker.tick();
+    expect(opens()).toBe(2);
+    clock.advance(14_000);
+    eds.bodies[1]!.held = false;
+    worker.tick();
+    expect(opens()).toBe(3);
+    expect(worker.connected).toBe(true);
+  });
+
+  it("forgets what it learned when the set of plugged-in bodies changes", () => {
+    make({ serial: "SN-C", avoid: null });
+    worker.tick();
+    eds.bodies = [{ name: "Canon EOS R100", serial: "SN-C" }];
+    clock.advance(1000);
+    worker.tick();
+    expect(worker.connected).toBe(true);
   });
 });

@@ -23,6 +23,7 @@ export const EDS = {
 
   PROP_SAVE_TO: 0x0b,
   PROP_BATTERY_LEVEL: 0x08,
+  PROP_BODY_ID_EX: 0x15,
   PROP_IMAGE_QUALITY: 0x100,
   PROP_WHITE_BALANCE: 0x106,
   PROP_AE_MODE: 0x400,
@@ -65,12 +66,17 @@ export interface DirItem {
 export interface EdsApi {
   initialize(): number;
   terminate(): number;
-  /** The first connected camera, or null. The caller owns the returned ref and must release it. */
-  firstCamera(): { ref: EdsRef; description: string } | null;
+  /**
+   * Every connected camera, in EDSDK's order. `port` is the USB device path, readable without a
+   * session. The caller owns every returned ref and must release each one.
+   */
+  cameras(): Array<{ ref: EdsRef; description: string; port: string }>;
   openSession(cam: EdsRef): number;
   closeSession(cam: EdsRef): number;
   release(ref: EdsRef): void;
   getU32(cam: EdsRef, prop: number): { err: number; value: number };
+  /** A string property (e.g. the body serial). Only readable with a session open. */
+  getString(cam: EdsRef, prop: number): { err: number; value: string };
   setU32(cam: EdsRef, prop: number, value: number): number;
   /** Values this property may be set to right now (empty = not settable in the current mode). */
   getPropertyDesc(cam: EdsRef, prop: number): { err: number; values: number[] };

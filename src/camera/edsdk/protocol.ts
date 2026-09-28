@@ -46,7 +46,7 @@ export interface CameraDetail {
 
 /** Pushed by the worker on its own, not in answer to a request. */
 export type WorkerEvent =
-  | { type: "state"; connected: boolean; model: string | null }
+  | { type: "state"; connected: boolean; model: string | null; serial: string | null }
   | { type: "log"; level: LogLevel; message: string }
   | { type: "status"; detail: CameraDetail };
 

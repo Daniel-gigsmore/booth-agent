@@ -1,5 +1,10 @@
 export type CameraKind = "canon" | "webcam" | "none";
 
+/** Which of the booth's two Canons: mounted high looking down, or low looking up. */
+export type CameraSlot = "high" | "low";
+/** What actually took a photo: one of the Canon slots, or the webcam fallback. */
+export type CaptureCamera = CameraSlot | "webcam";
+
 export interface CaptureTakenEvent {
   type: "capture-taken";
   captureId: string;
