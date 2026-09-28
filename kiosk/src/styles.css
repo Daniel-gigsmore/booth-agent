@@ -246,6 +246,7 @@ button { font: inherit; color: inherit; cursor: inherit; }
 .banner.error { background: #3a1616; border-color: #8a2e2e; color: #ffd3d3; }
 .op-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 24px; }
 .op-grid.five { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.op-jobs { min-height: 0; overflow-y: auto; padding-right: 8px; }
 .op-card { display: flex; flex-direction: column; gap: 14px; padding: 32px; border-radius: 24px; background: var(--surface); }
 .op-label { font-size: 20px; font-weight: 700; letter-spacing: 0.1em; color: var(--muted); }
 .op-value { font-size: 36px; font-weight: 800; }

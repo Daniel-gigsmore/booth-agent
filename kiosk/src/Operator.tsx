@@ -82,7 +82,7 @@ function StatusTab() {
         </>
       )}
 
-      <div className="col gap-16">
+      <div className="col gap-16 op-jobs">
         <div className="display fs-36">Recent prints</div>
         <div className="jobs-row head"><div>TIME</div><div>JOB</div><div>SIZE</div><div>STATUS</div><div /></div>
         {jobs.map((j) => (
