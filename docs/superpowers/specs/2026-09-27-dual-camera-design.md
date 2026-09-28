@@ -164,7 +164,16 @@ Until the driver is switched to `edsdk`, all three phases behave exactly like to
 - More than two cameras.
 - Uploading which camera took a photo to Supabase.
 
+## Spike result (2026-09-28, two R100s, 32-bit EDSDK 13.18.40, throwaway code)
+
+- Two processes each held one R100 at the same time. Each opened its body by serial (`kEdsPropID_BodyIDEx` read fine: `378032000939` and `358032000832`).
+- Live view ran on both at once at about 15 fps each. Both shutters fired within the same second, and the photo downloaded normally.
+- Opening a body the other process holds blocks for **about 3 s** and then fails with `0xC0`. So a worker remembers which serial sits on which USB port (`szPortName`, readable without a session) and retries a held port only every 15 s. Otherwise an unconnected worker would block every scan and miss its pings.
+- 8D01 (AF failure) happened on one body aimed at a low-contrast scene; the non-AF shot worked. This is not a dual-camera issue.
+
+Approach 1 is confirmed. The 64-bit DLL still needs the same check.
+
 ## Risks
 
-- **Two processes sharing EDSDK on different bodies is not documented by Canon.** If hardware check 1 fails, approach 2 replaces only the worker layer: one worker holds both sessions, and requests carry the slot.
+- **Two processes sharing EDSDK on different bodies is not documented by Canon.** The 32-bit spike passed. If the 64-bit DLL behaves differently, approach 2 replaces only the worker layer: one worker holds both sessions, and requests carry the slot.
 - **Two R100s streaming and capturing on one PC:** USB bandwidth and power. Mitigate with separate ports and AC adapters, and measure in hardware check 4.

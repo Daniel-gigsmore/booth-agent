@@ -59,7 +59,7 @@
 **Interfaces:**
 - Produces:
   - `type CameraSlot = "high" | "low"` and `type CaptureCamera = CameraSlot | "webcam"` (in `src/events/types.ts`).
-  - `EdsApi.cameras(): Array<{ ref: EdsRef; description: string }>`.
+  - `EdsApi.cameras(): Array<{ ref: EdsRef; description: string; port: string }>`.
   - `EdsApi.getString(cam, prop): { err: number; value: string }`.
   - `EDS.PROP_BODY_ID_EX = 0x15`.
   - `interface CameraTarget { serial: string | null; avoid: string | null }`, exported from `CameraWorker.ts`.
@@ -80,8 +80,11 @@ export type CaptureCamera = CameraSlot | "webcam";
   - Replace the `firstCamera()` declaration with:
 
 ```ts
-  /** Every connected camera, in EDSDK's order. The caller owns every returned ref and must release each one. */
-  cameras(): Array<{ ref: EdsRef; description: string }>;
+  /**
+   * Every connected camera, in EDSDK's order. `port` is the USB device path, readable without a
+   * session. The caller owns every returned ref and must release each one.
+   */
+  cameras(): Array<{ ref: EdsRef; description: string; port: string }>;
 ```
 
   - After `getU32`, add:
@@ -108,13 +111,13 @@ Replace the `firstCamera()` implementation with:
       try {
         const count = [0];
         if (f.getChildCount(list[0], count) !== 0) return [];
-        const found: Array<{ ref: EdsRef; description: string }> = [];
+        const found: Array<{ ref: EdsRef; description: string; port: string }> = [];
         for (let i = 0; i < (count[0] ?? 0); i += 1) {
           const cam: unknown[] = [null];
           if (f.getChildAtIndex(list[0], i, cam) !== 0) continue;
-          const info: { szDeviceDescription?: string } = {};
+          const info: { szDeviceDescription?: string; szPortName?: string } = {};
           f.getDeviceInfo(cam[0], info);
-          found.push({ ref: cam[0], description: info.szDeviceDescription || "Canon camera" });
+          found.push({ ref: cam[0], description: info.szDeviceDescription || "Canon camera", port: info.szPortName ?? "" });
         }
         return found;
       } finally {
@@ -162,9 +165,9 @@ After `getU32`, add:
 ```
 
 ```ts
-  cameras(): Array<{ ref: EdsRef; description: string }> {
+  cameras(): Array<{ ref: EdsRef; description: string; port: string }> {
     this.calls.push("cameras");
-    return this.bodies.map((b) => ({ ref: b.serial, description: b.name }));
+    return this.bodies.map((b) => ({ ref: b.serial, description: b.name, port: `port-${b.serial}` }));
   }
   openSession(cam: EdsRef): number {
     this.calls.push("openSession");
@@ -239,6 +242,41 @@ describe("CameraWorker with two cameras", () => {
     expect(states()).toEqual([{ type: "state", connected: false, model: null, serial: null }]);
     expect(eds.released).toEqual(["SN-A", "SN-B"]);
   });
+
+  // Spike 2026-09-28 (two R100s): opening a body another process holds blocks ~3 s before
+  // failing with 0xC0, so a scan must not retry it every second.
+  it("doesn't re-open a body whose serial it already read and isn't its own", () => {
+    make({ serial: "SN-C", avoid: null });
+    worker.tick();
+    clock.advance(1000);
+    worker.tick();
+    expect(eds.calls.filter((c) => c === "openSession")).toHaveLength(2); // once per body, not per scan
+  });
+
+  it("retries a body another worker holds only every 15 s", () => {
+    make({ serial: "SN-B", avoid: null });
+    eds.bodies[1]!.held = true;
+    const opens = () => eds.calls.filter((c) => c === "openSession").length;
+    worker.tick(); // SN-A: opened, not mine, remembered; SN-B: held
+    expect(opens()).toBe(2);
+    clock.advance(1000);
+    worker.tick();
+    expect(opens()).toBe(2);
+    clock.advance(14_000);
+    eds.bodies[1]!.held = false;
+    worker.tick();
+    expect(opens()).toBe(3);
+    expect(worker.connected).toBe(true);
+  });
+
+  it("forgets what it learned when the set of plugged-in bodies changes", () => {
+    make({ serial: "SN-C", avoid: null });
+    worker.tick();
+    eds.bodies = [{ name: "Canon EOS R100", serial: "SN-C" }];
+    clock.advance(1000);
+    worker.tick();
+    expect(worker.connected).toBe(true);
+  });
 });
 ```
 
@@ -291,9 +329,19 @@ Replace the start of `scan()`, from `const found = this.eds.firstCamera();` thro
       return;
     }
     this.emptyScans = 0;
+    // A replug (or a cable moved to another port) changes the set of ports: start over.
+    const ports = found.map((c) => c.port).sort().join("|");
+    if (ports !== this.lastPorts) {
+      this.lastPorts = ports;
+      this.portSerials.clear();
+      this.heldUntil.clear();
+    }
+    const now = this.clock.now();
     let picked: { ref: EdsRef; description: string; serial: string } | null = null;
-    for (const { ref, description } of found) {
-      const serial = picked ? null : this.claim(ref, description);
+    for (const { ref, description, port } of found) {
+      const known = this.portSerials.get(port);
+      const skip = picked || (known !== undefined && !this.isMine(known)) || (this.heldUntil.get(port) ?? 0) > now;
+      const serial = skip ? null : this.claim(ref, description, port);
       if (serial === null) {
         this.eds.release(ref);
         continue;
@@ -315,6 +363,23 @@ In the rest of `scan()`:
     this.emit({ type: "state", connected: true, model: picked.description, serial: this.serial });
 ```
 
+Add this constant next to `SCAN_INTERVAL_MS`, and these fields next to `serial`:
+
+```ts
+// Opening a body another process holds blocks for ~3 s before failing (0xC0,
+// measured on two R100s), so a held port is only retried this often.
+const HELD_RETRY_MS = 15_000;
+```
+
+```ts
+  /** Serial read from each USB port, so a body that isn't ours is not re-opened every scan. */
+  private readonly portSerials = new Map<string, string>();
+  /** Ports whose body another process held, and when to try them again. */
+  private readonly heldUntil = new Map<string, number>();
+  /** The sorted port list of the last scan; a change clears the two maps above. */
+  private lastPorts = "";
+```
+
 Add the `claim()` method after `scan()`:
 
 ```ts
@@ -323,20 +388,26 @@ Add the `claim()` method after `scan()`:
    * (session closed again; the caller releases the ref). A body another
    * worker holds fails to open and is simply skipped.
    */
-  private claim(ref: EdsRef, description: string): string | null {
+  private claim(ref: EdsRef, description: string, port: string): string | null {
     const err = this.eds.openSession(ref);
     if (err !== EDS.ERR_OK) {
+      // Most likely the other slot's worker holds it; opening it again costs ~3 s of blocking.
+      this.heldUntil.set(port, this.clock.now() + HELD_RETRY_MS);
       this.warn(`Opening a session with ${description} failed: ${hex(err)}`);
       return null;
     }
     const id = this.eds.getString(ref, EDS.PROP_BODY_ID_EX);
     const serial = id.err === EDS.ERR_OK ? id.value : "";
-    const mine = this.target.serial ? serial === this.target.serial : !(this.target.avoid && serial === this.target.avoid);
-    if (!mine) {
+    this.portSerials.set(port, serial);
+    if (!this.isMine(serial)) {
       this.eds.closeSession(ref);
       return null;
     }
     return serial;
+  }
+
+  private isMine(serial: string): boolean {
+    return this.target.serial ? serial === this.target.serial : !(this.target.avoid && serial === this.target.avoid);
   }
 ```
 
