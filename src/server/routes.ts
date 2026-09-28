@@ -54,8 +54,13 @@ function digiCamControlRunningCached(): Promise<boolean> {
 }
 
 const CameraBodySchema = z.object({ camera: z.enum(["high", "low"]).default("high") });
-/** ?camera=low means the low camera; anything else (or nothing) means high. */
-const slotParam = (req: Request): CameraSlot => (req.query["camera"] === "low" ? "low" : "high");
+/** ?camera=high|low, high when absent. Anything else answers 400 and returns null: the caller just returns. */
+function slotParam(req: Request, res: Response): CameraSlot | null {
+  const camera = req.query["camera"];
+  if (camera === undefined || camera === "high" || camera === "low") return camera ?? "high";
+  res.status(400).json({ error: 'camera must be "high" or "low"' });
+  return null;
+}
 
 const CompositeRequestSchema = z.object({
   captureId: z.string().min(1),
@@ -180,6 +185,8 @@ export function buildRouter(ctx: AgentContext): Router {
   }));
 
   router.get("/liveview", asyncHandler(async (req: Request, res: Response) => {
+    const camera = slotParam(req, res);
+    if (!camera) return;
     const boundary = "boothagentframe";
     res.writeHead(200, {
       "Content-Type": `multipart/x-mixed-replace; boundary=${boundary}`,
@@ -188,7 +195,6 @@ export function buildRouter(ctx: AgentContext): Router {
       Connection: "close",
     });
 
-    const camera = slotParam(req);
     let closed = false;
     req.on("close", () => {
       closed = true;
@@ -293,7 +299,8 @@ export function buildRouter(ctx: AgentContext): Router {
   };
 
   router.get("/camera/settings", asyncHandler(async (req: Request, res: Response) => {
-    const slot = slotParam(req);
+    const slot = slotParam(req, res);
+    if (!slot) return;
     try {
       const settings = await ctx.cameraManager.getCanonSettings(slot);
       res.json({ ...settings, saved: readSavedCameraSettings(ctx.configStore.current.storage.dataDir, slot) });
@@ -303,7 +310,8 @@ export function buildRouter(ctx: AgentContext): Router {
   }));
 
   router.post("/camera/settings", asyncHandler(async (req: Request, res: Response) => {
-    const slot = slotParam(req);
+    const slot = slotParam(req, res);
+    if (!slot) return;
     const parsed = SettingChangesSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ error: "expected { iso?, av?, tv?, wb?, ev?, quality? } as EDSDK codes" });
@@ -325,16 +333,20 @@ export function buildRouter(ctx: AgentContext): Router {
   }));
 
   router.post("/camera/settings/reset", (req: Request, res: Response) => {
-    clearSavedCameraSettings(ctx.configStore.current.storage.dataDir, slotParam(req));
+    const slot = slotParam(req, res);
+    if (!slot) return;
+    clearSavedCameraSettings(ctx.configStore.current.storage.dataDir, slot);
     res.json({ saved: {} });
   });
 
   // A photo for the operator to judge the settings by: never a capture row,
   // never printed, never synced, and deleted once sent.
   router.post("/camera/test-shot", asyncHandler(async (req: Request, res: Response) => {
+    const slot = slotParam(req, res);
+    if (!slot) return;
     let file: string | null = null;
     try {
-      const shot = await ctx.cameraManager.captureExact(path.join(ctx.configStore.current.storage.dataDir, "test-shots"), slotParam(req));
+      const shot = await ctx.cameraManager.captureExact(path.join(ctx.configStore.current.storage.dataDir, "test-shots"), slot);
       file = shot.filePath;
       res.setHeader("X-Capture-Source", shot.source);
       res.type("image/jpeg").send(await readFile(file));

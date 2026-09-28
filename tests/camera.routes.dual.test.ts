@@ -106,6 +106,28 @@ describe("dual camera routes", () => {
     expect(manager.restartCanonWorkers).toHaveBeenCalledTimes(2);
   });
 
+  it("?camera= other than high or low is a 400 on every per-camera route", async () => {
+    for (const [p, method] of [
+      ["/liveview?camera=side", "GET"],
+      ["/camera/settings?camera=LOW", "GET"],
+      ["/camera/settings?camera=", "POST"],
+      ["/camera/settings/reset?camera=side", "POST"],
+      ["/camera/test-shot?camera=low&camera=high", "POST"],
+    ] as const) {
+      const res = await req(p, method, method === "POST" ? {} : undefined);
+      expect(res.status, p).toBe(400);
+      expect((await res.json()).error, p).toBe('camera must be "high" or "low"');
+    }
+    expect(manager.captureExact).not.toHaveBeenCalled();
+    expect(manager.getCanonSettings).not.toHaveBeenCalled();
+    expect(manager.setCanonSettings).not.toHaveBeenCalled();
+  });
+
+  it("?camera=high is accepted like no camera at all", async () => {
+    expect((await req("/camera/settings?camera=high")).status).toBe(200);
+    expect(manager.getCanonSettings).toHaveBeenLastCalledWith("high");
+  });
+
   it("remember with no camera connected is a 409", async () => {
     manager.getStatus.mockReturnValueOnce({ ...status, canonSerial: null, low: null } as never);
     expect((await req("/cameras/remember", "POST")).status).toBe(409);
