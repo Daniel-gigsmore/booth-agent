@@ -16,18 +16,18 @@ import { CameraSource } from "../src/camera/CameraSource";
 describe("camera settings store", () => {
   it("merges, reads back and clears", () => {
     const dir = mkdtempSync(path.join(tmpdir(), "camset-"));
-    expect(readSavedCameraSettings(dir)).toEqual({});
-    saveCameraSettings(dir, { iso: 0x58 });
-    expect(saveCameraSettings(dir, { av: 0x30 })).toEqual({ iso: 0x58, av: 0x30 });
-    expect(readSavedCameraSettings(dir)).toEqual({ iso: 0x58, av: 0x30 });
-    clearSavedCameraSettings(dir);
-    expect(readSavedCameraSettings(dir)).toEqual({});
+    expect(readSavedCameraSettings(dir, "high")).toEqual({});
+    saveCameraSettings(dir, "high", { iso: 0x58 });
+    expect(saveCameraSettings(dir, "high", { av: 0x30 })).toEqual({ iso: 0x58, av: 0x30 });
+    expect(readSavedCameraSettings(dir, "high")).toEqual({ iso: 0x58, av: 0x30 });
+    clearSavedCameraSettings(dir, "high");
+    expect(readSavedCameraSettings(dir, "high")).toEqual({});
   });
 
   it("treats a corrupt file as nothing saved", () => {
     const dir = mkdtempSync(path.join(tmpdir(), "camset-"));
-    writeFileSync(path.join(dir, "camera.json"), "{nope");
-    expect(readSavedCameraSettings(dir)).toEqual({});
+    writeFileSync(path.join(dir, "camera-high.json"), "{nope");
+    expect(readSavedCameraSettings(dir, "high")).toEqual({});
   });
 });
 
@@ -39,6 +39,12 @@ describe("camera settings routes", () => {
     getCanonSettings: vi.fn(async () => result),
     setCanonSettings: vi.fn(async () => result),
     capture: vi.fn(async (dir: string) => {
+      mkdirSync(dir, { recursive: true }); // real sources create destDir themselves
+      const filePath = path.join(dir, "shot.jpg");
+      await sharp({ create: { width: 4, height: 4, channels: 3, background: "#000" } }).jpeg().toFile(filePath);
+      return { filePath, width: 4, height: 4, source: "canon" };
+    }),
+    captureExact: vi.fn(async (dir: string) => {
       mkdirSync(dir, { recursive: true }); // real sources create destDir themselves
       const filePath = path.join(dir, "shot.jpg");
       await sharp({ create: { width: 4, height: 4, channels: 3, background: "#000" } }).jpeg().toFile(filePath);
@@ -66,12 +72,12 @@ describe("camera settings routes", () => {
     server.close();
   });
   beforeEach(() => {
-    clearSavedCameraSettings(dataDir);
+    clearSavedCameraSettings(dataDir, "high");
     result.rejected = [];
   });
 
   it("GET returns the camera's settings plus what is saved", async () => {
-    saveCameraSettings(dataDir, { iso: 0x48 });
+    saveCameraSettings(dataDir, "high", { iso: 0x48 });
     const res = await req("/camera/settings");
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ...result, saved: { iso: 0x48 } });
@@ -81,9 +87,9 @@ describe("camera settings routes", () => {
     result.rejected = ["tv"];
     const res = await req("/camera/settings", "POST", { iso: 0x60, tv: 0x78 });
     expect(res.status).toBe(200);
-    expect(manager.setCanonSettings).toHaveBeenCalledWith({ iso: 0x60, tv: 0x78 });
+    expect(manager.setCanonSettings).toHaveBeenCalledWith({ iso: 0x60, tv: 0x78 }, "high");
     expect((await res.json()).saved).toEqual({ iso: 0x60 });
-    expect(readSavedCameraSettings(dataDir)).toEqual({ iso: 0x60 });
+    expect(readSavedCameraSettings(dataDir, "high")).toEqual({ iso: 0x60 });
     expect((await req("/camera/settings", "POST", { iso: "high" })).status).toBe(400);
     expect((await req("/camera/settings", "POST", { shutter: 5 })).status).toBe(400);
   });
@@ -96,10 +102,10 @@ describe("camera settings routes", () => {
   });
 
   it("reset clears the saved settings", async () => {
-    saveCameraSettings(dataDir, { iso: 0x48 });
+    saveCameraSettings(dataDir, "high", { iso: 0x48 });
     const res = await req("/camera/settings/reset", "POST");
     expect(await res.json()).toEqual({ saved: {} });
-    expect(readSavedCameraSettings(dataDir)).toEqual({});
+    expect(readSavedCameraSettings(dataDir, "high")).toEqual({});
   });
 
   it("test shot returns the JPEG and leaves nothing behind", async () => {
@@ -108,7 +114,7 @@ describe("camera settings routes", () => {
     expect(res.headers.get("content-type")).toMatch(/image\/jpeg/);
     expect(res.headers.get("x-capture-source")).toBe("canon");
     expect((await sharp(Buffer.from(await res.arrayBuffer())).metadata()).width).toBe(4);
-    const [dir] = manager.capture.mock.calls.at(-1)!;
+    const [dir] = manager.captureExact.mock.calls.at(-1)!;
     expect(existsSync(path.join(dir, "shot.jpg"))).toBe(false);
   });
 });

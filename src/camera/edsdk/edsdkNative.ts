@@ -48,6 +48,9 @@ export function loadEdsdk(dllPath: string): EdsApi {
     getU32: lib.func("uint32 __stdcall EdsGetPropertyData(void *ref, uint32 id, int32 param, uint32 size, _Out_ uint32 *data)"),
     setU32: lib.func("uint32 __stdcall EdsSetPropertyData(void *ref, uint32 id, int32 param, uint32 size, _In_ uint32 *data)"),
     getPropertyDesc: lib.func("uint32 __stdcall EdsGetPropertyDesc(void *ref, uint32 id, _Out_ EdsPropertyDesc *desc)"),
+    getPropertySize: lib.func("uint32 __stdcall EdsGetPropertySize(void *ref, uint32 id, int32 param, _Out_ int32 *type, _Out_ uint32 *size)"),
+    // Same export as getU32, typed for a caller-owned byte buffer (string properties).
+    getBytes: lib.func("uint32 __stdcall EdsGetPropertyData(void *ref, uint32 id, int32 param, uint32 size, void *data)"),
     setCapacity: lib.func("uint32 __stdcall EdsSetCapacity(void *cam, EdsCapacity capacity)"),
     sendCommand: lib.func("uint32 __stdcall EdsSendCommand(void *cam, uint32 command, int32 param)"),
     setObjectHandler: lib.func("uint32 __stdcall EdsSetObjectEventHandler(void *cam, uint32 event, EdsObjectEventHandler *handler, void *ctx)"),
@@ -88,18 +91,21 @@ export function loadEdsdk(dllPath: string): EdsApi {
       objectCallback = stateCallback = null;
       return f.terminate();
     },
-    firstCamera() {
+    cameras() {
       const list: unknown[] = [null];
-      if (f.getCameraList(list) !== 0) return null;
+      if (f.getCameraList(list) !== 0) return [];
       try {
         const count = [0];
-        f.getChildCount(list[0], count);
-        if (!count[0]) return null;
-        const cam: unknown[] = [null];
-        if (f.getChildAtIndex(list[0], 0, cam) !== 0) return null;
-        const info: { szDeviceDescription?: string } = {};
-        f.getDeviceInfo(cam[0], info);
-        return { ref: cam[0], description: info.szDeviceDescription || "Canon camera" };
+        if (f.getChildCount(list[0], count) !== 0) return [];
+        const found: Array<{ ref: EdsRef; description: string; port: string }> = [];
+        for (let i = 0; i < (count[0] ?? 0); i += 1) {
+          const cam: unknown[] = [null];
+          if (f.getChildAtIndex(list[0], i, cam) !== 0) continue;
+          const info: { szDeviceDescription?: string; szPortName?: string } = {};
+          f.getDeviceInfo(cam[0], info);
+          found.push({ ref: cam[0], description: info.szDeviceDescription || "Canon camera", port: info.szPortName ?? "" });
+        }
+        return found;
       } finally {
         f.release(list[0]);
       }
@@ -113,6 +119,17 @@ export function loadEdsdk(dllPath: string): EdsApi {
       const value = [0];
       const err = f.getU32(cam, prop, 0, 4, value);
       return { err, value: value[0] ?? 0 };
+    },
+    getString(cam, prop) {
+      const type = [0];
+      const size = [0];
+      let err = f.getPropertySize(cam, prop, 0, type, size);
+      if (err !== 0) return { err, value: "" };
+      const buf = Buffer.alloc(Math.max(1, size[0] ?? 0));
+      err = f.getBytes(cam, prop, 0, buf.length, buf);
+      if (err !== 0) return { err, value: "" };
+      const end = buf.indexOf(0);
+      return { err: 0, value: buf.toString("latin1", 0, end === -1 ? buf.length : end).trim() };
     },
     setU32: (cam, prop, value) => f.setU32(cam, prop, 0, 4, [value]),
     getPropertyDesc(cam, prop) {

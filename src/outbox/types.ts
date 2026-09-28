@@ -4,6 +4,7 @@ export interface CaptureRow {
   id: string;
   event_id: string;
   source: string;
+  camera: string | null;
   original_path: string;
   composite_path: string | null;
   print_size: string | null;
@@ -31,6 +32,7 @@ export interface NewCapture {
   id: string;
   eventId: string;
   source: string;
+  camera?: string;
   originalPath: string;
   takenAt: string;
 }

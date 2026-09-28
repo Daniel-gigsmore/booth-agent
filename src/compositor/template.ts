@@ -7,6 +7,7 @@ import sharp from "sharp";
 import { PrintSizeSchema } from "../config/schema";
 import { SHEET_WIDTH_PX, SHEET_HEIGHT_PX, STRIP_CELL_WIDTH_PX, STRIP_CELL_HEIGHT_PX } from "./dimensions";
 import { findFont } from "./fonts";
+import { CameraSlot } from "../events/types";
 
 const Color = z.string().regex(/^#[0-9a-fA-F]{6}$/, "colours must be #rrggbb");
 
@@ -24,8 +25,13 @@ const box = {
 };
 
 export const LayoutElementSchema = z.discriminatedUnion("type", [
-  /** shot is 0-based: which of the guest's photos goes here. */
-  z.object({ ...box, type: z.literal("photo"), shot: z.number().int().min(0).max(11) }),
+  /** shot is 0-based: which of the guest's photos goes here; camera is which Canon takes it. */
+  z.object({
+    ...box,
+    type: z.literal("photo"),
+    shot: z.number().int().min(0).max(11),
+    camera: z.enum(["high", "low"]).default("high"),
+  }),
   /** file is one of the layout's uploaded assets, beside the template. */
   z.object({ ...box, type: z.literal("image"), file: z.string().min(1) }),
   z.object({
@@ -153,6 +159,16 @@ export function shotCount(t: EventTemplate): number {
   return Math.max(0, ...t.elements.map((e) => (e.type === "photo" ? e.shot + 1 : 0)));
 }
 
+/** Which camera takes photo `shot` (every box showing it agrees; validateTemplate checks). */
+export function cameraForShot(t: EventTemplate, shot: number): CameraSlot {
+  const el = t.elements.find((e) => e.type === "photo" && e.shot === shot);
+  return el?.type === "photo" ? el.camera : "high";
+}
+
+export function usesCamera(t: EventTemplate, slot: CameraSlot): boolean {
+  return t.elements.some((e) => e.type === "photo" && e.camera === slot);
+}
+
 export function imageFiles(t: EventTemplate): string[] {
   return t.elements.flatMap((e) => (e.type === "image" ? [e.file] : []));
 }
@@ -198,6 +214,18 @@ export function validateTemplate(input: unknown): EventTemplate {
   const count = Math.max(...shots) + 1;
   if (shots.size !== count) {
     throw new Error(`Template "${parsed.id}" skips a photo - photos must run 1 to ${count} with none missing`);
+  }
+
+  const cameraOf = new Map<number, CameraSlot>();
+  for (const el of parsed.elements) {
+    if (el.type !== "photo") continue;
+    const seen = cameraOf.get(el.shot);
+    if (seen && seen !== el.camera) {
+      throw new Error(
+        `Template "${parsed.id}" takes photo ${el.shot + 1} with both cameras - every box showing one photo must use the same camera`
+      );
+    }
+    cameraOf.set(el.shot, el.camera);
   }
 
   return parsed;

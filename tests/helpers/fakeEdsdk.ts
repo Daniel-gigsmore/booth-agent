@@ -7,8 +7,13 @@ import { DirItem, EDS, EdsApi, EdsRef } from "../../src/camera/edsdk/edsdkApi";
  * delivered on the next getEvent(), which is how the real SDK behaves.
  */
 export class FakeEds implements EdsApi {
-  /** What firstCamera() finds: a model name, or null for "nothing plugged in". */
-  camera: string | null = "Canon EOS R100";
+  /** Connected bodies in EDSDK's order. A ref is the body's serial. `held` = another process has its session. */
+  bodies: Array<{ name: string; serial: string; held?: boolean }> = [{ name: "Canon EOS R100", serial: "SN-A" }];
+  /** Shorthand for "exactly this one body plugged in" (null = none), used by the single-camera tests. */
+  get camera(): string | null { return this.bodies[0]?.name ?? null; }
+  set camera(name: string | null) { this.bodies = name ? [{ name, serial: "SN-A" }] : []; }
+  /** Every ref passed to release(), in order. */
+  released: EdsRef[] = [];
   /** Results for successive (non-OFF) shutter presses; once empty, presses succeed. */
   pressResults: number[] = [];
   /** Files a successful full press sends to the host, in order. */
@@ -28,6 +33,8 @@ export class FakeEds implements EdsApi {
   rejectSet = new Map<number, number>();
   /** One-shot error results for setObjectHandler; each call shifts one off, then succeeds. */
   objectHandlerResults: number[] = [];
+  /** One-shot error results for openSession on a free body; each call shifts one off, then succeeds. */
+  openSessionResults: number[] = [];
   commands: Array<{ command: number; param: number }> = [];
   calls: string[] = [];
   downloads: Array<{ name: string; path: string }> = [];
@@ -39,13 +46,24 @@ export class FakeEds implements EdsApi {
 
   initialize(): number { this.calls.push("initialize"); return 0; }
   terminate(): number { this.calls.push("terminate"); return 0; }
-  firstCamera(): { ref: EdsRef; description: string } | null {
-    this.calls.push("firstCamera");
-    return this.camera ? { ref: "cam", description: this.camera } : null;
+  cameras(): Array<{ ref: EdsRef; description: string; port: string }> {
+    this.calls.push("cameras");
+    return this.bodies.map((b) => ({ ref: b.serial, description: b.name, port: `port-${b.serial}` }));
   }
-  openSession(): number { this.sessionOpen = true; this.calls.push("openSession"); return 0; }
+  openSession(cam: EdsRef): number {
+    this.calls.push("openSession");
+    const body = this.bodies.find((b) => b.serial === cam);
+    if (!body || body.held) return EDS.ERR_COMM_PORT_IS_IN_USE;
+    const err = this.openSessionResults.shift() ?? 0;
+    if (err !== 0) return err;
+    this.sessionOpen = true;
+    return 0;
+  }
   closeSession(): number { this.sessionOpen = false; this.calls.push("closeSession"); return 0; }
-  release(): void {}
+  release(ref: EdsRef): void { this.released.push(ref); }
+  getString(cam: EdsRef, prop: number): { err: number; value: string } {
+    return prop === EDS.PROP_BODY_ID_EX ? { err: 0, value: String(cam) } : { err: 0x50, value: "" };
+  }
   getU32(_cam: EdsRef, prop: number): { err: number; value: number } {
     this.propReads.push(prop);
     return { err: 0, value: prop === EDS.PROP_EVF_OUTPUT_DEVICE ? this.evfOutput : this.props.get(prop) ?? 0 };

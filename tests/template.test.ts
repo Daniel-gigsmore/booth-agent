@@ -10,6 +10,8 @@ import {
   validateTemplate,
   shotCount,
   isOwnAsset,
+  cameraForShot,
+  usesCamera,
 } from "../src/compositor/template";
 import { SHEET_WIDTH_PX, SHEET_HEIGHT_PX } from "../src/compositor/dimensions";
 
@@ -129,8 +131,8 @@ describe("legacy templates", () => {
     const t = validateTemplate(legacy);
     expect(t.background).toBe("#ffffff");
     expect(t.elements).toEqual([
-      { id: "photo-1", type: "photo", shot: 0, x: 30, y: 30, width: 1110, height: 1140, rotation: 0, hidden: false },
-      { id: "photo-2", type: "photo", shot: 1, x: 1170, y: 30, width: 600, height: 555, rotation: 0, hidden: false },
+      { id: "photo-1", type: "photo", shot: 0, x: 30, y: 30, width: 1110, height: 1140, rotation: 0, hidden: false, camera: "high" },
+      { id: "photo-2", type: "photo", shot: 1, x: 1170, y: 30, width: 600, height: 555, rotation: 0, hidden: false, camera: "high" },
       { id: "overlay", type: "image", file: "old-overlay.png", x: 0, y: 0, width: 1800, height: 1200, rotation: 0, hidden: false },
     ]);
   });
@@ -186,5 +188,33 @@ describe("saveTemplate (layout editor)", () => {
     );
     const current = loadTemplate(templateDir, "hand");
     expect(() => saveTemplate(templateDir, { ...current, name: "Renamed" })).not.toThrow();
+  });
+});
+
+describe("photo cameras", () => {
+  const layout = (photos: Array<{ shot: number; camera?: "high" | "low" }>) => ({
+    id: "dual-test",
+    name: "Dual",
+    printSize: "4x6",
+    cellWidthPx: 1800,
+    cellHeightPx: 1200,
+    background: "#ffffff",
+    elements: photos.map((p, i) => ({ id: `p${i}`, type: "photo", x: 0, y: 0, width: 100, height: 100, ...p })),
+  });
+
+  it("defaults a photo to the high camera", () => {
+    const t = validateTemplate(layout([{ shot: 0 }]));
+    expect(cameraForShot(t, 0)).toBe("high");
+    expect(usesCamera(t, "low")).toBe(false);
+  });
+
+  it("reads the camera per shot", () => {
+    const t = validateTemplate(layout([{ shot: 0 }, { shot: 1, camera: "low" }, { shot: 1, camera: "low" }]));
+    expect(cameraForShot(t, 1)).toBe("low");
+    expect(usesCamera(t, "low")).toBe(true);
+  });
+
+  it("rejects one photo shown with two different cameras", () => {
+    expect(() => validateTemplate(layout([{ shot: 0, camera: "high" }, { shot: 0, camera: "low" }]))).toThrow(/both cameras/);
   });
 });

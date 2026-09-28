@@ -4,6 +4,7 @@ import path from "node:path";
 import { v4 as uuidv4 } from "uuid";
 import sharp from "sharp";
 import { CameraSource, CameraUnavailableError, CaptureResult } from "../CameraSource";
+import type { CameraTarget } from "./CameraWorker";
 import {
   CameraDetail,
   CameraSettings,
@@ -36,9 +37,9 @@ export interface WorkerHandle {
   kill(): boolean;
 }
 
-/** Forks the compiled worker (dist/camera/edsdk/worker.js) with the DLL path as its only argument. */
-export function spawnWorker(dllPath: string): WorkerHandle {
-  const child = fork(path.join(__dirname, "worker.js"), [dllPath], {
+/** Forks the compiled worker with argv [dllPath, serial, avoid, minBodies] ("" = none). */
+export function spawnWorker(dllPath: string, target: CameraTarget): WorkerHandle {
+  const child = fork(path.join(__dirname, "worker.js"), [dllPath, target.serial ?? "", target.avoid ?? "", String(target.minBodies)], {
     serialization: "advanced", // lets photos and frames cross as binary, not JSON
     stdio: ["ignore", "inherit", "inherit", "ipc"],
   });
@@ -69,6 +70,9 @@ export class EdsdkSource implements CameraSource {
   private worker: WorkerHandle | null = null;
   private connected = false;
   private model: string | null = null;
+  private serial: string | null = null;
+  /** Set by restart(): the coming exit is ours, not a crash. */
+  private restarting = false;
   private detail: CameraDetail | null = null;
   private nextId = 1;
   private readonly pending = new Map<number, Pending>();
@@ -116,6 +120,17 @@ export class EdsdkSource implements CameraSource {
 
   getDetail(): CameraDetail | null {
     return this.detail;
+  }
+
+  getSerial(): string | null {
+    return this.serial;
+  }
+
+  /** Kills the worker; onExit respawns it, and the spawn function reads the slot's current serial. */
+  restart(): void {
+    if (!this.worker) return;
+    this.restarting = true;
+    this.worker.kill();
   }
 
   async capture(destDir: string): Promise<CaptureResult> {
@@ -229,6 +244,7 @@ export class EdsdkSource implements CameraSource {
       this.onFirstState?.();
       this.connected = message.connected;
       this.model = message.model;
+      this.serial = message.serial;
       if (message.connected) {
         this.respawns = 0;
         void this.applySaved();
@@ -247,7 +263,10 @@ export class EdsdkSource implements CameraSource {
     this.worker = null;
     this.connected = false;
     this.onFirstState?.();
-    if (!this.stopping) {
+    const planned = this.restarting;
+    this.restarting = false;
+    this.serial = null;
+    if (!this.stopping && !planned) {
       this.detail = {
         battery: null, mode: null, afMode: null, quality: null,
         lastError: { message: `Camera worker exited (code ${String(code)})`, at: new Date().toISOString() },
@@ -259,9 +278,9 @@ export class EdsdkSource implements CameraSource {
       this.pending.delete(id);
     }
     if (this.stopping) return;
-    const delay = RESPAWN_BACKOFF_MS[Math.min(this.respawns, RESPAWN_BACKOFF_MS.length - 1)]!;
-    this.respawns += 1;
-    log.warn(`Camera worker exited (code ${String(code)}), restarting in ${delay} ms`);
+    const delay = planned ? RESPAWN_BACKOFF_MS[0] : RESPAWN_BACKOFF_MS[Math.min(this.respawns, RESPAWN_BACKOFF_MS.length - 1)]!;
+    if (!planned) this.respawns += 1;
+    log[planned ? "info" : "warn"](`Camera worker exited (code ${String(code)}), restarting in ${delay} ms`);
     this.respawnTimer = setTimeout(() => this.start(), delay);
   }
 

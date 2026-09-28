@@ -57,6 +57,8 @@ export interface HealthInputs {
   outbox: SyncSummary;
   eventId: string;
   thresholds: HealthThresholds;
+  /** Whether the session layout has a photo on the low camera. */
+  layoutUsesLow?: boolean;
 }
 
 export interface HealthReport {
@@ -76,12 +78,36 @@ export interface HealthReport {
     quality: CameraDetail["quality"];
     lastError: CameraDetail["lastError"];
   };
+  cameras: {
+    high: { connected: boolean; model: string | null; serial: string | null; detail: CameraDetail | null };
+    low: { connected: boolean; model: string | null; serial: string | null; detail: CameraDetail | null } | null;
+  };
   hotFolder: { path: string; writable: boolean };
   stalledPrints: StalledPrints;
   printer: PrinterStatus;
   disk: DiskSpace | null;
   outbox: SyncSummary;
   timestamp: string;
+}
+
+/** Problems one Canon reports about itself. The low camera's codes get a "-low" suffix. */
+function cameraDetailAlerts(detail: CameraDetail | null, suffix: "" | "-low", name: string): HealthAlert[] {
+  const alerts: HealthAlert[] = [];
+  if (detail?.quality && !detail.quality.hasJpeg) {
+    alerts.push({
+      level: "error",
+      code: `camera-raw-only${suffix}`,
+      message: `${name} is set to ${detail.quality.label} with no JPEG - captures will fail. Set image quality to include JPEG.`,
+    });
+  }
+  if (typeof detail?.battery === "number" && detail.battery < 20) {
+    alerts.push({
+      level: "warn",
+      code: `camera-battery-low${suffix}`,
+      message: `${name} battery at ${detail.battery}% - swap or charge it at the next gap.`,
+    });
+  }
+  return alerts;
 }
 
 export function buildHealthReport(inputs: HealthInputs): HealthReport {
@@ -114,19 +140,13 @@ export function buildHealthReport(inputs: HealthInputs): HealthReport {
       message: "digiCamControl is running and holding the camera - close it (and remove it from startup) so the booth can use the camera.",
     });
   }
-  if (detail?.quality && !detail.quality.hasJpeg) {
-    alerts.push({
-      level: "error",
-      code: "camera-raw-only",
-      message: `The camera is set to ${detail.quality.label} with no JPEG - captures will fail. Set image quality to include JPEG.`,
-    });
-  }
-  if (typeof detail?.battery === "number" && detail.battery < 20) {
-    alerts.push({
-      level: "warn",
-      code: "camera-battery-low",
-      message: `Camera battery at ${detail.battery}% - swap or charge it at the next gap.`,
-    });
+  alerts.push(...cameraDetailAlerts(detail, "", "The camera"));
+  if (camera.low) {
+    // No alert when the layout doesn't use it, so a single-camera EDSDK booth stays green.
+    if (!camera.low.connected && inputs.layoutUsesLow) {
+      alerts.push({ level: "error", code: "camera-low-none", message: "The low camera is not connected - its photos are being taken by the high camera. Check it is on and its USB cable is plugged in." });
+    }
+    alerts.push(...cameraDetailAlerts(camera.low.detail, "-low", "The low camera"));
   }
 
   // --- Print --------------------------------------------------------------
@@ -254,6 +274,10 @@ export function buildHealthReport(inputs: HealthInputs): HealthReport {
       afMode: detail?.afMode ?? null,
       quality: detail?.quality ?? null,
       lastError: detail?.lastError ?? null,
+    },
+    cameras: {
+      high: { connected: camera.canonConnected, model: camera.canonModel ?? null, serial: camera.canonSerial ?? null, detail },
+      low: camera.low ?? null,
     },
     hotFolder,
     stalledPrints,

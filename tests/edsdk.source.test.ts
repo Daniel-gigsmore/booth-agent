@@ -19,7 +19,14 @@ class FakeWorker extends EventEmitter implements WorkerHandle {
   constructor(firstState: boolean | null = false) {
     super();
     if (firstState !== null) {
-      queueMicrotask(() => this.emit("message", { type: "state", connected: firstState, model: firstState ? "Canon EOS R100" : null }));
+      queueMicrotask(() =>
+        this.emit("message", {
+          type: "state",
+          connected: firstState,
+          model: firstState ? "Canon EOS R100" : null,
+          serial: firstState ? "SN-A" : null,
+        })
+      );
     }
   }
 
@@ -364,5 +371,23 @@ describe("EdsdkSource startup and supervision", () => {
 
     await vi.advanceTimersByTimeAsync(6_000);
     expect(stuck.killed).toBe(true); // once the capture is over, missed pings count again
+  });
+});
+
+describe("EdsdkSource serial and restart", () => {
+  it("reports the serial from the worker's state", () => {
+    current().push({ type: "state", connected: true, model: "Canon EOS R100", serial: "SN-B" });
+    expect(source.getSerial()).toBe("SN-B");
+    current().push({ type: "state", connected: false, model: null, serial: null });
+    expect(source.getSerial()).toBeNull();
+  });
+
+  it("restart() kills the worker and spawns a fresh one after 1 s, without recording an error", async () => {
+    const first = current();
+    source.restart();
+    expect(first.killed).toBe(true);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(workers).toHaveLength(2);
+    expect(source.getDetail()?.lastError ?? null).toBeNull();
   });
 });

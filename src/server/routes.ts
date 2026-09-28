@@ -9,6 +9,8 @@ import { writeBackpressureAware } from "./streamWrite";
 import { PrintSizeSchema } from "../config/schema";
 import { CameraUnavailableError } from "../camera/CameraSource";
 import { readSavedCameraSettings, saveCameraSettings, clearSavedCameraSettings, SettingChangesSchema } from "../camera/cameraSettingsStore";
+import { readCameraSerials, writeCameraSerials, CameraSerials } from "../camera/camerasStore";
+import { CameraSlot } from "../events/types";
 import { SettingKey, SettingChanges } from "../camera/edsdk/protocol";
 import {
   loadTemplate,
@@ -20,6 +22,7 @@ import {
   shotCount,
   validateTemplate,
   assertImagesAllowed,
+  usesCamera,
 } from "../compositor/template";
 import { exportLayout, importLayout, copyLayout } from "../compositor/templateTransfer";
 import { FONTS, fontFilePath } from "../compositor/fonts";
@@ -49,6 +52,10 @@ function digiCamControlRunningCached(): Promise<boolean> {
   }
   return digiCamCheck.running;
 }
+
+const CameraBodySchema = z.object({ camera: z.enum(["high", "low"]).default("high") });
+/** ?camera=low means the low camera; anything else (or nothing) means high. */
+const slotParam = (req: Request): CameraSlot => (req.query["camera"] === "low" ? "low" : "high");
 
 const CompositeRequestSchema = z.object({
   captureId: z.string().min(1),
@@ -105,6 +112,21 @@ export function buildRouter(ctx: AgentContext): Router {
       config.capture.canon.driver === "edsdk" ? digiCamControlRunningCached() : Promise.resolve(false),
     ]);
 
+    // Whether a missing low camera affects guests right now. A layout that won't
+    // load is reported by /session; here it just counts as "not using it".
+    // Without a low slot (digiCamControl) there is nothing to ask, so no template load.
+    let layoutUsesLow = false;
+    if (cameraStatus.low) {
+      try {
+        layoutUsesLow = usesCamera(
+          loadTemplate(config.compositing.templateDir, readSessionSettings(config.storage.dataDir).templateId),
+          "low"
+        );
+      } catch {
+        /* see /session */
+      }
+    }
+
     res.json(
       buildHealthReport({
         camera: cameraStatus,
@@ -124,6 +146,7 @@ export function buildRouter(ctx: AgentContext): Router {
           outboxBacklogWarn: config.sync.backlogWarnCount,
           expectedMediaType: config.printing.expectedMediaType,
         },
+        layoutUsesLow,
       })
     );
   }));
@@ -165,6 +188,7 @@ export function buildRouter(ctx: AgentContext): Router {
       Connection: "close",
     });
 
+    const camera = slotParam(req);
     let closed = false;
     req.on("close", () => {
       closed = true;
@@ -182,7 +206,7 @@ export function buildRouter(ctx: AgentContext): Router {
     // on any throw, and the response never ends.
     try {
       while (!closed && !res.writableEnded && !res.destroyed) {
-        const result = await ctx.cameraManager.getLiveviewFrame();
+        const result = await ctx.cameraManager.getLiveviewFrame(camera);
         if (result) {
           const header =
             `--${boundary}\r\n` +
@@ -206,17 +230,23 @@ export function buildRouter(ctx: AgentContext): Router {
     }
   }));
 
-  router.post("/capture", asyncHandler(async (_req: Request, res: Response) => {
+  router.post("/capture", asyncHandler(async (req: Request, res: Response) => {
     const config = ctx.configStore.current;
+    const parsed = CameraBodySchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      res.status(400).json({ error: 'camera must be "high" or "low"' });
+      return;
+    }
     try {
       const captureId = uuidv4();
-      const result = await ctx.cameraManager.capture(originalsDir(config));
+      const result = await ctx.cameraManager.capture(originalsDir(config), parsed.data.camera);
       const takenAt = new Date().toISOString();
 
       ctx.outboxStore.insertCapture({
         id: captureId,
         eventId: config.event.id,
         source: result.source,
+        camera: result.camera,
         originalPath: result.filePath,
         takenAt,
       });
@@ -235,6 +265,7 @@ export function buildRouter(ctx: AgentContext): Router {
         width: result.width,
         height: result.height,
         source: result.source,
+        camera: result.camera,
         takenAt,
       });
     } catch (err) {
@@ -247,10 +278,11 @@ export function buildRouter(ctx: AgentContext): Router {
 
   // The kiosk calls this ~1.5 s before each shot so autofocus is done by the
   // time /capture arrives. Fire-and-forget: the answer never waits on the camera.
-  router.post("/camera/prefocus", (_req: Request, res: Response) => {
+  router.post("/camera/prefocus", (req: Request, res: Response) => {
     // prefocus() never rejects, but a floating promise must not become an
     // unhandled rejection if that ever changes (or a test double rejects).
-    ctx.cameraManager.prefocus().catch(() => undefined);
+    const parsed = CameraBodySchema.safeParse(req.body ?? {});
+    ctx.cameraManager.prefocus(parsed.success ? parsed.data.camera : "high").catch(() => undefined);
     res.status(202).json({});
   });
 
@@ -260,16 +292,18 @@ export function buildRouter(ctx: AgentContext): Router {
     res.status(err instanceof CameraUnavailableError ? 409 : 500).json({ error: message });
   };
 
-  router.get("/camera/settings", asyncHandler(async (_req: Request, res: Response) => {
+  router.get("/camera/settings", asyncHandler(async (req: Request, res: Response) => {
+    const slot = slotParam(req);
     try {
-      const settings = await ctx.cameraManager.getCanonSettings();
-      res.json({ ...settings, saved: readSavedCameraSettings(ctx.configStore.current.storage.dataDir) });
+      const settings = await ctx.cameraManager.getCanonSettings(slot);
+      res.json({ ...settings, saved: readSavedCameraSettings(ctx.configStore.current.storage.dataDir, slot) });
     } catch (err) {
       cameraError(res, err);
     }
   }));
 
   router.post("/camera/settings", asyncHandler(async (req: Request, res: Response) => {
+    const slot = slotParam(req);
     const parsed = SettingChangesSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ error: "expected { iso?, av?, tv?, wb?, ev?, quality? } as EDSDK codes" });
@@ -278,38 +312,76 @@ export function buildRouter(ctx: AgentContext): Router {
     try {
       // See cameraSettingsStore.ts: zod's `.partial()` output is stricter than SettingChanges
       // needs to be under exactOptionalPropertyTypes.
-      const settings = await ctx.cameraManager.setCanonSettings(parsed.data as SettingChanges);
+      const settings = await ctx.cameraManager.setCanonSettings(parsed.data as SettingChanges, slot);
       // Save only what the camera took, so a reconnect doesn't keep retrying a value it refuses.
       const accepted = Object.fromEntries(
         Object.entries(parsed.data).filter(([key]) => !settings.rejected.includes(key as SettingKey))
       );
-      const saved = saveCameraSettings(ctx.configStore.current.storage.dataDir, accepted);
+      const saved = saveCameraSettings(ctx.configStore.current.storage.dataDir, slot, accepted);
       res.json({ ...settings, saved });
     } catch (err) {
       cameraError(res, err);
     }
   }));
 
-  router.post("/camera/settings/reset", (_req: Request, res: Response) => {
-    clearSavedCameraSettings(ctx.configStore.current.storage.dataDir);
+  router.post("/camera/settings/reset", (req: Request, res: Response) => {
+    clearSavedCameraSettings(ctx.configStore.current.storage.dataDir, slotParam(req));
     res.json({ saved: {} });
   });
 
   // A photo for the operator to judge the settings by: never a capture row,
   // never printed, never synced, and deleted once sent.
-  router.post("/camera/test-shot", asyncHandler(async (_req: Request, res: Response) => {
+  router.post("/camera/test-shot", asyncHandler(async (req: Request, res: Response) => {
     let file: string | null = null;
     try {
-      const shot = await ctx.cameraManager.capture(path.join(ctx.configStore.current.storage.dataDir, "test-shots"));
+      const shot = await ctx.cameraManager.captureExact(path.join(ctx.configStore.current.storage.dataDir, "test-shots"), slotParam(req));
       file = shot.filePath;
       res.setHeader("X-Capture-Source", shot.source);
       res.type("image/jpeg").send(await readFile(file));
     } catch (err) {
-      res.status(503).json({ error: err instanceof Error ? err.message : String(err) });
+      res.status(err instanceof CameraUnavailableError ? 409 : 503).json({ error: err instanceof Error ? err.message : String(err) });
     } finally {
       if (file) await unlink(file).catch(() => undefined);
     }
   }));
+
+  // --- Camera pairing (which body is high, which low) --------------------
+  router.get("/cameras", (_req: Request, res: Response) => {
+    const s = ctx.cameraManager.getStatus();
+    const saved = readCameraSerials(ctx.configStore.current.storage.dataDir);
+    res.json({
+      slots: {
+        high: { connected: s.canonConnected, model: s.canonModel, serial: s.canonSerial, remembered: saved.high ?? null },
+        low: { connected: s.low?.connected ?? false, model: s.low?.model ?? null, serial: s.low?.serial ?? null, remembered: saved.low ?? null },
+      },
+    });
+  });
+
+  /** Saves `serials` (dropping empty slots) and re-opens both cameras with them. */
+  const pair = (res: Response, serials: Partial<Record<CameraSlot, string | null | undefined>>) => {
+    const next: CameraSerials = {};
+    if (serials.high) next.high = serials.high;
+    if (serials.low) next.low = serials.low;
+    if (!next.high && !next.low) {
+      res.status(409).json({ error: "No camera to pair - connect the cameras first" });
+      return;
+    }
+    writeCameraSerials(ctx.configStore.current.storage.dataDir, next);
+    ctx.cameraManager.restartCanonWorkers();
+    res.json({ saved: next });
+  };
+
+  router.post("/cameras/remember", (_req: Request, res: Response) => {
+    const s = ctx.cameraManager.getStatus();
+    const saved = readCameraSerials(ctx.configStore.current.storage.dataDir);
+    pair(res, { high: s.canonSerial ?? saved.high, low: s.low?.serial ?? saved.low });
+  });
+
+  router.post("/cameras/swap", (_req: Request, res: Response) => {
+    const s = ctx.cameraManager.getStatus();
+    const saved = readCameraSerials(ctx.configStore.current.storage.dataDir);
+    pair(res, { high: saved.low ?? s.low?.serial, low: saved.high ?? s.canonSerial });
+  });
 
   // The kiosk's review screen shows the still the guest just took. /capture
   // only hands back a local path the browser cannot open, so serve the file

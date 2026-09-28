@@ -56,10 +56,10 @@ export class OutboxStore {
   insertCapture(capture: NewCapture): CaptureRow {
     this.db
       .prepare(
-        `INSERT INTO captures (id, event_id, source, original_path, taken_at, sync_status, next_attempt_at)
-         VALUES (?, ?, ?, ?, ?, 'pending', ?)`
+        `INSERT INTO captures (id, event_id, source, camera, original_path, taken_at, sync_status, next_attempt_at)
+         VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)`
       )
-      .run(capture.id, capture.eventId, capture.source, capture.originalPath, capture.takenAt, capture.takenAt);
+      .run(capture.id, capture.eventId, capture.source, capture.camera ?? null, capture.originalPath, capture.takenAt, capture.takenAt);
     return this.getById(capture.id) as CaptureRow;
   }
 

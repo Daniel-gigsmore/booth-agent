@@ -90,6 +90,8 @@ function migrate(db: DatabaseSync): void {
   // "disappears" - checking it made every print look stalled once it passed
   // the threshold.
   ensureColumn(db, "print_jobs", "dropped_path", "TEXT");
+  // Which Canon took the photo ("high"/"low"), or "webcam". Local bookkeeping only; not uploaded.
+  ensureColumn(db, "captures", "camera", "TEXT");
 
   // Dropped rows from before dropped_path existed cannot be verified: the only
   // path they recorded is the composite, and the hot folder root may have

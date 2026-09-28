@@ -4,8 +4,10 @@ import { EventBus } from "./events/eventBus";
 import { CameraManager } from "./camera/CameraManager";
 import { CanonTetheredSource } from "./camera/CanonTetheredSource";
 import { EdsdkSource, spawnWorker } from "./camera/edsdk/EdsdkSource";
-import { readSavedCameraSettings } from "./camera/cameraSettingsStore";
+import { readSavedCameraSettings, migrateLegacyCameraSettings } from "./camera/cameraSettingsStore";
+import { readCameraSerials, workerTarget } from "./camera/camerasStore";
 import { WebcamSource } from "./camera/WebcamSource";
+import { CameraSlot } from "./events/types";
 import { openOutboxDb } from "./outbox/db";
 import { OutboxStore } from "./outbox/outboxStore";
 import { SyncWorker } from "./outbox/syncWorker";
@@ -63,13 +65,22 @@ async function main(): Promise<void> {
 
   // `driver` is read once at startup; switching it needs a service restart.
   const canonConfig = config.capture.canon;
-  const canonSource =
-    canonConfig.driver === "edsdk"
-      ? new EdsdkSource(() => spawnWorker(canonConfig.edsdkDllPath), () => readSavedCameraSettings(config.storage.dataDir))
-      : new CanonTetheredSource(canonConfig);
+  const dataDir = config.storage.dataDir;
+  try {
+    migrateLegacyCameraSettings(dataDir);
+  } catch (err) {
+    log.warn("Could not move camera.json to camera-high.json", err);
+  }
+  // Each slot's spawn re-reads cameras.json, so a Swap/Remember takes effect on the worker restart.
+  const edsdkSlot = (slot: CameraSlot) =>
+    new EdsdkSource(
+      () => spawnWorker(canonConfig.edsdkDllPath, workerTarget(readCameraSerials(dataDir), slot)),
+      () => readSavedCameraSettings(dataDir, slot)
+    );
+  const canonSource = canonConfig.driver === "edsdk" ? edsdkSlot("high") : new CanonTetheredSource(canonConfig);
   const webcamSource = new WebcamSource(config.capture.webcam);
   const cameraManager = new CameraManager(
-    { canon: canonSource, webcam: webcamSource },
+    { canon: canonSource, webcam: webcamSource, ...(canonConfig.driver === "edsdk" ? { canonLow: edsdkSlot("low") } : {}) },
     config.capture.sourcePreference,
     eventBus
   );

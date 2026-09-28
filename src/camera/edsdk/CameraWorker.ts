@@ -18,7 +18,20 @@ export const realClock: Clock = {
   sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 };
 
+/**
+ * Which camera body a worker owns: `serial` (null = the first free body), never `avoid` (the other slot's body).
+ * With fewer than `minBodies` bodies plugged in it claims none, so a lone body never lands in the low slot.
+ */
+export interface CameraTarget {
+  serial: string | null;
+  avoid: string | null;
+  minBodies: number;
+}
+
 const SCAN_INTERVAL_MS = 1_000;
+// Opening a body another process holds blocks for ~3 s before failing (0xC0,
+// measured on two R100s), so a held port is only retried this often.
+const HELD_RETRY_MS = 15_000;
 // EdsGetCameraList in a long-lived process may not notice a re-plugged
 // camera; re-initializing the SDK now and then forces a fresh device list.
 const REINIT_AFTER_EMPTY_SCANS = 5;
@@ -43,6 +56,14 @@ const REPEAT_QUIET_MS = 60_000;
  */
 export class CameraWorker {
   private cam: EdsRef | null = null;
+  /** The connected body's serial (kEdsPropID_BodyIDEx), or null. */
+  private serial: string | null = null;
+  /** Serial read from each USB port, so a body that isn't ours is not re-opened every scan. */
+  private readonly portSerials = new Map<string, string>();
+  /** Ports whose body another process held, and when to try them again. */
+  private readonly heldUntil = new Map<string, number>();
+  /** The sorted port list of the last scan; a change clears the two maps above. */
+  private lastPorts = "";
   private lastScanAt = Number.NEGATIVE_INFINITY;
   private emptyScans = 0;
   private lastKeepAwakeAt = 0;
@@ -69,7 +90,8 @@ export class CameraWorker {
   constructor(
     private readonly eds: EdsApi,
     private readonly emit: (event: WorkerEvent) => void,
-    private readonly clock: Clock = realClock
+    private readonly clock: Clock = realClock,
+    private readonly target: CameraTarget = { serial: null, avoid: null, minBodies: 1 }
   ) {}
 
   get connected(): boolean {
@@ -89,7 +111,7 @@ export class CameraWorker {
         this.lastScanAt = now;
         this.scan();
         // Let the agent stop waiting at startup: no camera is an answer too.
-        if (!this.announced && !this.cam) this.emit({ type: "state", connected: false, model: null });
+        if (!this.announced && !this.cam) this.emit({ type: "state", connected: false, model: null, serial: null });
         this.announced = true;
       }
       return;
@@ -121,8 +143,8 @@ export class CameraWorker {
   }
 
   private scan(): void {
-    const found = this.eds.firstCamera();
-    if (!found) {
+    const found = this.eds.cameras();
+    if (found.length === 0) {
       this.emptyScans += 1;
       if (this.emptyScans >= REINIT_AFTER_EMPTY_SCANS) {
         this.emptyScans = 0;
@@ -132,14 +154,38 @@ export class CameraWorker {
       return;
     }
     this.emptyScans = 0;
-    const cam = found.ref;
-    const err = this.eds.openSession(cam);
-    if (err !== EDS.ERR_OK) {
-      this.warn(`Opening a session with ${found.description} failed: ${hex(err)}`);
-      this.eds.release(cam);
+    if (found.length < this.target.minBodies) {
+      for (const { ref } of found) this.eds.release(ref);
       return;
     }
+    // An empty port name must not merge bodies: fall back to the list index.
+    const bodies = found.map((c, index) => ({ ...c, port: c.port || `#${index}` }));
+    // A replug (or a cable moved to another port) changes the set of ports: start over.
+    const ports = bodies.map((c) => c.port).sort().join("|");
+    if (ports !== this.lastPorts) {
+      this.lastPorts = ports;
+      this.portSerials.clear();
+      this.heldUntil.clear();
+    }
+    const now = this.clock.now();
+    let picked: { ref: EdsRef; description: string; serial: string } | null = null;
+    // A failed openSession can block for ~3 s, so a scan tries at most one.
+    let openFailed = false;
+    for (const { ref, description, port } of bodies) {
+      const known = this.portSerials.get(port);
+      const skip: boolean = !!picked || openFailed || (known !== undefined && !this.isMine(known)) || (this.heldUntil.get(port) ?? 0) > now;
+      const result: ReturnType<CameraWorker["claim"]> = skip ? "not-mine" : this.claim(ref, description, port);
+      if (result === "failed") openFailed = true;
+      if (typeof result === "string") {
+        this.eds.release(ref);
+        continue;
+      }
+      picked = { ref, description, serial: result.serial };
+    }
+    if (!picked) return;
+    const cam = picked.ref;
     this.cam = cam;
+    this.serial = picked.serial;
     this.shutdownSeen = false;
 
     // If a previous worker was killed between a press and its release, the
@@ -162,10 +208,37 @@ export class CameraWorker {
     if (this.setupFailed(this.eds.setU32(cam, EDS.PROP_SAVE_TO, EDS.SAVE_TO_HOST), "set SaveTo=Host")) return;
     if (this.setupFailed(this.eds.setCapacityHost(cam), "set host capacity")) return;
     this.lastKeepAwakeAt = this.clock.now();
-    this.log("info", `Connected to ${found.description}`);
-    this.emit({ type: "state", connected: true, model: found.description });
+    this.log("info", `Connected to ${picked.description}`);
+    this.emit({ type: "state", connected: true, model: picked.description, serial: this.serial });
     this.lastStatusAt = this.clock.now();
     this.publishStatus();
+  }
+
+  /**
+   * Opens `ref` and returns its serial if this worker should own it; otherwise
+   * "not-mine" (session closed again) or "failed" (it didn't open), and the
+   * caller releases the ref. A body another worker holds fails to open.
+   */
+  private claim(ref: EdsRef, description: string, port: string): { serial: string } | "failed" | "not-mine" {
+    const err = this.eds.openSession(ref);
+    if (err !== EDS.ERR_OK) {
+      // 0xC0: the other slot's worker holds it, and opening it again costs ~3 s of blocking.
+      if (err === EDS.ERR_COMM_PORT_IS_IN_USE) this.heldUntil.set(port, this.clock.now() + HELD_RETRY_MS);
+      this.warn(`Opening a session with ${description} failed: ${hex(err)}`);
+      return "failed";
+    }
+    const id = this.eds.getString(ref, EDS.PROP_BODY_ID_EX);
+    const serial = id.err === EDS.ERR_OK ? id.value : "";
+    this.portSerials.set(port, serial);
+    if (!this.isMine(serial)) {
+      this.eds.closeSession(ref);
+      return "not-mine";
+    }
+    return { serial };
+  }
+
+  private isMine(serial: string): boolean {
+    return this.target.serial ? serial === this.target.serial : !(this.target.avoid && serial === this.target.avoid);
   }
 
   /**
@@ -210,6 +283,7 @@ export class CameraWorker {
     const cam = this.cam;
     if (!cam) return;
     this.cam = null;
+    this.serial = null;
     this.liveviewOn = false;
     this.halfPressedAt = null;
     this.closeCamera(cam);
@@ -217,7 +291,7 @@ export class CameraWorker {
     // No camera to read from any more, whether or not a capture is still unwinding.
     this.lastReadings = { battery: null, mode: null, afMode: null, quality: null };
     this.warn(`Camera disconnected (${reason})`);
-    this.emit({ type: "state", connected: false, model: null });
+    this.emit({ type: "state", connected: false, model: null, serial: null });
     this.recordError(`Camera disconnected (${reason})`);
   }
 
