@@ -1,5 +1,5 @@
 import { CameraSource, CameraUnavailableError, CaptureResult } from "./CameraSource";
-import { CameraKind } from "../events/types";
+import { CameraKind, CameraSlot, CaptureCamera } from "../events/types";
 import { CaptureSourcePreference } from "../config/schema";
 import { EventBus } from "../events/eventBus";
 import { createLogger } from "../util/logger";
@@ -22,6 +22,10 @@ export interface CameraManagerStatus {
   webcamConnected: boolean;
   preference: CaptureSourcePreference;
   canonDetail: CameraDetail | null;
+  canonModel: string | null;
+  canonSerial: string | null;
+  /** Null when there is no low camera slot (digiCamControl driver). */
+  low: { connected: boolean; model: string | null; serial: string | null; detail: CameraDetail | null } | null;
 }
 
 /**
@@ -45,25 +49,32 @@ export class CameraManager {
   };
   private pollTimer: NodeJS.Timeout | undefined;
   private readonly pollIntervalMs: number;
+  /** The second Canon (EDSDK only). Not part of the high/webcam active-source logic. */
+  private readonly low: CameraSource | null;
+  private lowHealthy = false;
+  private lowConsecutive = 0;
 
   constructor(
-    sources: { canon: CameraSource; webcam: CameraSource },
+    sources: { canon: CameraSource; webcam: CameraSource; canonLow?: CameraSource },
     preference: CaptureSourcePreference,
     private readonly eventBus: EventBus,
     pollIntervalMs = 500
   ) {
-    this.sources = sources;
+    this.sources = { canon: sources.canon, webcam: sources.webcam };
+    this.low = sources.canonLow ?? null;
     this.preference = preference;
     this.pollIntervalMs = pollIntervalMs;
   }
 
   async start(): Promise<void> {
-    const [canonOk, webcamOk] = await Promise.all([
+    const [canonOk, webcamOk, lowOk] = await Promise.all([
       this.sources.canon.initialize().catch(() => false),
       this.sources.webcam.initialize().catch(() => false),
+      this.low ? this.low.initialize().catch(() => false) : Promise.resolve(false),
     ]);
     this.healthy.canon = canonOk;
     this.healthy.webcam = webcamOk;
+    this.lowHealthy = lowOk;
     this.active = this.pickInitialActive();
     log.info(`Camera manager started, active source: ${this.active}`, {
       canonOk,
@@ -76,7 +87,7 @@ export class CameraManager {
 
   async stop(): Promise<void> {
     if (this.pollTimer) clearInterval(this.pollTimer);
-    await Promise.all([this.sources.canon.shutdown(), this.sources.webcam.shutdown()]);
+    await Promise.all([this.sources.canon.shutdown(), this.sources.webcam.shutdown(), this.low?.shutdown()]);
   }
 
   /** Applies a config reload's new preference without restarting the manager. */
@@ -95,10 +106,16 @@ export class CameraManager {
       webcamConnected: this.healthy.webcam,
       preference: this.preference,
       canonDetail: this.sources.canon.getDetail?.() ?? null,
+      canonModel: this.sources.canon.getModel(),
+      canonSerial: this.sources.canon.getSerial?.() ?? null,
+      low: this.low
+        ? { connected: this.lowHealthy, model: this.low.getModel(), serial: this.low.getSerial?.() ?? null, detail: this.low.getDetail?.() ?? null }
+        : null,
     };
   }
 
-  async capture(destDir: string): Promise<CaptureResult & { source: CameraKind }> {
+  /** Today's high-camera capture, unchanged: try the active source, retry once on fallback. */
+  private async captureHigh(destDir: string): Promise<CaptureResult & { source: CameraKind }> {
     if (this.active === "none") {
       throw new Error("No capture source is available");
     }
@@ -121,34 +138,82 @@ export class CameraManager {
     }
   }
 
+  /**
+   * A photo on `camera`, falling back low -> high -> webcam so a guest always
+   * gets a picture. `camera` in the result says what actually took it.
+   */
+  async capture(destDir: string, camera: CameraSlot = "high"): Promise<CaptureResult & { source: CameraKind; camera: CaptureCamera }> {
+    if (camera === "low" && this.low && this.lowHealthy) {
+      try {
+        return { ...(await this.low.capture(destDir)), source: "canon", camera: "low" };
+      } catch (err) {
+        log.warn("Capture failed on the low camera, marking it unhealthy and using the high one", err);
+        this.lowHealthy = false;
+        this.lowConsecutive = 0;
+      }
+    } else if (camera === "low") {
+      log.warn("The low camera isn't available - taking this photo with the high one");
+    }
+    const result = await this.captureHigh(destDir);
+    return { ...result, camera: result.source === "canon" ? "high" : "webcam" };
+  }
+
+  /** The operator's test shot: exactly this camera, or CameraUnavailableError. */
+  async captureExact(destDir: string, camera: CameraSlot): Promise<CaptureResult & { source: CameraKind; camera: CaptureCamera }> {
+    const source = this.canonSlot(camera);
+    const up = camera === "low" ? this.lowHealthy : this.healthy.canon;
+    if (!up) throw new CameraUnavailableError(`The ${camera} camera is not connected`);
+    return { ...(await source.capture(destDir)), source: "canon", camera };
+  }
+
+  /** The source a live view or pre-focus for `camera` should use: whatever its capture would. */
+  private routed(camera: CameraSlot): { source: CameraSource; kind: CameraKind } | null {
+    if (camera === "low" && this.low && this.lowHealthy) return { source: this.low, kind: "canon" };
+    if (this.active === "none") return null;
+    return { source: this.sources[this.active], kind: this.active };
+  }
+
+  private canonSlot(camera: CameraSlot): CameraSource {
+    if (camera === "high") return this.sources.canon;
+    if (!this.low) throw new CameraUnavailableError("A low camera needs the EDSDK driver");
+    return this.low;
+  }
+
+  /** After cameras.json changed: both workers re-open with their slot's serial. */
+  restartCanonWorkers(): void {
+    this.sources.canon.restart?.();
+    this.low?.restart?.();
+  }
+
   /** Best-effort: never rejects, since the capture works the same without it. */
-  async prefocus(): Promise<void> {
-    if (this.active === "none") return;
+  async prefocus(camera: CameraSlot = "high"): Promise<void> {
+    const r = this.routed(camera);
+    if (!r) return;
     try {
-      await this.sources[this.active].prefocus?.();
+      await r.source.prefocus?.();
     } catch (err) {
-      log.debug(`Pre-focus failed on ${this.active}`, err);
+      log.debug(`Pre-focus failed on ${camera}`, err);
     }
   }
 
-  async getLiveviewFrame(): Promise<{ frame: Buffer; source: CameraKind } | null> {
-    if (this.active === "none") return null;
-    const frame = await this.sources[this.active].getLiveviewFrame();
-    if (!frame) return null;
-    return { frame, source: this.active };
+  async getLiveviewFrame(camera: CameraSlot = "high"): Promise<{ frame: Buffer; source: CameraKind } | null> {
+    const r = this.routed(camera);
+    if (!r) return null;
+    const frame = await r.source.getLiveviewFrame();
+    return frame ? { frame, source: r.kind } : null;
   }
 
   /** Operator-panel camera settings; only a source with settings support (EDSDK) can do this. */
-  async getCanonSettings(): Promise<CameraSettings> {
-    const canon = this.sources.canon;
-    if (!canon.getSettings) throw new CameraUnavailableError("Camera settings need the EDSDK driver");
-    return canon.getSettings();
+  async getCanonSettings(camera: CameraSlot = "high"): Promise<CameraSettings> {
+    const source = this.canonSlot(camera);
+    if (!source.getSettings) throw new CameraUnavailableError("Camera settings need the EDSDK driver");
+    return source.getSettings();
   }
 
-  async setCanonSettings(changes: SettingChanges): Promise<CameraSettings> {
-    const canon = this.sources.canon;
-    if (!canon.setSettings) throw new CameraUnavailableError("Camera settings need the EDSDK driver");
-    return canon.setSettings(changes);
+  async setCanonSettings(changes: SettingChanges, camera: CameraSlot = "high"): Promise<CameraSettings> {
+    const source = this.canonSlot(camera);
+    if (!source.setSettings) throw new CameraUnavailableError("Camera settings need the EDSDK driver");
+    return source.setSettings(changes);
   }
 
   private pickInitialActive(): CameraKind {
@@ -186,6 +251,16 @@ export class CameraManager {
         }
       })
     );
+    if (this.low) {
+      const isHealthy = await this.low.isHealthy().catch(() => false);
+      if (isHealthy === this.lowHealthy) {
+        this.lowConsecutive = 0;
+      } else if (++this.lowConsecutive >= SWITCH_DEBOUNCE_TICKS) {
+        this.lowHealthy = isHealthy;
+        this.lowConsecutive = 0;
+        log[isHealthy ? "info" : "warn"](`Low camera ${isHealthy ? "connected" : "disconnected"}`);
+      }
+    }
   }
 
   private reconcileActive(): void {
