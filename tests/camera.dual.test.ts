@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import { CameraManager } from "../src/camera/CameraManager";
 import { CameraSource, CameraUnavailableError, CaptureResult } from "../src/camera/CameraSource";
 import { EventBus } from "../src/events/eventBus";
+import { BoothEvent } from "../src/events/types";
 
 class Fake implements CameraSource {
   healthy = true;
@@ -40,15 +41,38 @@ async function setup(opts: { withLow?: boolean } = {}) {
   const high = new Fake("canon", "high", "SN-A");
   const low = new Fake("canon", "low", "SN-B");
   const webcam = new Fake("webcam", "webcam");
+  const eventBus = new EventBus();
+  const events: BoothEvent[] = [];
+  eventBus.subscribe((e) => events.push(e));
   manager = new CameraManager(
     { canon: high, webcam, ...(opts.withLow === false ? {} : { canonLow: low }) },
-    "canon", new EventBus(), 20
+    "canon", eventBus, 20
   );
   await manager.start();
-  return { high, low, webcam, manager };
+  return { high, low, webcam, manager, events };
 }
 
 describe("CameraManager with a low camera", () => {
+  it("emits camera-disconnected and camera-recovered for the low camera, tagged camera: low", async () => {
+    const { manager, low, events } = await setup();
+    low.healthy = false;
+    await waitUntil(() => !manager.getStatus().low!.connected);
+    low.healthy = true;
+    await waitUntil(() => manager.getStatus().low!.connected);
+    const cameraEvents = events.filter((e) => e.type === "camera-disconnected" || e.type === "camera-recovered");
+    expect(cameraEvents).toEqual([
+      { type: "camera-disconnected", source: "canon", camera: "low" },
+      { type: "camera-recovered", source: "canon", camera: "low" },
+    ]);
+  });
+
+  it("tags the high Canon's events camera: high", async () => {
+    const { manager, high, events } = await setup();
+    high.healthy = false;
+    await waitUntil(() => !manager.getStatus().canonConnected);
+    expect(events).toContainEqual({ type: "camera-disconnected", source: "canon", camera: "high" });
+  });
+
   it("captures on the camera asked for, high by default", async () => {
     const { manager } = await setup();
     expect(await manager.capture("/tmp")).toMatchObject({ camera: "high", source: "canon", filePath: "/tmp/high.jpg" });

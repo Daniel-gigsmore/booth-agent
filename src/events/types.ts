@@ -36,9 +36,11 @@ export interface PrintCompletedEvent {
   jobId: string;
 }
 
+/** `camera` says which Canon (high or low) for a Canon source; absent for the webcam. */
 export interface CameraDisconnectedEvent {
   type: "camera-disconnected";
   source: CameraKind;
+  camera?: CameraSlot;
 }
 
 export interface CameraFallbackEvent {
@@ -51,6 +53,7 @@ export interface CameraFallbackEvent {
 export interface CameraRecoveredEvent {
   type: "camera-recovered";
   source: CameraKind;
+  camera?: CameraSlot;
 }
 
 export interface ErrorEvent {
