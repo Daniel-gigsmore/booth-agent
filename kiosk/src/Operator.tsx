@@ -2,9 +2,9 @@ import { useEffect, useState } from "react";
 import { agent, config, Health, PrintJob, SessionSettings, Template } from "./agent";
 import { useHealth } from "./hooks";
 import LayoutEditor, { LayoutThumb } from "./LayoutEditor";
-import { newTemplate, shotCount } from "./layout";
+import { newTemplate, shotCount, CAMERA_ARROW } from "./layout";
 import CameraTab from "./CameraTab";
-import { cameraNote } from "./cameras";
+import { cameraNote, slotNote, SLOT_NAME } from "./cameras";
 
 const time = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
@@ -38,6 +38,8 @@ function StatusTab() {
   }
 
   const h = health;
+  // Both slots only when the agent has a low one (EDSDK); otherwise today's single CAMERA card.
+  const slots = h?.cameras?.low ? { high: h.cameras.high, low: h.cameras.low } : null;
   return (
     <>
       <div className={`banner ${!h ? "error" : h.overall}`}>
@@ -48,9 +50,15 @@ function StatusTab() {
 
       {h && (
         <>
-          <div className="op-grid">
-            <Card label="CAMERA" value={h.camera.model ?? h.camera.activeSource}
-              ok={h.camera.activeSource !== "none"} note={cameraNote(h.camera)} />
+          <div className={`op-grid${slots ? " five" : ""}`}>
+            {slots ? (["high", "low"] as const).map((slot) => (
+              <Card key={slot} label={`${SLOT_NAME[slot].toUpperCase()} ${CAMERA_ARROW[slot]}`}
+                value={slots[slot].connected ? slots[slot].model ?? "Canon" : "Not connected"}
+                ok={slots[slot].connected} note={slotNote(slots[slot])} />
+            )) : (
+              <Card label="CAMERA" value={h.camera.model ?? h.camera.activeSource}
+                ok={h.camera.activeSource !== "none"} note={cameraNote(h.camera)} />
+            )}
             <Card label={`PRINTER${h.printer.model ? ` · ${h.printer.model}` : ""}`}
               value={h.printer.mediaRemaining !== null ? `${h.printer.mediaRemaining} prints left` : "Media unknown"}
               ok={h.printer.ok} note={h.printer.reachable ? h.printer.status ?? "Unknown" : "Not reachable"} />
@@ -59,7 +67,14 @@ function StatusTab() {
             <Card label="HOT FOLDER" value={h.stalledPrints.count === 0 ? "Printing normally" : "Stuck"}
               ok={h.stalledPrints.count === 0} note={`${h.stalledPrints.count} stuck`} />
           </div>
-          {h.camera.lastError && (
+          {slots ? (["high", "low"] as const).map((slot) => {
+            const e = slots[slot].detail?.lastError;
+            return e && (
+              <div key={slot} className="muted fs-24">
+                Last {SLOT_NAME[slot].toLowerCase()} issue ({time(e.at)}): {e.message}
+              </div>
+            );
+          }) : h.camera.lastError && (
             <div className="muted fs-24">
               Last camera issue ({time(h.camera.lastError.at)}): {h.camera.lastError.message}
             </div>
