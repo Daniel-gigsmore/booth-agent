@@ -105,12 +105,7 @@ export async function runPreflight(config: BoothConfig): Promise<PreflightResult
   checks.push(checkSharedSecret(config));
   checks.push(...(await checkCanon(config)));
   checks.push(await checkWebcam(config));
-
-  // Printer first: whether it is reachable decides how to read a missing
-  // hot-folder subfolder (real rename vs HFP simply not up yet).
-  const printer = await checkPrinter(config);
-  checks.push(printer.check);
-  checks.push(...(await checkHotFolders(config, printer.reachable)));
+  checks.push(...(await checkPrint(config)));
   checks.push(...(await checkStorage(config)));
   checks.push(await checkTemplates(config));
 
@@ -237,17 +232,22 @@ async function checkWebcam(config: BoothConfig): Promise<PreflightCheck> {
  * folders missing; HFP created them at 14:06 once it came up. Nothing was
  * wrong - the check simply ran too early.
  *
+ * The same holds while HFP is up but the printer is off: on 2026-09-28 the
+ * status file said STATUS_OFFLINE and the folders were missing, and HFP
+ * created them at 17:06 once the printer came online.
+ *
  * Reporting that as a hard failure on every single boot is worse than not
  * checking at all: it is a warning the operator can never act on, and the
- * second time they see it they stop reading preflight altogether. So when the
- * printer is not reachable the folders are reported as unverifiable (warn),
- * and only a *reachable* printer with missing folders is treated as the real
+ * second time they see it they stop reading preflight altogether. So unless
+ * the printer is online (status file fresh and OK) the folders are reported
+ * as unverifiable (warn); an offline printer already fails print.printer.
+ * Only an *online* printer with missing folders is treated as the real
  * rename signal this check exists to catch. Re-run via POST /health/preflight
  * once everything is up to get the meaningful answer.
  */
 async function checkHotFolders(
   config: BoothConfig,
-  printerReachable: boolean
+  printerOnline: boolean
 ): Promise<PreflightCheck[]> {
   const results: PreflightCheck[] = [];
   const root = config.printing.hotFolderPath;
@@ -275,7 +275,7 @@ async function checkHotFolders(
     }
 
     results.push(
-      printerReachable
+      printerOnline
         ? fail(
             `print.hotFolder.${size}`,
             `${name} does not exist under ${root} even though the printer is online - Hot Folder Print may have renamed its profile folders; check HFP and update HFP_FOLDER_BY_SIZE in src/print/hotFolder.ts`
@@ -290,9 +290,15 @@ async function checkHotFolders(
   return results;
 }
 
+/** Printer first: whether it is online decides how to read a missing hot-folder subfolder. */
+export async function checkPrint(config: BoothConfig): Promise<PreflightCheck[]> {
+  const printer = await checkPrinter(config);
+  return [printer.check, ...(await checkHotFolders(config, printer.online))];
+}
+
 async function checkPrinter(
   config: BoothConfig
-): Promise<{ check: PreflightCheck; reachable: boolean }> {
+): Promise<{ check: PreflightCheck; online: boolean }> {
   const status = await readPrinterStatus({
     statusFilePath:
       config.printing.printerStatusPath ??
@@ -305,13 +311,13 @@ async function checkPrinter(
     // not up yet at boot. Not actionable until the operator can act on it.
     return {
       check: warn("print.printer", status.error ?? "printer status unavailable"),
-      reachable: false,
+      online: false,
     };
   }
   if (!status.ok) {
     return {
       check: fail("print.printer", `printer reports "${status.status}"`),
-      reachable: true,
+      online: false,
     };
   }
   const media =
@@ -322,7 +328,7 @@ async function checkPrinter(
       "print.printer",
       `${status.model ?? "printer"} ${status.status}${type}${media}`
     ),
-    reachable: true,
+    online: true,
   };
 }
 
