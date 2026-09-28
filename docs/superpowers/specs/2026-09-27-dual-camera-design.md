@@ -40,6 +40,7 @@ The agent has two fixed slots: `high` and `low`. Each slot is an `EdsdkSource` w
 Either action restarts both workers with their serials.
 
 **One camera plugged in.** Only one slot connects; the other reports "not connected". See Health for how loud that is.
+The low worker only claims a body when at least two are connected and it has no saved serial, so a lone body always ends up in the high slot.
 
 **Driver.** Two slots exist only with `capture.canon.driver: "edsdk"`. Under digiCamControl there is one camera, and a `low` request is served by it (see Fallback) with a warning in the log.
 
@@ -79,9 +80,7 @@ Captures get a nullable `camera` column (`high`, `low` or `webcam`), added by th
 
 - `camera` keeps its current shape and describes the high slot, so older kiosks keep working.
 - New `cameras: { high: CameraDetail & { connected, serial }, low: ... }`.
-- `camera-low-none` (only when a low slot exists, i.e. under EDSDK):
-  - **error** when the active session layout has a photo on the low camera;
-  - **warn** when the layout doesn't use it.
+- `camera-low-none` (only when a low slot exists, i.e. under EDSDK): **error** when the active session layout has a photo on the low camera. There is no alert when the layout doesn't use it, so a single-camera EDSDK booth stays green; `cameras.low.connected` still shows the state.
 
   The high slot keeps today's `camera-none` and `camera-fallback` alerts.
 - The existing battery, RAW-only and conflict alerts are reported per slot. Their code gets a `-low` suffix for the low slot; the high slot keeps today's codes.

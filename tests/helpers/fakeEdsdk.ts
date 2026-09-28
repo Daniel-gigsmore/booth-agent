@@ -33,6 +33,8 @@ export class FakeEds implements EdsApi {
   rejectSet = new Map<number, number>();
   /** One-shot error results for setObjectHandler; each call shifts one off, then succeeds. */
   objectHandlerResults: number[] = [];
+  /** One-shot error results for openSession on a free body; each call shifts one off, then succeeds. */
+  openSessionResults: number[] = [];
   commands: Array<{ command: number; param: number }> = [];
   calls: string[] = [];
   downloads: Array<{ name: string; path: string }> = [];
@@ -52,6 +54,8 @@ export class FakeEds implements EdsApi {
     this.calls.push("openSession");
     const body = this.bodies.find((b) => b.serial === cam);
     if (!body || body.held) return EDS.ERR_COMM_PORT_IS_IN_USE;
+    const err = this.openSessionResults.shift() ?? 0;
+    if (err !== 0) return err;
     this.sessionOpen = true;
     return 0;
   }

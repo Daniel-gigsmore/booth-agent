@@ -142,12 +142,9 @@ export function buildHealthReport(inputs: HealthInputs): HealthReport {
   }
   alerts.push(...cameraDetailAlerts(detail, "", "The camera"));
   if (camera.low) {
-    if (!camera.low.connected) {
-      alerts.push(
-        inputs.layoutUsesLow
-          ? { level: "error", code: "camera-low-none", message: "The low camera is not connected - its photos are being taken by the high camera. Check it is on and its USB cable is plugged in." }
-          : { level: "warn", code: "camera-low-none", message: "The low camera is not connected (the current layout doesn't use it)." }
-      );
+    // No alert when the layout doesn't use it, so a single-camera EDSDK booth stays green.
+    if (!camera.low.connected && inputs.layoutUsesLow) {
+      alerts.push({ level: "error", code: "camera-low-none", message: "The low camera is not connected - its photos are being taken by the high camera. Check it is on and its USB cable is plugged in." });
     }
     alerts.push(...cameraDetailAlerts(camera.low.detail, "-low", "The low camera"));
   }

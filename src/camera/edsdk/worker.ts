@@ -10,7 +10,7 @@ import { AsyncMutex } from "../../util/mutex";
 
 const TICK_MS = 30;
 
-const [dllPath, serial, avoid] = process.argv.slice(2);
+const [dllPath, serial, avoid, minBodies] = process.argv.slice(2);
 if (!dllPath || !process.send) {
   console.error("camera worker: must be forked by EdsdkSource with the EDSDK.dll path");
   process.exit(2);
@@ -20,7 +20,11 @@ const send = (message: WorkerMessage): void => {
   process.send?.(message);
 };
 
-const worker = new CameraWorker(loadEdsdk(dllPath), send, realClock, { serial: serial || null, avoid: avoid || null });
+const worker = new CameraWorker(loadEdsdk(dllPath), send, realClock, {
+  serial: serial || null,
+  avoid: avoid || null,
+  minBodies: Number(minBodies) || 1,
+});
 worker.start();
 
 const loop = setInterval(() => {

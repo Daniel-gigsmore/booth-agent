@@ -114,14 +114,17 @@ export function buildRouter(ctx: AgentContext): Router {
 
     // Whether a missing low camera affects guests right now. A layout that won't
     // load is reported by /session; here it just counts as "not using it".
+    // Without a low slot (digiCamControl) there is nothing to ask, so no template load.
     let layoutUsesLow = false;
-    try {
-      layoutUsesLow = usesCamera(
-        loadTemplate(config.compositing.templateDir, readSessionSettings(config.storage.dataDir).templateId),
-        "low"
-      );
-    } catch {
-      /* see /session */
+    if (cameraStatus.low) {
+      try {
+        layoutUsesLow = usesCamera(
+          loadTemplate(config.compositing.templateDir, readSessionSettings(config.storage.dataDir).templateId),
+          "low"
+        );
+      } catch {
+        /* see /session */
+      }
     }
 
     res.json(

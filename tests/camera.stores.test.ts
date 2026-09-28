@@ -20,9 +20,9 @@ describe("cameras.json", () => {
   });
 
   it("tells each slot's worker its body and the other slot's body to avoid", () => {
-    expect(workerTarget({ high: "SN-A", low: "SN-B" }, "low")).toEqual({ serial: "SN-B", avoid: "SN-A" });
-    expect(workerTarget({ high: "SN-A" }, "low")).toEqual({ serial: null, avoid: "SN-A" });
-    expect(workerTarget({}, "high")).toEqual({ serial: null, avoid: null });
+    expect(workerTarget({ high: "SN-A", low: "SN-B" }, "low")).toEqual({ serial: "SN-B", avoid: "SN-A", minBodies: 1 });
+    expect(workerTarget({ high: "SN-A" }, "low")).toEqual({ serial: null, avoid: "SN-A", minBodies: 2 });
+    expect(workerTarget({}, "high")).toEqual({ serial: null, avoid: null, minBodies: 1 });
   });
 });
 

@@ -66,7 +66,11 @@ async function main(): Promise<void> {
   // `driver` is read once at startup; switching it needs a service restart.
   const canonConfig = config.capture.canon;
   const dataDir = config.storage.dataDir;
-  migrateLegacyCameraSettings(dataDir);
+  try {
+    migrateLegacyCameraSettings(dataDir);
+  } catch (err) {
+    log.warn("Could not move camera.json to camera-high.json", err);
+  }
   // Each slot's spawn re-reads cameras.json, so a Swap/Remember takes effect on the worker restart.
   const edsdkSlot = (slot: CameraSlot) =>
     new EdsdkSource(

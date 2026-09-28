@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach, vi } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 import { CameraManager } from "../src/camera/CameraManager";
 import { CameraSource, CameraUnavailableError, CaptureResult } from "../src/camera/CameraSource";
 import { EventBus } from "../src/events/eventBus";
@@ -61,6 +61,14 @@ describe("CameraManager with a low camera", () => {
     expect(await manager.capture("/tmp", "low")).toMatchObject({ camera: "high" });
     high.failCapture = true;
     expect(await manager.capture("/tmp", "low")).toMatchObject({ camera: "webcam", source: "webcam" });
+  });
+
+  it("serves a high request from the low camera when the high one is down", async () => {
+    const { manager, high } = await setup();
+    high.healthy = false;
+    await waitUntil(() => manager.getStatus().canonConnected === false);
+    expect(await manager.capture("/tmp")).toMatchObject({ camera: "low", source: "canon", filePath: "/tmp/low.jpg" });
+    expect((await manager.getLiveviewFrame())?.frame.toString()).toBe("low");
   });
 
   it("serves a low request from the high camera when there is no low slot (digiCamControl)", async () => {

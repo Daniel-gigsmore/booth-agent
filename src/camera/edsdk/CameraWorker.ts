@@ -18,10 +18,14 @@ export const realClock: Clock = {
   sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 };
 
-/** Which camera body a worker owns: `serial` (null = the first free body), never `avoid` (the other slot's body). */
+/**
+ * Which camera body a worker owns: `serial` (null = the first free body), never `avoid` (the other slot's body).
+ * With fewer than `minBodies` bodies plugged in it claims none, so a lone body never lands in the low slot.
+ */
 export interface CameraTarget {
   serial: string | null;
   avoid: string | null;
+  minBodies: number;
 }
 
 const SCAN_INTERVAL_MS = 1_000;
@@ -87,7 +91,7 @@ export class CameraWorker {
     private readonly eds: EdsApi,
     private readonly emit: (event: WorkerEvent) => void,
     private readonly clock: Clock = realClock,
-    private readonly target: CameraTarget = { serial: null, avoid: null }
+    private readonly target: CameraTarget = { serial: null, avoid: null, minBodies: 1 }
   ) {}
 
   get connected(): boolean {
@@ -150,8 +154,14 @@ export class CameraWorker {
       return;
     }
     this.emptyScans = 0;
+    if (found.length < this.target.minBodies) {
+      for (const { ref } of found) this.eds.release(ref);
+      return;
+    }
+    // An empty port name must not merge bodies: fall back to the list index.
+    const bodies = found.map((c, index) => ({ ...c, port: c.port || `#${index}` }));
     // A replug (or a cable moved to another port) changes the set of ports: start over.
-    const ports = found.map((c) => c.port).sort().join("|");
+    const ports = bodies.map((c) => c.port).sort().join("|");
     if (ports !== this.lastPorts) {
       this.lastPorts = ports;
       this.portSerials.clear();
@@ -159,15 +169,18 @@ export class CameraWorker {
     }
     const now = this.clock.now();
     let picked: { ref: EdsRef; description: string; serial: string } | null = null;
-    for (const { ref, description, port } of found) {
+    // A failed openSession can block for ~3 s, so a scan tries at most one.
+    let openFailed = false;
+    for (const { ref, description, port } of bodies) {
       const known = this.portSerials.get(port);
-      const skip: boolean = !!picked || (known !== undefined && !this.isMine(known)) || (this.heldUntil.get(port) ?? 0) > now;
-      const serial: string | null = skip ? null : this.claim(ref, description, port);
-      if (serial === null) {
+      const skip: boolean = !!picked || openFailed || (known !== undefined && !this.isMine(known)) || (this.heldUntil.get(port) ?? 0) > now;
+      const result: ReturnType<CameraWorker["claim"]> = skip ? "not-mine" : this.claim(ref, description, port);
+      if (result === "failed") openFailed = true;
+      if (typeof result === "string") {
         this.eds.release(ref);
         continue;
       }
-      picked = { ref, description, serial };
+      picked = { ref, description, serial: result.serial };
     }
     if (!picked) return;
     const cam = picked.ref;
@@ -202,26 +215,26 @@ export class CameraWorker {
   }
 
   /**
-   * Opens `ref` and returns its serial if this worker should own it, else null
-   * (session closed again; the caller releases the ref). A body another
-   * worker holds fails to open and is simply skipped.
+   * Opens `ref` and returns its serial if this worker should own it; otherwise
+   * "not-mine" (session closed again) or "failed" (it didn't open), and the
+   * caller releases the ref. A body another worker holds fails to open.
    */
-  private claim(ref: EdsRef, description: string, port: string): string | null {
+  private claim(ref: EdsRef, description: string, port: string): { serial: string } | "failed" | "not-mine" {
     const err = this.eds.openSession(ref);
     if (err !== EDS.ERR_OK) {
-      // Most likely the other slot's worker holds it; opening it again costs ~3 s of blocking.
-      this.heldUntil.set(port, this.clock.now() + HELD_RETRY_MS);
+      // 0xC0: the other slot's worker holds it, and opening it again costs ~3 s of blocking.
+      if (err === EDS.ERR_COMM_PORT_IS_IN_USE) this.heldUntil.set(port, this.clock.now() + HELD_RETRY_MS);
       this.warn(`Opening a session with ${description} failed: ${hex(err)}`);
-      return null;
+      return "failed";
     }
     const id = this.eds.getString(ref, EDS.PROP_BODY_ID_EX);
     const serial = id.err === EDS.ERR_OK ? id.value : "";
     this.portSerials.set(port, serial);
     if (!this.isMine(serial)) {
       this.eds.closeSession(ref);
-      return null;
+      return "not-mine";
     }
-    return serial;
+    return { serial };
   }
 
   private isMine(serial: string): boolean {

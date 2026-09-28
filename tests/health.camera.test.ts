@@ -94,9 +94,9 @@ describe("/health with a low camera", () => {
     expect(codes(r).some((c) => c.includes("-low"))).toBe(false);
   });
 
-  it("a missing low camera is an error only when the layout uses it", () => {
+  it("a missing low camera is an error when the layout uses it, and no alert otherwise", () => {
     expect(codes(report({ low: { connected: false }, layoutUsesLow: true }))).toContain("error:camera-low-none");
-    expect(codes(report({ low: { connected: false }, layoutUsesLow: false }))).toContain("warn:camera-low-none");
+    expect(codes(report({ low: { connected: false }, layoutUsesLow: false })).some((c) => c.endsWith(":camera-low-none"))).toBe(false);
     expect(codes(report({ low: { connected: true }, layoutUsesLow: true }))).not.toContain("error:camera-low-none");
   });
 

@@ -139,11 +139,19 @@ export class CameraManager {
   }
 
   /**
-   * A photo on `camera`, falling back low -> high -> webcam so a guest always
-   * gets a picture. `camera` in the result says what actually took it.
+   * A photo on `camera`, falling back to the other Canon, then the webcam, so
+   * a guest always gets a picture. `camera` in the result says what took it.
    */
   async capture(destDir: string, camera: CameraSlot = "high"): Promise<CaptureResult & { source: CameraKind; camera: CaptureCamera }> {
-    if (camera === "low" && this.low && this.lowHealthy) {
+    if (camera === "high" && !this.healthy.canon && this.low && this.lowHealthy) {
+      try {
+        return { ...(await this.low.capture(destDir)), source: "canon", camera: "low" };
+      } catch (err) {
+        log.warn("The high camera is down and the low one failed too, marking it unhealthy", err);
+        this.lowHealthy = false;
+        this.lowConsecutive = 0;
+      }
+    } else if (camera === "low" && this.low && this.lowHealthy) {
       try {
         return { ...(await this.low.capture(destDir)), source: "canon", camera: "low" };
       } catch (err) {
@@ -168,7 +176,7 @@ export class CameraManager {
 
   /** The source a live view or pre-focus for `camera` should use: whatever its capture would. */
   private routed(camera: CameraSlot): { source: CameraSource; kind: CameraKind } | null {
-    if (camera === "low" && this.low && this.lowHealthy) return { source: this.low, kind: "canon" };
+    if (this.low && this.lowHealthy && (camera === "low" || !this.healthy.canon)) return { source: this.low, kind: "canon" };
     if (this.active === "none") return null;
     return { source: this.sources[this.active], kind: this.active };
   }

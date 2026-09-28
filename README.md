@@ -116,7 +116,7 @@ A layout assigns a photo element to the low camera by setting `"camera": "low"` 
 
 If the low camera is missing or disconnected, capture falls back low -> high -> webcam, same fallback order as a single camera missing high.
 
-`GET /health` reports both cameras under `cameras: { high, low }`, and a missing low camera is `camera-low-none` - an error if the current layout actually uses it, a warning otherwise.
+`GET /health` reports both cameras under `cameras: { high, low }`, and a missing low camera is `camera-low-none` - an error if the current layout actually uses it, and no alert otherwise.
 
 Hardware verification of two simultaneous EDSDK sessions is pending a 64-bit `EDSDK.dll` for the second body. If two worker processes can't hold the SDK open at once, the fallback is running both cameras through one process instead (approach 2 in the design doc).
 

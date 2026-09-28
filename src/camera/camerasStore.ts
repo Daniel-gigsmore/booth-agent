@@ -28,8 +28,12 @@ export function writeCameraSerials(dataDir: string, serials: CameraSerials): voi
   writeFileSync(file(dataDir), JSON.stringify(serials, null, 2) + "\n");
 }
 
-/** What a slot's worker is told: the body it owns (null = first free one) and the other slot's body. */
+/**
+ * What a slot's worker is told: the body it owns (null = first free one), the other slot's body,
+ * and how many bodies must be plugged in before it claims one (an unpaired low slot waits for two,
+ * so a lone body always ends up high).
+ */
 export function workerTarget(serials: CameraSerials, slot: CameraSlot): CameraTarget {
   const other: CameraSlot = slot === "high" ? "low" : "high";
-  return { serial: serials[slot] ?? null, avoid: serials[other] ?? null };
+  return { serial: serials[slot] ?? null, avoid: serials[other] ?? null, minBodies: slot === "low" && !serials.low ? 2 : 1 };
 }

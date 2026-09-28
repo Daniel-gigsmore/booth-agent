@@ -37,9 +37,9 @@ export interface WorkerHandle {
   kill(): boolean;
 }
 
-/** Forks the compiled worker with argv [dllPath, serial, avoid] ("" = none). */
+/** Forks the compiled worker with argv [dllPath, serial, avoid, minBodies] ("" = none). */
 export function spawnWorker(dllPath: string, target: CameraTarget): WorkerHandle {
-  const child = fork(path.join(__dirname, "worker.js"), [dllPath, target.serial ?? "", target.avoid ?? ""], {
+  const child = fork(path.join(__dirname, "worker.js"), [dllPath, target.serial ?? "", target.avoid ?? "", String(target.minBodies)], {
     serialization: "advanced", // lets photos and frames cross as binary, not JSON
     stdio: ["ignore", "inherit", "inherit", "ipc"],
   });
