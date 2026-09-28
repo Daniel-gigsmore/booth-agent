@@ -104,6 +104,22 @@ All of this is isolated behind `CanonTetheredSource` - the rest of the app has n
 3. Leave `CameraControl.exe` running (it can run minimized) - `CameraControlRemoteCmd.exe` needs a live session to talk to. No manual live-view step needed - the agent starts it automatically (see above).
 4. Set `capture.canon.digiCamControlExePath` in `booth.config.json` to the full path of `CameraControlRemoteCmd.exe` (typically `C:\Program Files (x86)\digiCamControl\CameraControlRemoteCmd.exe`).
 
+## Two cameras (high and low)
+
+Only the `edsdk` driver supports a second camera. Both bodies must be R100s (or another EDSDK-supported model) - digiCamControl only ever drives one.
+
+On first run, with two cameras plugged in, which one becomes "high" and which "low" is arbitrary - whichever the OS enumerates first. Fix that from the Camera tab (Swap/Remember), or directly via `POST /cameras/swap` and `POST /cameras/remember`, which write `<dataDir>/cameras.json` (the two cameras' serial numbers per slot) and restart both EDSDK workers against it.
+
+Each slot keeps its own settings file, `camera-high.json` and `camera-low.json`, under the data dir. An existing single-camera `camera.json` is moved to `camera-high.json` automatically on first start after upgrading - no manual step needed.
+
+A layout assigns a photo element to the low camera by setting `"camera": "low"` on it (the layout editor doesn't have a switch for this yet - that's PR 2). Anything else, and requests with no `camera` at all, still mean "high".
+
+If the low camera is missing or disconnected, capture falls back low -> high -> webcam, same fallback order as a single camera missing high.
+
+`GET /health` reports both cameras under `cameras: { high, low }`, and a missing low camera is `camera-low-none` - an error if the current layout actually uses it, a warning otherwise.
+
+Hardware verification of two simultaneous EDSDK sessions is pending a 64-bit `EDSDK.dll` for the second body. If two worker processes can't hold the SDK open at once, the fallback is running both cameras through one process instead (approach 2 in the design doc).
+
 ## Setup
 
 Requirements on the booth PC:

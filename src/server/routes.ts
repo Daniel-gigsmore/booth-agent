@@ -22,6 +22,7 @@ import {
   shotCount,
   validateTemplate,
   assertImagesAllowed,
+  usesCamera,
 } from "../compositor/template";
 import { exportLayout, importLayout, copyLayout } from "../compositor/templateTransfer";
 import { FONTS, fontFilePath } from "../compositor/fonts";
@@ -111,6 +112,18 @@ export function buildRouter(ctx: AgentContext): Router {
       config.capture.canon.driver === "edsdk" ? digiCamControlRunningCached() : Promise.resolve(false),
     ]);
 
+    // Whether a missing low camera affects guests right now. A layout that won't
+    // load is reported by /session; here it just counts as "not using it".
+    let layoutUsesLow = false;
+    try {
+      layoutUsesLow = usesCamera(
+        loadTemplate(config.compositing.templateDir, readSessionSettings(config.storage.dataDir).templateId),
+        "low"
+      );
+    } catch {
+      /* see /session */
+    }
+
     res.json(
       buildHealthReport({
         camera: cameraStatus,
@@ -130,6 +143,7 @@ export function buildRouter(ctx: AgentContext): Router {
           outboxBacklogWarn: config.sync.backlogWarnCount,
           expectedMediaType: config.printing.expectedMediaType,
         },
+        layoutUsesLow,
       })
     );
   }));

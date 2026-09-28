@@ -6,7 +6,16 @@ const detail = (over: Partial<CameraDetail> = {}): CameraDetail => ({
   battery: 80, mode: "M", afMode: "AI Servo", quality: { label: "JPEG", hasJpeg: true }, lastError: null, ...over,
 });
 
-function report(over: { canonDetail?: CameraDetail | null; driver?: "digicamcontrol" | "edsdk"; digiCamControlRunning?: boolean; activeSource?: string } = {}) {
+function report(
+  over: {
+    canonDetail?: CameraDetail | null;
+    driver?: "digicamcontrol" | "edsdk";
+    digiCamControlRunning?: boolean;
+    activeSource?: string;
+    low?: { connected: boolean; detail?: CameraDetail | null } | null;
+    layoutUsesLow?: boolean;
+  } = {}
+) {
   const inputs: HealthInputs = {
     camera: {
       activeSource: (over.activeSource ?? "canon") as never,
@@ -15,6 +24,12 @@ function report(over: { canonDetail?: CameraDetail | null; driver?: "digicamcont
       webcamConnected: false,
       preference: "canon",
       canonDetail: over.canonDetail === undefined ? detail() : over.canonDetail,
+      canonModel: "Canon EOS R100",
+      canonSerial: "SN-A",
+      low:
+        over.low === undefined
+          ? null
+          : over.low && { connected: over.low.connected, model: "Canon EOS R100", serial: "SN-B", detail: over.low.detail ?? null },
     },
     canon: { driver: over.driver ?? "edsdk", digiCamControlRunning: over.digiCamControlRunning ?? false },
     hotFolder: { path: "C:\\hot", writable: true },
@@ -24,6 +39,7 @@ function report(over: { canonDetail?: CameraDetail | null; driver?: "digicamcont
     outbox: { queueDepth: 0, lastSyncAt: null, lastError: null, abandonedCount: 0 },
     eventId: "evt",
     thresholds: { lowDiskWarnBytes: 1, lowMediaWarnPrints: 30, outboxBacklogWarn: 50, expectedMediaType: "4x6" },
+    layoutUsesLow: over.layoutUsesLow ?? false,
   };
   return buildHealthReport(inputs);
 }
@@ -67,5 +83,26 @@ describe("/health camera status", () => {
     expect(edsdk?.message).not.toMatch(/digiCamControl/);
     const dcc = report({ activeSource: "none", driver: "digicamcontrol", canonDetail: null }).alerts.find((a) => a.code === "camera-none");
     expect(dcc?.message).toMatch(/digiCamControl/);
+  });
+});
+
+describe("/health with a low camera", () => {
+  it("has no low alerts or block without a low slot", () => {
+    const r = report();
+    expect(r.cameras.low).toBeNull();
+    expect(r.cameras.high).toMatchObject({ connected: true, serial: "SN-A" });
+    expect(codes(r).some((c) => c.includes("-low"))).toBe(false);
+  });
+
+  it("a missing low camera is an error only when the layout uses it", () => {
+    expect(codes(report({ low: { connected: false }, layoutUsesLow: true }))).toContain("error:camera-low-none");
+    expect(codes(report({ low: { connected: false }, layoutUsesLow: false }))).toContain("warn:camera-low-none");
+    expect(codes(report({ low: { connected: true }, layoutUsesLow: true }))).not.toContain("error:camera-low-none");
+  });
+
+  it("reports the low camera's battery and RAW-only problems with a -low suffix", () => {
+    const c = codes(report({ low: { connected: true, detail: detail({ battery: 10, quality: { label: "RAW", hasJpeg: false } }) } }));
+    expect(c).toContain("warn:camera-battery-low-low");
+    expect(c).toContain("error:camera-raw-only-low");
   });
 });
