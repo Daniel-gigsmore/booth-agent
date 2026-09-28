@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { openOutboxDb } from "../src/outbox/db";
+import { openOutboxDb, createInMemoryOutboxDb } from "../src/outbox/db";
 import { OutboxStore } from "../src/outbox/outboxStore";
 
 const { DatabaseSync } = require("node:sqlite") as typeof import("node:sqlite");
@@ -119,5 +119,15 @@ describe("upgrading an existing outbox.db", () => {
     const store = new OutboxStore(openDb);
     expect(store.getById("old-1")?.synced_source_path).toBe("/data/originals/old-1.jpg");
     expect(store.getBatchDue(10)).toHaveLength(0);
+  });
+});
+
+describe("captures.camera column", () => {
+  it("stores which camera took a capture (null for old rows)", () => {
+    const store = new OutboxStore(createInMemoryOutboxDb());
+    store.insertCapture({ id: "a", eventId: "e", source: "canon", camera: "low", originalPath: "a.jpg", takenAt: new Date().toISOString() });
+    store.insertCapture({ id: "b", eventId: "e", source: "canon", originalPath: "b.jpg", takenAt: new Date().toISOString() });
+    expect(store.getById("a")?.camera).toBe("low");
+    expect(store.getById("b")?.camera).toBeNull();
   });
 });
