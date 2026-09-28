@@ -4,15 +4,9 @@ import { useHealth } from "./hooks";
 import LayoutEditor, { LayoutThumb } from "./LayoutEditor";
 import { newTemplate, shotCount } from "./layout";
 import CameraTab from "./CameraTab";
+import { cameraNote } from "./cameras";
 
 const time = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-
-/** "Using canon · 80% · M · AI Servo · RAW+JPEG" - only the parts the agent knows. */
-function cameraNote(c: Health["camera"]): string {
-  if (c.activeSource === "none") return "No camera";
-  const battery = c.battery === "ac" ? "AC power" : typeof c.battery === "number" ? `${c.battery}%` : null;
-  return [`Using ${c.activeSource}`, battery, c.mode, c.afMode, c.quality?.label].filter(Boolean).join(" · ");
-}
 
 function Card({ label, value, ok, note }: { label: string; value: string; ok: boolean; note: string }) {
   return (

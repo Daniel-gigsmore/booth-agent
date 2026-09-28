@@ -55,6 +55,18 @@ async function blobResponse(path: string, body: object): Promise<Response> {
 
 export type HealthLevel = "ok" | "warn" | "error";
 
+/** What one Canon reports about itself (booth-agent's CameraDetail). */
+export interface CameraDetail {
+  battery: number | "ac" | null;
+  mode: string | null;
+  afMode: string | null;
+  quality: { label: string; hasJpeg: boolean } | null;
+  lastError: { message: string; at: string } | null;
+}
+
+/** One camera slot in /health. */
+export interface CameraStatus { connected: boolean; model: string | null; serial: string | null; detail: CameraDetail | null }
+
 export interface Health {
   overall: HealthLevel;
   alerts: { level: "warn" | "error"; code: string; message: string }[];
@@ -68,6 +80,8 @@ export interface Health {
     quality?: { label: string; hasJpeg: boolean } | null;
     lastError?: { message: string; at: string } | null;
   };
+  /** low is null when the agent has no low slot (digiCamControl). */
+  cameras: { high: CameraStatus; low: CameraStatus | null };
   printer: { reachable: boolean; ok: boolean; status: string | null; model: string | null; mediaRemaining: number | null };
   stalledPrints: { count: number };
   outbox: { queueDepth: number; lastError: string | null };
@@ -77,6 +91,10 @@ export type PrintSize = "4x6" | "2x6-strip";
 
 /** Which of the booth's two Canons: mounted high looking down, or low looking up. */
 export type CameraSlot = "high" | "low";
+
+/** One slot in GET /cameras. `remembered` is the serial saved for the slot, or null. */
+export interface CameraSlotInfo { connected: boolean; model: string | null; serial: string | null; remembered: string | null }
+export type CameraPairing = Record<CameraSlot, CameraSlotInfo>;
 
 /** Every element is a box in cell pixels; x/y is the top-left of the unrotated box. */
 interface Box { id: string; x: number; y: number; width: number; height: number; rotation: number; hidden: boolean }
@@ -156,11 +174,17 @@ export const agent = {
   prefocus: (camera: CameraSlot = "high") => {
     void call("POST", "/camera/prefocus", { camera }).catch(() => undefined);
   },
-  cameraSettings: () => call<CameraSettings>("GET", "/camera/settings"),
-  setCameraSettings: (changes: Partial<Record<SettingKey, number>>) => call<CameraSettings>("POST", "/camera/settings", changes),
-  resetCameraSettings: () => call<{ saved: Record<string, never> }>("POST", "/camera/settings/reset"),
-  testShot: async () => {
-    const res = await blobResponse("/camera/test-shot", {});
+  cameraSettings: (slot: CameraSlot = "high") => call<CameraSettings>("GET", `/camera/settings?camera=${slot}`),
+  setCameraSettings: (changes: Partial<Record<SettingKey, number>>, slot: CameraSlot = "high") =>
+    call<CameraSettings>("POST", `/camera/settings?camera=${slot}`, changes),
+  resetCameraSettings: (slot: CameraSlot = "high") =>
+    call<{ saved: Record<string, never> }>("POST", `/camera/settings/reset?camera=${slot}`),
+  testShot: async (slot: CameraSlot = "high") => {
+    const res = await blobResponse(`/camera/test-shot?camera=${slot}`, {});
     return { blob: await res.blob(), source: res.headers.get("X-Capture-Source") ?? "unknown" };
   },
+  cameras: () => call<{ slots: CameraPairing }>("GET", "/cameras").then((r) => r.slots),
+  /** Both restart the camera workers; the cameras come back a few seconds later. */
+  swapCameras: () => call("POST", "/cameras/swap"),
+  rememberCameras: () => call("POST", "/cameras/remember"),
 };
