@@ -4,8 +4,8 @@ import { AddPanel, LayersPanel, PropsPanel } from "./EditorPanels";
 import { cssFamily, useAgentFonts } from "./fonts";
 import { CompositePreview } from "./screens";
 import {
-  addElement, addImage, AddKind, changePaper, History, historyCommit, historyCommitFrom, historyOf, historyRedo,
-  historyReplace, historyUndo, moveLayer, movedBox, removeElement, resizedBox, sampleText, updateElement,
+  addElement, addImage, AddKind, alternateCameras, CAMERA_ARROW, cameraOf, changePaper, History, historyCommit, historyCommitFrom, historyOf, historyRedo,
+  historyReplace, historyUndo, moveLayer, movedBox, removeElement, resizedBox, sampleText, setShotCamera, updateElement, usesLowCamera,
 } from "./layout";
 
 /** Small picture of a layout, for the Settings list. */
@@ -22,7 +22,7 @@ export function LayoutThumb({ t, height }: { t: Template; height: number }) {
               <g key={e.id} transform={turn}>
                 <rect {...at} fill="#3A3342" />
                 <text x={e.x + e.width / 2} y={e.y + e.height / 2} fill="#F5EFE6" fontSize={Math.min(e.width, e.height) / 2.5}
-                  fontWeight="800" textAnchor="middle" dominantBaseline="central">{e.shot + 1}</text>
+                  fontWeight="800" textAnchor="middle" dominantBaseline="central">{e.shot + 1}{usesLowCamera(t) ? CAMERA_ARROW[cameraOf(e)] : ""}</text>
               </g>
             );
           case "image":
@@ -50,10 +50,15 @@ function slugFor(name: string, taken: string[]): string {
 const JUSTIFY = { left: "flex-start", center: "center", right: "flex-end" } as const;
 
 /** One element as the editor draws it, filling its (already positioned and rotated) box. */
-function ElementBody({ el, layoutId, view }: { el: LayoutElement; layoutId: string; view: number }) {
+function ElementBody({ el, layoutId, view, arrows }: { el: LayoutElement; layoutId: string; view: number; arrows: boolean }) {
   switch (el.type) {
     case "photo":
-      return <div className="el-photo" style={{ fontSize: Math.min(el.width, el.height) * view / 2.5 }}>{el.shot + 1}</div>;
+      return (
+        <div className="el-photo" style={{ fontSize: Math.min(el.width, el.height) * view / 2.5 }}>
+          {el.shot + 1}
+          {arrows && <span className="el-cam">{CAMERA_ARROW[cameraOf(el)]}</span>}
+        </div>
+      );
     case "image":
       return <img className="el-fill" src={agentUrl(`/templates/${layoutId}/assets/${el.file}`)} alt="" draggable={false} />;
     case "rect":
@@ -295,7 +300,8 @@ export default function LayoutEditor({ initial, takenIds, inUseId, onClose }: {
 
       <div className={`editor-body ${busy ? "busy" : ""}`}>
         <AddPanel t={t} busy={busy} onAdd={add} onImage={addImageFile}
-          onPaper={(key) => change(changePaper(t, key))} onBackground={(background) => change({ ...t, background }, "background")} />
+          onPaper={(key) => change(changePaper(t, key))} onBackground={(background) => change({ ...t, background }, "background")}
+          onAlternate={() => change(alternateCameras(t))} />
 
         <div className="editor-stage">
           <div
@@ -317,7 +323,7 @@ export default function LayoutEditor({ initial, takenIds, inUseId, onClose }: {
                 }}
                 onPointerDown={(e) => startDrag(e, el, "move")}
               >
-                <ElementBody el={el} layoutId={t.id || savedId.current} view={view} />
+                <ElementBody el={el} layoutId={t.id || savedId.current} view={view} arrows={usesLowCamera(t)} />
                 {el.id === selectedId && (
                   <div className="editor-handle" aria-label="Resize" onPointerDown={(e) => startDrag(e, el, "resize")} />
                 )}
@@ -328,7 +334,8 @@ export default function LayoutEditor({ initial, takenIds, inUseId, onClose }: {
 
         <div className="editor-side">
           <PropsPanel key={selected?.id ?? "none"} el={selected} t={t} fonts={fonts} lock={lock} onLock={setLock}
-            onPatch={(p) => selected && patch(selected.id, p, `${selected.id}:${Object.keys(p).sort().join(",")}`)} />
+            onPatch={(p) => selected && patch(selected.id, p, `${selected.id}:${Object.keys(p).sort().join(",")}`)}
+            onCamera={(camera) => selected?.type === "photo" && change(setShotCamera(t, selected.shot, camera), `${selected.id}:camera`)} />
           <LayersPanel t={t} selectedId={selectedId} onSelect={setSelectedId} onPatch={patch}
             onMove={(id, dir) => change(moveLayer(t, id, dir))}
             onDelete={(id) => {

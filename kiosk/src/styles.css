@@ -348,6 +348,7 @@ select.text-input { padding: 0 16px; }
   font-weight: 800;
   pointer-events: none;
 }
+.el-cam { font-size: 0.6em; margin-left: 0.15em; opacity: 0.85; }
 .el-text { position: absolute; inset: 0; display: flex; align-items: center; overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.2; pointer-events: none; }
 .editor-handle {
   position: absolute;

@@ -1,8 +1,8 @@
 import { useRef, useState } from "react";
-import type { BundledFont, LayoutElement, Template, TextElement } from "./agent";
+import type { BundledFont, CameraSlot, LayoutElement, Template, TextElement } from "./agent";
 import { cssFamily } from "./fonts";
 import {
-  AddKind, alignPatch, canAdd, canRemove, clamp, Edge, elementLabel, fillPatch, MAX_SHOTS, normalizeAngle,
+  AddKind, alignPatch, canAdd, canRemove, clamp, cameraOf, CAMERA_ARROW, Edge, elementLabel, fillPatch, MAX_SHOTS, normalizeAngle,
   PAPERS, paperOf, shotCount, sizePatch, VARIABLES,
 } from "./layout";
 
@@ -49,9 +49,9 @@ function NumberField({ label, value, step, onChange }: { label: string; value: n
   );
 }
 
-export function AddPanel({ t, busy, onAdd, onImage, onPaper, onBackground }: {
+export function AddPanel({ t, busy, onAdd, onImage, onPaper, onBackground, onAlternate }: {
   t: Template; busy: boolean; onAdd: (kind: AddKind) => void; onImage: (file: File | undefined) => void;
-  onPaper: (key: string) => void; onBackground: (color: string) => void;
+  onPaper: (key: string) => void; onBackground: (color: string) => void; onAlternate: () => void;
 }) {
   const paper = paperOf(t);
   const shots = shotCount(t);
@@ -80,6 +80,9 @@ export function AddPanel({ t, busy, onAdd, onImage, onPaper, onBackground }: {
         </div>
       </div>
       <div className="muted fs-22">{shots} photo{shots === 1 ? "" : "s"} per guest</div>
+      <button type="button" className="btn outline xs" disabled={busy || shots < 2} onClick={onAlternate}>
+        Alternate high/low cameras
+      </button>
     </div>
   );
 }
@@ -130,9 +133,9 @@ function TextProps({ el, fonts, onPatch }: { el: TextElement; fonts: BundledFont
   );
 }
 
-export function PropsPanel({ el, t, fonts, lock, onLock, onPatch }: {
+export function PropsPanel({ el, t, fonts, lock, onLock, onPatch, onCamera }: {
   el: LayoutElement | null; t: Template; fonts: BundledFont[]; lock: boolean;
-  onLock: (v: boolean) => void; onPatch: (p: Patch) => void;
+  onLock: (v: boolean) => void; onPatch: (p: Patch) => void; onCamera: (camera: CameraSlot) => void;
 }) {
   if (!el) {
     return (
@@ -164,16 +167,28 @@ export function PropsPanel({ el, t, fonts, lock, onLock, onPatch }: {
         <button type="button" className="btn outline xs" onClick={() => onPatch(fillPatch(t))}>Fill paper</button>
       </div>
       {el.type === "photo" && (
-        <div className="field">
-          <span>Photo number</span>
-          <div className="row gap-8 wrap">
-            {Array.from({ length: Math.min(shots + 1, MAX_SHOTS) }, (_, i) => (
-              <button key={i} type="button" className={`seg-btn ${el.shot === i ? "on" : ""}`} onClick={() => onPatch({ shot: i })}>
-                {i + 1}
-              </button>
-            ))}
+        <>
+          <div className="field">
+            <span>Photo number</span>
+            <div className="row gap-8 wrap">
+              {Array.from({ length: Math.min(shots + 1, MAX_SHOTS) }, (_, i) => (
+                <button key={i} type="button" className={`seg-btn ${el.shot === i ? "on" : ""}`} onClick={() => onPatch({ shot: i })}>
+                  {i + 1}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
+          <div className="field">
+            <span>Camera</span>
+            <div className="row gap-8">
+              {(["high", "low"] as const).map((c) => (
+                <button key={c} type="button" className={`seg-btn ${cameraOf(el) === c ? "on" : ""}`} onClick={() => onCamera(c)}>
+                  {c === "high" ? "High" : "Low"} {CAMERA_ARROW[c]}
+                </button>
+              ))}
+            </div>
+          </div>
+        </>
       )}
       {el.type === "text" && <TextProps el={el} fonts={fonts} onPatch={onPatch} />}
       {el.type === "rect" && (
