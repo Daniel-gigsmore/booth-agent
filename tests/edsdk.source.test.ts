@@ -382,10 +382,33 @@ describe("EdsdkSource serial and restart", () => {
     expect(source.getSerial()).toBeNull();
   });
 
-  it("restart() kills the worker and spawns a fresh one after 1 s, without recording an error", async () => {
+  it("restart() asks the worker to shut down (closing its camera), then spawns a fresh one 1 s after it exits", async () => {
     const first = current();
+    first.reply = (req) => {
+      if (req.type === "shutdown") queueMicrotask(() => first.emit("exit", 0));
+      return { id: req.id, ok: true, result: null };
+    };
     source.restart();
-    expect(first.killed).toBe(true);
+    expect(first.sent.map((r) => r.type)).toEqual(["shutdown"]);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(first.killed).toBe(false);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(workers).toHaveLength(2);
+    expect(source.getDetail()?.lastError ?? null).toBeNull();
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(first.killed).toBe(false); // the grace timer was cleared on exit
+  });
+
+  it("restart() kills a worker that doesn't exit within 3 s, and ignores a second restart meanwhile", async () => {
+    const stuck = current();
+    stuck.reply = () => null;
+    source.restart();
+    source.restart();
+    expect(stuck.sent.filter((r) => r.type === "shutdown")).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(2_999);
+    expect(stuck.killed).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(stuck.killed).toBe(true);
     await vi.advanceTimersByTimeAsync(1_000);
     expect(workers).toHaveLength(2);
     expect(source.getDetail()?.lastError ?? null).toBeNull();

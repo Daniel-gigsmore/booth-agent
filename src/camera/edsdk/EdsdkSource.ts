@@ -126,11 +126,18 @@ export class EdsdkSource implements CameraSource {
     return this.serial;
   }
 
-  /** Kills the worker; onExit respawns it, and the spawn function reads the slot's current serial. */
+  /**
+   * Asks the worker to close its camera and exit, so the body is free for the other slot's
+   * worker, and kills it if it hasn't gone within the grace period. onExit respawns it, and
+   * the spawn function reads the slot's current serial.
+   */
   restart(): void {
-    if (!this.worker) return;
+    const worker = this.worker;
+    if (!worker || this.restarting) return;
     this.restarting = true;
-    this.worker.kill();
+    const timer = setTimeout(() => worker.kill(), SHUTDOWN_GRACE_MS);
+    worker.on("exit", () => clearTimeout(timer));
+    this.request({ type: "shutdown" }, SHUTDOWN_GRACE_MS).catch(() => undefined);
   }
 
   async capture(destDir: string): Promise<CaptureResult> {
