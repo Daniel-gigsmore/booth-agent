@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import QRCode from "qrcode";
-import { agent, agentUrl, config, Health, Session, Template } from "./agent";
+import { agent, agentUrl, config, Health, Session, Template, type CameraSlot } from "./agent";
 import { useCountdown } from "./hooks";
-import { shotCount } from "./layout";
+import { shotCount, shotPrompt } from "./layout";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -102,10 +102,10 @@ export function Attract({ health, onStart, onOperator }: {
  * "Device Busy. Failed to press fully". Give it a moment and try again
  * before sending the guest to the error screen.
  */
-async function captureWithRetry(attempts = 3): Promise<{ captureId: string } | null> {
+async function captureWithRetry(camera: CameraSlot, attempts = 3): Promise<{ captureId: string } | null> {
   for (let i = 0; i < attempts; i += 1) {
     try {
-      return await agent.capture();
+      return await agent.capture(camera);
     } catch {
       if (i < attempts - 1) await sleep(1000);
     }
@@ -137,10 +137,13 @@ export function GetReady({ session, onDone, onFail, onCancel }: {
   const cancelled = useRef(false);
   useEffect(() => () => { cancelled.current = true; }, []);
 
+  // Before the last shot is saved shots.length can't exceed total - 1; clamp for the brief moment after.
+  const prompt = shotPrompt(session.template, Math.min(shots.length, total - 1));
+
   async function shoot() {
     setPhase("flash");
     // A Canon capture takes a second or two; keep the flash short and say what's happening after it.
-    const shot = captureWithRetry();
+    const shot = captureWithRetry(prompt.camera);
     await sleep(450);
     if (cancelled.current) return;
     setPhase("saving");
@@ -157,15 +160,16 @@ export function GetReady({ session, onDone, onFail, onCancel }: {
     }
   }
 
-  const shotNo = Math.min(shots.length + 1, total);
   return (
     <div className="stage getready">
-      <img className="liveview" src={agentUrl("/liveview")} alt="" />
+      <img className="liveview" src={agentUrl(`/liveview?camera=${prompt.camera}`)} alt="" />
       <div className="tag live-tag">LIVE VIEW · MIRRORED</div>
       <div className="look-up">
         <div className="tag big">
-          <Icon size={40} d="M12 19V5"><path d="M5 12l7-7 7 7" /></Icon>
-          {total > 1 ? `Photo ${shotNo} of ${total} · look up at the camera` : "Look up at the camera"}
+          {prompt.text.includes("look down")
+            ? <Icon size={40} d="M12 5v14"><path d="M19 12l-7 7-7-7" /></Icon>
+            : <Icon size={40} d="M12 19V5"><path d="M5 12l7-7 7 7" /></Icon>}
+          {prompt.text}
         </div>
       </div>
       <div className="corner tl" /><div className="corner tr" /><div className="corner bl" /><div className="corner br" />
@@ -175,7 +179,7 @@ export function GetReady({ session, onDone, onFail, onCancel }: {
             key={shots.length}
             seconds={shots.length === 0 ? session.firstCountdownSeconds : session.betweenShotsSeconds}
             onZero={shoot}
-            onPrefocus={agent.prefocus}
+            onPrefocus={() => agent.prefocus(prompt.camera)}
           />
           <div className="tag big">{shots.length === 0 ? "Get ready…" : "Next pose!"}</div>
         </div>
