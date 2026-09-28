@@ -249,11 +249,12 @@ export class CameraManager {
         if (this.consecutive[kind] >= SWITCH_DEBOUNCE_TICKS) {
           this.healthy[kind] = isHealthy;
           this.consecutive[kind] = 0;
+          const slot = kind === "canon" ? { camera: "high" as const } : {};
           if (!isHealthy && this.active === kind) {
-            this.eventBus.emit({ type: "camera-disconnected", source: kind });
+            this.eventBus.emit({ type: "camera-disconnected", source: kind, ...slot });
           }
           if (isHealthy) {
-            this.eventBus.emit({ type: "camera-recovered", source: kind });
+            this.eventBus.emit({ type: "camera-recovered", source: kind, ...slot });
           }
           this.reconcileActive();
         }
@@ -267,6 +268,7 @@ export class CameraManager {
         this.lowHealthy = isHealthy;
         this.lowConsecutive = 0;
         log[isHealthy ? "info" : "warn"](`Low camera ${isHealthy ? "connected" : "disconnected"}`);
+        this.eventBus.emit({ type: isHealthy ? "camera-recovered" : "camera-disconnected", source: "canon", camera: "low" });
       }
     }
   }
