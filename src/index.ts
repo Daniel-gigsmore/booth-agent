@@ -67,7 +67,7 @@ async function main(): Promise<void> {
     canonConfig.driver === "edsdk"
       ? new EdsdkSource(
           () => spawnWorker(canonConfig.edsdkDllPath, { serial: null, avoid: null }),
-          () => readSavedCameraSettings(config.storage.dataDir)
+          () => readSavedCameraSettings(config.storage.dataDir, "high")
         )
       : new CanonTetheredSource(canonConfig);
   const webcamSource = new WebcamSource(config.capture.webcam);

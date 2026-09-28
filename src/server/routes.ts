@@ -263,7 +263,7 @@ export function buildRouter(ctx: AgentContext): Router {
   router.get("/camera/settings", asyncHandler(async (_req: Request, res: Response) => {
     try {
       const settings = await ctx.cameraManager.getCanonSettings();
-      res.json({ ...settings, saved: readSavedCameraSettings(ctx.configStore.current.storage.dataDir) });
+      res.json({ ...settings, saved: readSavedCameraSettings(ctx.configStore.current.storage.dataDir, "high") });
     } catch (err) {
       cameraError(res, err);
     }
@@ -283,7 +283,7 @@ export function buildRouter(ctx: AgentContext): Router {
       const accepted = Object.fromEntries(
         Object.entries(parsed.data).filter(([key]) => !settings.rejected.includes(key as SettingKey))
       );
-      const saved = saveCameraSettings(ctx.configStore.current.storage.dataDir, accepted);
+      const saved = saveCameraSettings(ctx.configStore.current.storage.dataDir, "high", accepted);
       res.json({ ...settings, saved });
     } catch (err) {
       cameraError(res, err);
@@ -291,7 +291,7 @@ export function buildRouter(ctx: AgentContext): Router {
   }));
 
   router.post("/camera/settings/reset", (_req: Request, res: Response) => {
-    clearSavedCameraSettings(ctx.configStore.current.storage.dataDir);
+    clearSavedCameraSettings(ctx.configStore.current.storage.dataDir, "high");
     res.json({ saved: {} });
   });
 
