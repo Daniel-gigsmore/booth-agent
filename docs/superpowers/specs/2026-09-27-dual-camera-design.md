@@ -51,9 +51,9 @@ Either action restarts both workers with their serials.
 
 Sources become `canon-high`, `canon-low` and `webcam`. Health polling, debounce and the events work per source, as today. `capture`, `prefocus`, `getLiveviewFrame` and the settings calls take a `camera: "high" | "low"` argument that defaults to `high`.
 
-**Fallback order for a capture:** the requested slot, then the other Canon slot, then the webcam. The result carries both `camera` (the slot actually used, or `webcam`) and `source`. A fallback away from the requested slot emits `camera-fallback`, as today.
+**Fallback order for a capture:** the requested slot, then the other Canon slot, then the webcam. The result carries both `camera` (the slot actually used, or `webcam`) and `source`. A low-to-high fallback is logged. The existing `camera-fallback` event still covers Canon-to-webcam.
 
-Live view and pre-focus do not fall back across slots. A disconnected slot returns no frame, and pre-focus is a no-op.
+Live view and pre-focus follow the same routing as the capture. A `low` request with the low camera down shows and focuses the camera that will actually take the photo, so the guest never looks at a black screen.
 
 ### API
 
@@ -65,7 +65,7 @@ Everything stays backward compatible: with no camera given, it means `high`.
 | `GET /liveview?camera=low` | Stream from that slot. |
 | `POST /camera/prefocus` | Optional body `{ camera }`. |
 | `GET/POST /camera/settings?camera=low`, `POST /camera/settings/reset?camera=`, `POST /camera/test-shot?camera=` | Per slot. The test shot fails with 409 instead of falling back, because the operator is judging that camera. |
-| `GET /cameras` (new) | `{ slots: { high: { connected, model, serial, remembered }, low: {...} } }` |
+| `GET /cameras` (new) | `{ slots: { high: { connected, model, serial, remembered }, low: {...} } }`. `remembered` is the serial saved for that slot, or null. |
 | `POST /cameras/swap` (new) | Exchanges the two slots' serials, writes `cameras.json` and restarts both workers. |
 | `POST /cameras/remember` (new) | Writes the currently connected serials to `cameras.json`. |
 
@@ -79,9 +79,11 @@ Captures get a nullable `camera` column (`high`, `low` or `webcam`), added by th
 
 - `camera` keeps its current shape and describes the high slot, so older kiosks keep working.
 - New `cameras: { high: CameraDetail & { connected, serial }, low: ... }`.
-- `camera-low-none` / `camera-high-none`:
-  - **error** when the active session layout has a photo on that slot;
-  - **warn** when the slot is unused.
+- `camera-low-none` (only when a low slot exists, i.e. under EDSDK):
+  - **error** when the active session layout has a photo on the low camera;
+  - **warn** when the layout doesn't use it.
+
+  The high slot keeps today's `camera-none` and `camera-fallback` alerts.
 - The existing battery, RAW-only and conflict alerts are reported per slot. Their code gets a `-low` suffix for the low slot; the high slot keeps today's codes.
 
 ## Layouts and the editor
@@ -148,7 +150,8 @@ Retry, ✕, Review, compositing and printing are unchanged. The compositor only 
    - The serial read, the serial-matching scan and the worker argv.
    - Two `EdsdkSource` slots in the manager, with fallback.
    - The API, `cameras.json`, per-slot settings files, the outbox column and health.
-2. **Layouts and guest flow.** The `camera` field and its validation, the editor switch/arrows/alternate button, and the GetReady camera switching and prompts.
+   - The layout schema's `camera` field and its validation, because health needs to know whether the layout uses the low camera.
+2. **Layouts and guest flow.** The editor switch/arrows/alternate button, and the GetReady camera switching and prompts.
 3. **Operator panel.** The two-column Camera tab, Swap and Remember, and the Status tab.
 
 Until the driver is switched to `edsdk`, all three phases behave exactly like today: one camera, and every photo on it. So they can be merged and deployed before the DLL arrives.
