@@ -20,7 +20,6 @@ export default function App() {
   const [screen, setScreen] = useState<Screen>({ name: "attract" });
   const health = useHealth(15_000);
   const attract = () => setScreen({ name: "attract" });
-  useEffect(() => { const h = location.hash; if (h === "#oops") setScreen({ name: "oops" }); else if (h) agent.session().then((s) => setScreen(h === "#review" ? { name: "review", session: s, captureId: "e9c1cf15-5b37-4b3b-8573-d076892f4b0c" } : { name: "getready", session: { ...s, firstCountdownSeconds: 9999 } })); }, []);
 
   useEffect(() => {
     if (screen.name === "attract") return;
