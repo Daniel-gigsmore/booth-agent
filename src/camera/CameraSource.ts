@@ -47,4 +47,9 @@ export interface CameraSource {
   getSettings?(): Promise<CameraSettings>;
   /** Optional: change settings; refused ones come back in `rejected`. */
   setSettings?(changes: SettingChanges): Promise<CameraSettings>;
+
+  /** Optional: the connected body's serial number, for pairing cameras to slots. */
+  getSerial?(): string | null;
+  /** Optional: drop and re-open the camera (e.g. after its slot's serial changed). */
+  restart?(): void;
 }
