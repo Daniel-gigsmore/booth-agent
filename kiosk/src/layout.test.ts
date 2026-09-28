@@ -1,14 +1,15 @@
 import { describe, it, expect } from "vitest";
 import type { LayoutElement, Template } from "./agent";
 import {
-  addElement, addImage, alignPatch, canAdd, canRemove, changePaper, compactShots, elementLabel, fillPatch,
-  historyCommit, historyCommitFrom, historyOf, historyRedo, historyReplace, historyUndo, HISTORY_LIMIT, MERGE_MS,
-  MAX_SHOTS, movedBox, moveLayer, newId, newTemplate, normalizeAngle, removeElement, resizedBox,
-  sampleText, shotCount, sizePatch, templateBody, updateElement,
+  addElement, addImage, alignPatch, alternateCameras, canAdd, canRemove, cameraForShot, changePaper, compactShots,
+  elementLabel, fillPatch, historyCommit, historyCommitFrom, historyOf, historyRedo, historyReplace, historyUndo,
+  HISTORY_LIMIT, MERGE_MS, MAX_SHOTS, movedBox, moveLayer, newId, newTemplate, normalizeAngle, removeElement,
+  resizedBox, sampleText, setShotCamera, shotCount, shotPrompt, sizePatch, templateBody, updateElement, usesLowCamera,
 } from "./layout";
 
 const base = { rotation: 0, hidden: false };
 const photo = (id: string, shot: number, x = 0): LayoutElement => ({ ...base, id, type: "photo", shot, x, y: 0, width: 300, height: 200 });
+const cam = (id: string, shot: number, camera: "high" | "low"): LayoutElement => ({ ...(photo(id, shot) as object), camera } as LayoutElement);
 const rect = (id: string): LayoutElement => ({ ...base, id, type: "rect", fill: "#ff0000", radius: 0, opacity: 1, x: 0, y: 0, width: 100, height: 100 });
 const image = (id: string, width: number, height: number): LayoutElement => ({ ...base, id, type: "image", file: "f.png", x: 0, y: 0, width, height });
 const layout = (elements: LayoutElement[]): Template => ({
@@ -213,5 +214,48 @@ describe("undo history", () => {
     let h = historyOf(a);
     for (let i = 0; i < HISTORY_LIMIT + 10; i += 1) h = historyCommit(h, layout([photo(`p${i}`, 0)]));
     expect(h.past).toHaveLength(HISTORY_LIMIT);
+  });
+});
+
+describe("cameras", () => {
+  it("a photo without a camera uses the high one", () => {
+    const t = layout([photo("a", 0), cam("b", 1, "low")]);
+    expect(cameraForShot(t, 0)).toBe("high");
+    expect(cameraForShot(t, 1)).toBe("low");
+    expect(usesLowCamera(t)).toBe(true);
+    expect(usesLowCamera(layout([photo("a", 0)]))).toBe(false);
+  });
+
+  it("setting a shot's camera changes every box showing that shot, and nothing else", () => {
+    const t = setShotCamera(layout([photo("a", 0), photo("b", 1), photo("c", 1), rect("r")]), 1, "low");
+    expect(t.elements.map((e) => (e.type === "photo" ? e.camera ?? "high" : "-"))).toEqual(["high", "low", "low", "-"]);
+  });
+
+  it("alternates high, low, high, low by shot number", () => {
+    const t = alternateCameras(layout([photo("a", 0), photo("b", 1), photo("c", 2), photo("d", 3), photo("e", 1)]));
+    expect(t.elements.map((e) => (e.type === "photo" ? e.camera : "-"))).toEqual(["high", "low", "high", "low", "low"]);
+  });
+
+  it("a box moved onto another shot takes that shot's camera", () => {
+    const t = updateElement(layout([cam("a", 0, "high"), cam("b", 1, "low"), cam("c", 2, "high")]), "c", { shot: 1 });
+    expect(t.elements.find((e) => e.id === "c")).toMatchObject({ shot: 1, camera: "low" });
+  });
+
+  it("a box moved onto a new shot keeps its own camera", () => {
+    const t = updateElement(layout([cam("a", 0, "low"), cam("b", 1, "high")]), "a", { shot: 2 });
+    // compactShots renumbers the gap away: a becomes shot 1, b shot 0.
+    expect(t.elements.find((e) => e.id === "a")).toMatchObject({ camera: "low" });
+  });
+
+  it("prompts like today for a layout without the low camera", () => {
+    const t = layout([photo("a", 0), photo("b", 1)]);
+    expect(shotPrompt(t, 0)).toEqual({ text: "Photo 1 of 2 · look up at the camera", camera: "high" });
+    expect(shotPrompt(layout([photo("a", 0)]), 0)).toEqual({ text: "Look up at the camera", camera: "high" });
+  });
+
+  it("names the camera when the layout uses both", () => {
+    const t = layout([cam("a", 0, "high"), cam("b", 1, "low")]);
+    expect(shotPrompt(t, 0)).toEqual({ text: "Photo 1 of 2 · look up at the top camera", camera: "high" });
+    expect(shotPrompt(t, 1)).toEqual({ text: "Photo 2 of 2 · look down at the lower camera", camera: "low" });
   });
 });

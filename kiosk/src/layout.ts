@@ -1,6 +1,6 @@
 // Layout editing as plain functions over Template, so it can be tested
 // without a browser. The editor (LayoutEditor.tsx) only wires these to the UI.
-import type { LayoutElement, PhotoElement, Template } from "./agent";
+import type { CameraSlot, LayoutElement, PhotoElement, Template } from "./agent";
 
 /** Paper choices. A landscape 4R layout is turned onto the sheet by booth-agent at print time. */
 export const PAPERS = [
@@ -27,6 +27,44 @@ export const paperOf = (t: Pick<Template, "printSize" | "cellWidthPx" | "cellHei
 /** How many photos a guest takes: the highest shot number + 1. */
 export function shotCount(t: Pick<Template, "elements">): number {
   return Math.max(0, ...t.elements.map((e) => (e.type === "photo" ? e.shot + 1 : 0)));
+}
+
+/** The camera a photo box uses; a layout from before dual cameras means the high one. */
+export const cameraOf = (el: PhotoElement): CameraSlot => el.camera ?? "high";
+
+/** Which camera takes photo `shot` (every box showing it agrees; setShotCamera keeps it that way). */
+export function cameraForShot(t: Pick<Template, "elements">, shot: number): CameraSlot {
+  const el = t.elements.find((e): e is PhotoElement => e.type === "photo" && e.shot === shot);
+  return el ? cameraOf(el) : "high";
+}
+
+export const usesLowCamera = (t: Pick<Template, "elements">) =>
+  t.elements.some((e) => e.type === "photo" && cameraOf(e) === "low");
+
+/** Sets the camera for every box that shows photo `shot` (booth-agent rejects a photo with two cameras). */
+export function setShotCamera(t: Template, shot: number, camera: CameraSlot): Template {
+  return { ...t, elements: t.elements.map((e) => (e.type === "photo" && e.shot === shot ? { ...e, camera } : e)) };
+}
+
+/** Photo 1 high, photo 2 low, photo 3 high, … */
+export function alternateCameras(t: Template): Template {
+  return {
+    ...t,
+    elements: t.elements.map((e) => (e.type === "photo" ? { ...e, camera: e.shot % 2 === 0 ? "high" : "low" } : e)),
+  };
+}
+
+/** Shown beside the photo number: the high camera looks down, the low one looks up. */
+export const CAMERA_ARROW: Record<CameraSlot, string> = { high: "↓", low: "↑" };
+
+/** What GetReady tells the guest before photo `shot`, and which camera takes it. */
+export function shotPrompt(t: Pick<Template, "elements">, shot: number): { text: string; camera: CameraSlot } {
+  const total = shotCount(t);
+  const camera = cameraForShot(t, shot);
+  const where = !usesLowCamera(t) ? "the camera" : camera === "low" ? "the lower camera" : "the top camera";
+  const look = camera === "low" && usesLowCamera(t) ? "look down at" : "look up at";
+  const text = total > 1 ? `Photo ${shot + 1} of ${total} · ${look} ${where}` : `${look[0]!.toUpperCase()}${look.slice(1)} ${where}`;
+  return { text, camera };
 }
 
 const box = (id: string, x: number, y: number, width: number, height: number) => ({
@@ -96,7 +134,14 @@ export function compactShots(elements: LayoutElement[]): LayoutElement[] {
 }
 
 export function updateElement(t: Template, id: string, patch: Partial<LayoutElement>): Template {
-  const elements = t.elements.map((e) => (e.id === id ? ({ ...e, ...patch } as LayoutElement) : e));
+  let next = patch;
+  if ("shot" in patch && !("camera" in patch)) {
+    // Joining a photo that other boxes already show: use their camera, or the save is rejected.
+    const shot = (patch as Partial<PhotoElement>).shot;
+    const others = t.elements.filter((e): e is PhotoElement => e.type === "photo" && e.id !== id && e.shot === shot);
+    if (others[0]) next = { ...patch, camera: cameraOf(others[0]) } as Partial<LayoutElement>;
+  }
+  const elements = t.elements.map((e) => (e.id === id ? ({ ...e, ...next } as LayoutElement) : e));
   return { ...t, elements: "shot" in patch ? compactShots(elements) : elements };
 }
 

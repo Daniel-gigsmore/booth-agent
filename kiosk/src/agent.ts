@@ -75,9 +75,12 @@ export interface Health {
 
 export type PrintSize = "4x6" | "2x6-strip";
 
+/** Which of the booth's two Canons: mounted high looking down, or low looking up. */
+export type CameraSlot = "high" | "low";
+
 /** Every element is a box in cell pixels; x/y is the top-left of the unrotated box. */
 interface Box { id: string; x: number; y: number; width: number; height: number; rotation: number; hidden: boolean }
-export type PhotoElement = Box & { type: "photo"; shot: number };
+export type PhotoElement = Box & { type: "photo"; shot: number; camera?: CameraSlot };
 export type ImageElement = Box & { type: "image"; file: string };
 export type TextElement = Box & {
   type: "text"; text: string; font: string; size: number; color: string; align: "left" | "center" | "right"; bold: boolean;
@@ -127,7 +130,7 @@ export interface PrintJob {
 }
 
 export const agent = {
-  capture: () => call<{ captureId: string }>("POST", "/capture"),
+  capture: (camera: CameraSlot = "high") => call<{ captureId: string }>("POST", "/capture", { camera }),
   /** Composite is filed under the first shot; print and reprint use that id. */
   composite: (captureIds: string[], template: Template) =>
     call("POST", "/composite", { captureId: captureIds[0], captureIds, templateId: template.id }),
@@ -150,8 +153,8 @@ export const agent = {
   history: () => call<{ jobs: PrintJob[] }>("GET", "/print/history?limit=3"),
   reprint: (jobId: string) => call("POST", "/print/reprint", { jobId }),
   /** Fire-and-forget: tells the camera a shot is ~1.5 s away. A failure never affects the countdown. */
-  prefocus: () => {
-    void call("POST", "/camera/prefocus").catch(() => undefined);
+  prefocus: (camera: CameraSlot = "high") => {
+    void call("POST", "/camera/prefocus", { camera }).catch(() => undefined);
   },
   cameraSettings: () => call<CameraSettings>("GET", "/camera/settings"),
   setCameraSettings: (changes: Partial<Record<SettingKey, number>>) => call<CameraSettings>("POST", "/camera/settings", changes),
