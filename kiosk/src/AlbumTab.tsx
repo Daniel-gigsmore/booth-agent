@@ -25,7 +25,7 @@ async function openOnSecondScreen(url: string): Promise<void> {
   }
 }
 
-export default function AlbumTab() {
+export default function AlbumTab({ onOpenAlbum }: { onOpenAlbum: () => void }) {
   const health = useHealth(5_000);
   const [info, setInfo] = useState<AlbumInfo | null>(null);
   const [qr, setQr] = useState("");
@@ -106,15 +106,16 @@ export default function AlbumTab() {
         <div className="col gap-20">
           <div className="op-label">BOOTH SCREENS</div>
           <div className="row gap-20">
+            <button type="button" className="btn primary sm" onClick={onOpenAlbum}>Open album</button>
             <button type="button" className="btn outline sm" disabled={!info} onClick={() => void secondScreen()}>
               Slideshow on second screen
             </button>
             <button type="button" className="btn outline sm" disabled={!info} onClick={() => void toggleAttract()}>
-              {info?.attractSlideshow ? "Hide prints on start screen" : "Show prints on start screen"}
+              {info?.attractSlideshow ? "Hide album from guests" : "Show album to guests"}
             </button>
           </div>
           <div className="muted fs-24">
-            Start screen: {info ? (info.attractSlideshow ? "shows this event's prints" : "shows the sample strips") : "…"}.
+            Guests: {info ? (info.attractSlideshow ? "the start screen shows this event's prints and a View album button" : "no album on the start screen") : "…"}.
             Second screen not opening? Run kiosk\start-slideshow.ps1 on the booth PC.
           </div>
         </div>

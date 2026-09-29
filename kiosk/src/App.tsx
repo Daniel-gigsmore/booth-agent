@@ -3,6 +3,7 @@ import { agent, Session, Template } from "./agent";
 import { useHealth } from "./hooks";
 import { Attract, Done, GetReady, Oops, Printing, Review } from "./screens";
 import Operator from "./Operator";
+import AlbumScreen from "./AlbumScreen";
 
 type Screen =
   | { name: "attract" }
@@ -11,7 +12,8 @@ type Screen =
   | { name: "printing"; template: Template; captureId: string; waitMs: number | null }
   | { name: "done"; captureId: string }
   | { name: "oops"; hint?: string }
-  | { name: "operator" };
+  | { name: "operator"; tab?: "album" }
+  | { name: "album"; from: "attract" | "operator" };
 
 /** No touch for this long on any screen but Attract sends the booth back to Attract. */
 const IDLE_MS = 60_000;
@@ -75,7 +77,14 @@ export default function App() {
 
   switch (screen.name) {
     case "attract":
-      return <Attract health={health} onStart={start} onOperator={() => setScreen({ name: "operator" })} />;
+      return (
+        <Attract
+          health={health}
+          onStart={start}
+          onOperator={() => setScreen({ name: "operator" })}
+          onAlbum={() => setScreen({ name: "album", from: "attract" })}
+        />
+      );
     case "getready":
       return (
         <GetReady
@@ -109,6 +118,8 @@ export default function App() {
     case "oops":
       return <Oops hint={screen.hint} onRetry={start} onCancel={attract} />;
     case "operator":
-      return <Operator onBack={attract} />;
+      return <Operator initialTab={screen.tab} onBack={attract} onAlbum={() => setScreen({ name: "album", from: "operator" })} />;
+    case "album":
+      return <AlbumScreen onClose={screen.from === "operator" ? () => setScreen({ name: "operator", tab: "album" }) : attract} />;
   }
 }
