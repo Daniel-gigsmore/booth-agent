@@ -36,6 +36,8 @@ export interface AlbumStatus {
   photoCount: number | null;
   lastWrittenAt: string | null;
   lastError: string | null;
+  /** ISO time of the first failure in the current failing streak; null after a success, and when disabled. */
+  failingSince: string | null;
 }
 
 /**
@@ -49,7 +51,7 @@ export class AlbumPublisher {
   private dirty = true;
   private target: string | null = null;
   private retryAt = 0;
-  private written: Omit<AlbumStatus, "enabled"> = { photoCount: null, lastWrittenAt: null, lastError: null };
+  private written: Omit<AlbumStatus, "enabled"> = { photoCount: null, lastWrittenAt: null, lastError: null, failingSince: null };
   private lastLogged: { message: string; at: number } | null = null;
 
   constructor(
@@ -80,12 +82,16 @@ export class AlbumPublisher {
       const photos = await this.backend.listPrints(eventId);
       const at = new Date(this.now()).toISOString();
       await this.backend.writeManifest(eventId, token, { updatedAt: at, photos });
-      this.written = { photoCount: photos.length, lastWrittenAt: at, lastError: null };
+      this.written = { photoCount: photos.length, lastWrittenAt: at, lastError: null, failingSince: null };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.dirty = true;
       this.retryAt = this.now() + ALBUM_RETRY_MS;
-      this.written = { ...this.written, lastError: message };
+      this.written = {
+        ...this.written,
+        lastError: message,
+        failingSince: this.written.failingSince ?? new Date(this.now()).toISOString(),
+      };
       this.warnQuietly(`Album manifest not written, will retry: ${message}`);
       return;
     }
@@ -99,7 +105,7 @@ export class AlbumPublisher {
   }
 
   getStatus(): AlbumStatus {
-    if (!this.getTarget().token) return { enabled: false, photoCount: null, lastWrittenAt: null, lastError: null };
+    if (!this.getTarget().token) return { enabled: false, photoCount: null, lastWrittenAt: null, lastError: null, failingSince: null };
     return { enabled: true, ...this.written };
   }
 

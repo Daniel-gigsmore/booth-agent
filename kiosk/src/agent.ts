@@ -86,7 +86,7 @@ export interface Health {
   stalledPrints: { count: number };
   outbox: { queueDepth: number; lastError: string | null };
   /** The event album. Optional so the panel still works against an agent from before it existed. */
-  album?: { enabled: boolean; photoCount: number | null; lastWrittenAt: string | null; lastError: string | null };
+  album?: { enabled: boolean; photoCount: number | null; lastWrittenAt: string | null; lastError: string | null; failingSince: string | null };
 }
 
 export type PrintSize = "4x6" | "2x6-strip";

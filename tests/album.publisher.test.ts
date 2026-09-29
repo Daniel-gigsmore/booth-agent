@@ -57,7 +57,7 @@ describe("AlbumPublisher", () => {
     const at = new Date(1_000_000).toISOString();
     expect(backend.listed).toEqual(["evt"]);
     expect(backend.written[0]).toEqual({ eventId: "evt", token: TOKEN, manifest: { updatedAt: at, photos: backend.prints } });
-    expect(publisher.getStatus()).toEqual({ enabled: true, photoCount: 1, lastWrittenAt: at, lastError: null });
+    expect(publisher.getStatus()).toEqual({ enabled: true, photoCount: 1, lastWrittenAt: at, lastError: null, failingSince: null });
   });
 
   it("retries a failed write, but no sooner than ALBUM_RETRY_MS", async () => {
@@ -71,6 +71,22 @@ describe("AlbumPublisher", () => {
     await publisher.publishIfDirty();
     expect(backend.written).toHaveLength(1);
     expect(publisher.getStatus().lastError).toBeNull();
+  });
+
+  it("sets failingSince on the first failure of a streak, leaves it on the second, clears it on success", async () => {
+    const { backend, publisher, advance } = setup();
+    backend.failWrites = 2;
+    await publisher.publishIfDirty();
+    const firstFailingSince = publisher.getStatus().failingSince;
+    expect(firstFailingSince).not.toBeNull();
+
+    advance(ALBUM_RETRY_MS);
+    await publisher.publishIfDirty();
+    expect(publisher.getStatus().failingSince).toBe(firstFailingSince);
+
+    advance(ALBUM_RETRY_MS);
+    await publisher.publishIfDirty();
+    expect(publisher.getStatus().failingSince).toBeNull();
   });
 
   it("removes other manifests after a write; a failed cleanup doesn't undo the write", async () => {
@@ -109,7 +125,7 @@ describe("AlbumPublisher", () => {
     const { backend, publisher } = setup({});
     await publisher.publishIfDirty();
     expect(backend.listed).toEqual([]);
-    expect(publisher.getStatus()).toEqual({ enabled: false, photoCount: null, lastWrittenAt: null, lastError: null });
+    expect(publisher.getStatus()).toEqual({ enabled: false, photoCount: null, lastWrittenAt: null, lastError: null, failingSince: null });
   });
 });
 

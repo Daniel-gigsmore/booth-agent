@@ -48,6 +48,7 @@
     .viewer-bar { display: flex; gap: 12px; justify-content: space-between; margin-top: 16px; }
     #show { display: none; position: fixed; inset: 0; z-index: 10; background: #000; }
     body.playing { overflow: hidden; }
+    body.playing main { display: none; }
     body.playing #show { display: block; }
     #show img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; opacity: 0; transition: opacity 0.8s; }
     #show img.on { opacity: 1; }

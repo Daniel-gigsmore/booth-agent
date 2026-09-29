@@ -8,7 +8,7 @@ let file = null;
 
 async function attempt() {
   try {
-    const res = await fetch(imageUrl(link, Date.now()), { cache: "no-store", signal: AbortSignal.timeout(20000) });
+    const res = await fetch(imageUrl(link, Date.now()), { cache: "no-store", signal: AbortSignal.timeout?.(20000) });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const blob = await res.blob();
     file = new File([blob], shareFileName(link), { type: "image/jpeg" });

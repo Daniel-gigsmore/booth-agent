@@ -117,7 +117,7 @@ function cameraDetailAlerts(detail: CameraDetail | null, suffix: "" | "-low", na
 export function buildHealthReport(inputs: HealthInputs): HealthReport {
   const { camera, canon, hotFolder, stalledPrints, printer, disk, outbox, eventId, thresholds } = inputs;
   const alerts: HealthAlert[] = [];
-  const album: AlbumStatus = inputs.album ?? { enabled: false, photoCount: null, lastWrittenAt: null, lastError: null };
+  const album: AlbumStatus = inputs.album ?? { enabled: false, photoCount: null, lastWrittenAt: null, lastError: null, failingSince: null };
 
   // --- Capture ------------------------------------------------------------
   if (camera.activeSource === "none") {
@@ -264,7 +264,16 @@ export function buildHealthReport(inputs: HealthInputs): HealthReport {
   }
 
   // A warning, never an error: guests' photos still upload and print; only the album link lags.
-  if (album.enabled && album.lastError) {
+  // Offline is normal (see the outbox comments above) - every publish fails while offline, so
+  // only alert once uploads themselves have succeeded since the album started failing, i.e. the
+  // network is fine and it's the album write specifically that's broken.
+  if (
+    album.enabled &&
+    album.lastError &&
+    album.failingSince &&
+    outbox.lastSyncAt &&
+    outbox.lastSyncAt > album.failingSince
+  ) {
     alerts.push({
       level: "warn",
       code: "album-write-failed",

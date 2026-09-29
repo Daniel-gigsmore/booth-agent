@@ -13,11 +13,11 @@ let loaded = false; // a manifest has been read at least once
 
 async function poll() {
   try {
-    const res = await fetch(manifestUrl(link, Date.now()), { cache: "no-store", signal: AbortSignal.timeout(20000) });
+    const res = await fetch(manifestUrl(link, Date.now()), { cache: "no-store", signal: AbortSignal.timeout?.(20000) });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const ids = manifestIds(await res.json());
     const added = newIds(order, ids);
-    if (loaded) queue.push(...added);
+    if (loaded && document.body.classList.contains("playing")) queue.push(...added);
     order = ids;
     loaded = true;
     for (const id of added) $("grid").append(thumb(id));
@@ -60,7 +60,7 @@ async function openViewer(index) {
   try {
     // Loaded as a blob up front so Save / Share can hand it straight to the share sheet:
     // iOS only allows sharing right after the tap, not after a download.
-    const res = await fetch(photoUrl(link, id), { signal: AbortSignal.timeout(20000) });
+    const res = await fetch(photoUrl(link, id), { signal: AbortSignal.timeout?.(20000) });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const blob = await res.blob();
     if (order[viewing] !== id) return; // moved on meanwhile

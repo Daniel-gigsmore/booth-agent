@@ -46,13 +46,21 @@ Every print from an event, as a grid with Save / Share and a full-screen slidesh
 
 ### Turn it on
 
-Add a secret token (at least 16 characters of `A-Z a-z 0-9 _ -`) to booth-agent's `booth.config.json`:
+Add a secret token (at least 16 characters of `A-Z a-z 0-9 _ -`) to booth-agent's `booth.config.json`. Generate one with:
+
+```
+node -e "console.log(require('crypto').randomBytes(18).toString('base64url'))"
+```
 
 ```json
 "album": { "token": "<random token>" }
 ```
 
-After the next upload the agent writes `captures/<event.id>/albums/<token>.json`. `/health` shows `album`, and so does the ALBUM card in the operator panel's Status tab. To kill a link you've sent, change the token: the agent writes the new manifest and deletes the old one.
+The agent writes `captures/<event.id>/albums/<token>.json` on the next sync pass (about 2 s after `booth.config.json` is saved), and again after each print uploads. `/health` shows `album`, and so does the ALBUM card in the operator panel's Status tab.
+
+Removing the token stops the agent updating the manifest, but does **not** kill a link already sent - the old file is just left as-is in storage. To actually kill a link, change the token: the agent writes a new manifest under the new token and deletes the old one.
+
+The album is only as private as the token: it stays unguessable purely because `20260928000000_public_capture_bucket.sql` removed anon's read/list policies on the `captures` bucket, so never add a SELECT policy on `storage.objects` for it.
 
 ### Online link (send this to the client)
 
