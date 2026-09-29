@@ -64,6 +64,11 @@ function StatusTab() {
               ok={h.printer.ok} note={h.printer.reachable ? h.printer.status ?? "Unknown" : "Not reachable"} />
             <Card label="PHOTO SYNC" value={h.outbox.queueDepth === 0 ? "Up to date" : "Uploading"}
               ok={!h.outbox.lastError} note={h.outbox.lastError ? "Offline, will retry" : `${h.outbox.queueDepth} waiting to upload`} />
+            {h.album?.enabled && (
+              <Card label="ALBUM" value={h.album.photoCount !== null ? `${h.album.photoCount} prints` : "Not written yet"}
+                ok={!h.album.lastError}
+                note={h.album.lastError ? "Not updating, will retry" : h.album.lastWrittenAt ? `Updated ${time(h.album.lastWrittenAt)}` : "Waiting for the first print"} />
+            )}
             <Card label="HOT FOLDER" value={h.stalledPrints.count === 0 ? "Printing normally" : "Stuck"}
               ok={h.stalledPrints.count === 0} note={`${h.stalledPrints.count} stuck`} />
           </div>

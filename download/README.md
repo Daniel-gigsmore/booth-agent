@@ -36,6 +36,42 @@ Each event may get its own fresh Supabase project (see the main README's "Supaba
 2. Run both migrations in order against the new project's SQL Editor: `20260814000000_captures.sql`, then `20260928000000_public_capture_bucket.sql`.
 3. Push to `master` to redeploy this page.
 
+## Links for an event with its own Supabase project
+
+Both pages take `p=<project ref>` (the 20-letter id in `https://<ref>.supabase.co`), so a new project needs no code change: add `&p=<ref>` to the kiosk's `VITE_DOWNLOAD_URL` and to the album link. Without `p` the pages use `SUPABASE_URL` in `photo.js`.
+
+## Event album
+
+Every print from an event, as a grid with Save / Share and a full-screen slideshow. The page is `album.html` in this folder, and booth-agent keeps its photo list up to date.
+
+### Turn it on
+
+Add a secret token (at least 16 characters of `A-Z a-z 0-9 _ -`) to booth-agent's `booth.config.json`:
+
+```json
+"album": { "token": "<random token>" }
+```
+
+After the next upload the agent writes `captures/<event.id>/albums/<token>.json`. `/health` shows `album`, and so does the ALBUM card in the operator panel's Status tab. To kill a link you've sent, change the token: the agent writes the new manifest and deletes the old one.
+
+### Online link (send this to the client)
+
+```
+https://<site>/album.html?event=<event_id>&name=<display name>&album=<token>[&p=<project ref>]
+```
+
+Add `&play=1` to start straight in the slideshow, e.g. on a venue TV with internet. New prints appear within about 20 s.
+
+### Booth screen (no internet)
+
+With a TV or projector plugged into the booth PC, run:
+
+```
+powershell -NoProfile -ExecutionPolicy Bypass -File C:\BoothAgent\kiosk\start-slideshow.ps1
+```
+
+It opens `http://127.0.0.1:7070/album/album.html?local=1&play=1&token=<agent secret>` full-screen on the second screen. Photos come straight from the booth, so they show up as soon as they're printed. Use `-Screen <n>` to pick a different screen. Exit with Alt+F4.
+
 ## Local preview
 
 ```
