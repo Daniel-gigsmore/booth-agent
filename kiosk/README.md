@@ -4,7 +4,9 @@ Guest-facing touchscreen UI for the photobooth. It talks to [booth-agent](https:
 
 Flow: Attract → Get ready (live view; one countdown and shot per photo slot in the layout) → Review (shows the actual print; prints automatically after 10 s) → Printing → Done (QR download). If the Canon reports busy mid-burst, the kiosk retries that shot twice, 1 s apart. If a capture or print fails, the guest sees the "Let's try that again" screen. Any screen except Attract goes back to Attract after 60 s with no touch.
 
-**Attract prints:** Attract shows this event's prints, fading from one to the next (6 s each, new prints first), where the sample strips normally sit. They come from booth-agent, so this works offline. It falls back to the sample strips while there are no prints, or when the operator turns it off in the Album tab.
+**Attract prints:** Attract shows this event's prints, fading from one to the next (6 s each, new prints first), where the sample strips normally sit. They come from booth-agent, so this works offline. It falls back to the sample strips while there are no prints, or when the operator turns the album off for guests in the Album tab.
+
+**Album in the kiosk:** with prints, a **View album** button sits under them on Attract. It opens every print so far as a grid, newest first and printed prints only (swipe or use the scroll wheel). Tap one to see it large with ‹ › and its **download QR code**, the same page as the Done screen's. **▶ Play** runs a slideshow, and a tap stops it. ✕ goes back, as does 60 s with no touch.
 
 **Mouse:** guests use the touchscreen, so the pointer is hidden. It appears while a mouse moves and hides again after 3 s. The scroll wheel scrolls lists.
 
@@ -13,7 +15,7 @@ Flow: Attract → Get ready (live view; one countdown and shot per photo slot in
 - **Status:** camera, printer, sync and hot folder health, plus the last 3 prints with Reprint.
 - **Settings:** pick the layout in use, set the countdown for the first photo and between photos (1–10 s), and create, edit or delete layouts. Changes apply to the next guest.
 - **Camera:** each Canon's settings, live view and a test shot.
-- **Album:** the online album link and its QR code, to send to the client (needs `album.token` in booth-agent and `VITE_DOWNLOAD_URL` here). **Slideshow on second screen** opens the booth's own album full screen on the TV or projector. Chrome must allow "window management" for the kiosk; if it doesn't, run `start-slideshow.ps1`. A button also switches the Attract prints on or off.
+- **Album:** the online album link and its QR code, to send to the client (needs `album.token` in booth-agent and `VITE_DOWNLOAD_URL` here). **Slideshow on second screen** opens the booth's own album full screen on the TV or projector. Chrome must allow "window management" for the kiosk; if it doesn't, run `start-slideshow.ps1`. **Open album** opens the kiosk's album (always, even when it's hidden from guests; ✕ comes back here). **Hide album from guests** turns off both the Attract prints and the View album button.
 
 **Layout editor:** the left column adds a photo (each photo number is one shot), an image (PNG or JPEG, uploaded to booth-agent), a text or a shape, and sets the background colour and paper. Drag an element to move it and its orange corner dot to resize it. The Selected panel has exact X/Y/W/H, rotation, keep-aspect-ratio, align-to-paper and "Fill paper" controls, plus text (font, size, colour, bold, alignment, and the `{event}` `{date}` `{time}` `{code}` variables filled in per print), shape and photo-number settings. The Layers panel lists elements top first, with show/hide, up/down and delete. Undo/Redo keep the last 50 steps. The editor draws text with booth-agent's own font files, so it looks like the print; line breaks may differ slightly.
 

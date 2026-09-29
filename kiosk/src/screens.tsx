@@ -57,15 +57,11 @@ const attract: SlideState & { on: boolean; layers: [string | null, string | null
 };
 
 /**
- * This event's prints, fading one into the next where the sample strips sit, so the booth shows
- * what it makes. New prints play next. Read from the agent, so it works offline. Falls back to the
- * sample strips while there are no prints or the operator has switched it off (Album tab).
+ * Whether guests get the album: prints on Attract and its "View album" button. Only when there are
+ * prints and the operator hasn't switched it off (Album tab). Polls the agent, which works offline.
  */
-function AttractPrints({ fallback }: { fallback: React.ReactNode }) {
+function useGuestAlbum(): boolean {
   const [on, setOn] = useState(attract.on);
-  const [layers, setLayers] = useState(attract.layers);
-  const [front, setFront] = useState(attract.front);
-
   useEffect(() => {
     let alive = true;
     const load = async () => {
@@ -86,6 +82,16 @@ function AttractPrints({ fallback }: { fallback: React.ReactNode }) {
       clearInterval(t);
     };
   }, []);
+  return on;
+}
+
+/**
+ * This event's prints, fading one into the next where the sample strips sit, so the booth shows
+ * what it makes. New prints play next. Falls back to the sample strips while guests don't get the album.
+ */
+function AttractPrints({ on, fallback }: { on: boolean; fallback: React.ReactNode }) {
+  const [layers, setLayers] = useState(attract.layers);
+  const [front, setFront] = useState(attract.front);
 
   useEffect(() => {
     if (!on) return;
@@ -130,9 +136,10 @@ function AttractPrints({ fallback }: { fallback: React.ReactNode }) {
   );
 }
 
-export function Attract({ health, onStart, onOperator }: {
-  health: Health | null; onStart: () => void; onOperator: () => void;
+export function Attract({ health, onStart, onOperator, onAlbum }: {
+  health: Health | null; onStart: () => void; onOperator: () => void; onAlbum: () => void;
 }) {
+  const album = useGuestAlbum();
   // 5 taps on the dot, each within 1 s of the last, opens the operator panel.
   const taps = useRef({ count: 0, last: 0 });
   const tapDot = () => {
@@ -162,7 +169,19 @@ export function Attract({ health, onStart, onOperator }: {
         </div>
       </div>
       <div className="attract-strips">
-        <AttractPrints fallback={<><Strip className="tilt-left" /><Strip className="tilt-right" /></>} />
+        <AttractPrints on={album} fallback={<><Strip className="tilt-left" /><Strip className="tilt-right" /></>} />
+        {album && (
+          <button
+            type="button"
+            className="btn outline md attract-album-btn"
+            onClick={(e) => {
+              e.stopPropagation(); // not a session start
+              onAlbum();
+            }}
+          >
+            View album
+          </button>
+        )}
       </div>
       {/* Hidden from guests: tap 5 times quickly to open the operator panel. */}
       <button

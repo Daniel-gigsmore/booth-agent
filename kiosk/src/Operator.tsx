@@ -237,8 +237,8 @@ function SettingsTab({ onEdit }: { onEdit: (t: Template, all: Template[], inUseI
   );
 }
 
-export default function Operator({ onBack }: { onBack: () => void }) {
-  const [tab, setTab] = useState<"status" | "settings" | "camera" | "album">("status");
+export default function Operator({ onBack, onAlbum, initialTab }: { onBack: () => void; onAlbum: () => void; initialTab?: "album" }) {
+  const [tab, setTab] = useState<"status" | "settings" | "camera" | "album">(initialTab ?? "status");
   const [editing, setEditing] = useState<{ t: Template; ids: string[]; inUseId: string } | null>(null);
   // Bumped after the editor saves, so the Settings tab reloads its list.
   const [settingsKey, setSettingsKey] = useState(0);
@@ -280,7 +280,7 @@ export default function Operator({ onBack }: { onBack: () => void }) {
       ) : tab === "camera" ? (
         <CameraTab />
       ) : tab === "album" ? (
-        <AlbumTab />
+        <AlbumTab onOpenAlbum={onAlbum} />
       ) : (
         <SettingsTab
           key={settingsKey}
