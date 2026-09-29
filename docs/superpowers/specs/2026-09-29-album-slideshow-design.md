@@ -41,7 +41,7 @@ With no `album.token`, nothing in this section runs and the agent behaves exactl
 
 - The album is marked **dirty** when the sync worker successfully uploads a print. That is a row whose uploaded source is its composite (`sourcePath === row.composite_path`, which is also when `print_size` is set on the Supabase row). Uploading a raw original doesn't mark it.
 - The album is also dirty at startup and after the token changes, so a write lost before a restart, or a new token, is caught up.
-- At the end of a sync tick, if the album is dirty and a token is set, the agent writes the manifest. On success it clears dirty. On failure it stays dirty and the next tick retries. A failure never affects photo uploads.
+- At the end of a sync tick, if the album is dirty and a token is set, the agent writes the manifest. On success it clears dirty. On failure it stays dirty and a later tick retries, no sooner than 15 s after the failure, so an offline booth doesn't hit Supabase every 2 s. A failure never affects photo uploads.
 
 ### What is written
 
@@ -139,8 +139,8 @@ The copy stays with the existing footer "Photos by Kachak Productions".
 
 A new `kiosk/start-slideshow.ps1`, beside `start-kiosk.ps1`:
 - it reads `agent.sharedSecret`, `agent.port` and `event.name` from `booth.config.json` (the path is a parameter defaulting to the booth's);
-- it starts Chrome with `--kiosk`, its own `--user-data-dir` (`%LOCALAPPDATA%\KachakSlideshow`), `--no-first-run` and `--window-position=<x>,0`;
-- `x` comes from a `-Screen` parameter (default 1, the second monitor) resolved with `System.Windows.Forms.Screen`;
+- it starts Chrome with `--kiosk`, its own `--user-data-dir` (`%LOCALAPPDATA%\KachakSlideshow`), `--no-first-run` and `--window-position=<x>,<y>`;
+- the position comes from a `-Screen` parameter (an index into `System.Windows.Forms.Screen.AllScreens`); by default it is the first screen that isn't the primary one;
 - it opens the local URL with `play=1`.
 
 The secret ends up in the local Chrome process's command line and URL. That is no wider than today: the kiosk bundle in `C:\BoothAgent\kiosk\dist` already contains it, and the agent listens on loopback only.
