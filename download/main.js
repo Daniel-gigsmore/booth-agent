@@ -25,10 +25,11 @@ async function share() {
   if (navigator.canShare?.({ files: [file] })) {
     try {
       await navigator.share({ files: [file] });
+      return;
     } catch (err) {
-      if (err?.name !== "AbortError") throw err;
+      if (err?.name === "AbortError") return;
+      // Share failed for another reason: fall back to a plain download.
     }
-    return;
   }
   const a = document.createElement("a");
   a.href = URL.createObjectURL(file);
