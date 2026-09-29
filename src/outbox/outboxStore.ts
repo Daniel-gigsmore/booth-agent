@@ -83,6 +83,13 @@ export class OutboxStore {
     return row as unknown as CaptureRow | undefined;
   }
 
+  /** This event's composited captures, oldest first: the album on the booth's own screen. */
+  listAlbumPrints(eventId: string): Array<{ id: string; takenAt: string }> {
+    return this.db
+      .prepare(`SELECT id, taken_at AS takenAt FROM captures WHERE event_id = ? AND composite_path IS NOT NULL ORDER BY taken_at`)
+      .all(eventId) as Array<{ id: string; takenAt: string }>;
+  }
+
   /** Rows due for an upload attempt now, oldest first, capped at batchSize. */
   getBatchDue(batchSize: number): CaptureRow[] {
     const now = nowIso();

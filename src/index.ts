@@ -12,6 +12,8 @@ import { openOutboxDb } from "./outbox/db";
 import { OutboxStore } from "./outbox/outboxStore";
 import { SyncWorker } from "./outbox/syncWorker";
 import { createSupabaseClient, uploadCaptureToSupabase } from "./supabase/supabaseClient";
+import { AlbumPublisher } from "./album/albumPublisher";
+import { createSupabaseAlbumBackend } from "./supabase/albumStorage";
 import { PrintQueue } from "./print/printQueue";
 import { buildHttpApp } from "./server/http";
 import { attachEventsWebSocket } from "./server/ws";
@@ -95,11 +97,16 @@ async function main(): Promise<void> {
   }
 
   const supabaseClient = createSupabaseClient(config.supabase);
+  const albumPublisher = new AlbumPublisher(
+    createSupabaseAlbumBackend(supabaseClient, () => configStore.current.supabase.storageBucket),
+    () => ({ eventId: configStore.current.event.id, token: configStore.current.album.token })
+  );
   const syncWorker = new SyncWorker(
     outboxStore,
     (row) => uploadCaptureToSupabase(supabaseClient, configStore.current.supabase, row),
     config.sync,
-    eventBus
+    eventBus,
+    albumPublisher
   );
   syncWorker.start();
 
@@ -116,6 +123,7 @@ async function main(): Promise<void> {
     cameraManager,
     outboxStore,
     printQueue,
+    album: albumPublisher,
     preflight,
   };
 

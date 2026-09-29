@@ -152,6 +152,7 @@ export function buildRouter(ctx: AgentContext): Router {
           expectedMediaType: config.printing.expectedMediaType,
         },
         layoutUsesLow,
+        album: ctx.album.getStatus(),
       })
     );
   }));
@@ -393,6 +394,16 @@ export function buildRouter(ctx: AgentContext): Router {
     const s = ctx.cameraManager.getStatus();
     const saved = readCameraSerials(ctx.configStore.current.storage.dataDir);
     pair(res, { high: saved.low ?? s.low?.serial, low: saved.high ?? s.canonSerial });
+  });
+
+  // The album on a screen cabled to the booth: the same shape as the manifest the agent writes to
+  // Supabase, built from the outbox so it works with no internet. Photos come from
+  // /captures/:id/image?variant=composite.
+  router.get("/album.json", (_req: Request, res: Response) => {
+    res.set("Cache-Control", "no-store").json({
+      updatedAt: new Date().toISOString(),
+      photos: ctx.outboxStore.listAlbumPrints(ctx.configStore.current.event.id),
+    });
   });
 
   // The kiosk's review screen shows the still the guest just took. /capture

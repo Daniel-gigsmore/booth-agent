@@ -23,6 +23,15 @@ export interface SyncWorkerConfig {
 export type UploadFn = (row: CaptureRow) => Promise<{ storagePath: string; sourcePath: string }>;
 
 /**
+ * The event album (src/album/albumPublisher.ts). A print upload marks it dirty, and every tick
+ * gives it a chance to rewrite its manifest. Optional so the worker runs the same without one.
+ */
+export interface AlbumHooks {
+  markDirty(): void;
+  publishIfDirty(): Promise<void>;
+}
+
+/**
  * Polls the outbox for due rows and uploads them, backing off exponentially
  * per-row on failure (network down, Supabase unreachable, etc). Injecting
  * `uploadFn` instead of a real Supabase client keeps this fully unit
@@ -39,7 +48,8 @@ export class SyncWorker {
     private readonly store: OutboxStore,
     private readonly uploadFn: UploadFn,
     private readonly config: SyncWorkerConfig,
-    private readonly eventBus: EventBus
+    private readonly eventBus: EventBus,
+    private readonly album?: AlbumHooks
   ) {
     this.tickIntervalMs = config.tickIntervalMs ?? 2000;
   }
@@ -68,6 +78,12 @@ export class SyncWorker {
       for (const row of batch) {
         await this.syncOne(row);
       }
+      try {
+        await this.album?.publishIfDirty();
+      } catch (err) {
+        // The album must never stop uploads; AlbumPublisher already catches its own write errors.
+        log.warn("Album publish failed", err);
+      }
       this.emitStatus();
     } finally {
       this.running = false;
@@ -79,6 +95,8 @@ export class SyncWorker {
     try {
       const { storagePath, sourcePath } = await this.uploadFn(row);
       this.store.markSynced(row.id, storagePath, sourcePath);
+      // Only the print belongs in the album: the raw original that goes up first does not.
+      if (row.composite_path !== null && sourcePath === row.composite_path) this.album?.markDirty();
       this.consecutiveFailures = 0;
       log.info(`Synced capture ${row.id}`);
     } catch (err) {

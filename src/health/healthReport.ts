@@ -4,6 +4,7 @@ import { DiskSpace } from "../util/disk";
 import { SyncSummary } from "../outbox/types";
 import { StalledPrints } from "../print/hotFolderStall";
 import { CameraDetail } from "../camera/edsdk/protocol";
+import { AlbumStatus } from "../album/albumPublisher";
 
 /**
  * `/health` used to return raw facts and leave the judgement to whoever read
@@ -59,6 +60,8 @@ export interface HealthInputs {
   thresholds: HealthThresholds;
   /** Whether the session layout has a photo on the low camera. */
   layoutUsesLow?: boolean;
+  /** The event album. Absent (as in tests of other areas) means no album. */
+  album?: AlbumStatus;
 }
 
 export interface HealthReport {
@@ -87,6 +90,7 @@ export interface HealthReport {
   printer: PrinterStatus;
   disk: DiskSpace | null;
   outbox: SyncSummary;
+  album: AlbumStatus;
   timestamp: string;
 }
 
@@ -113,6 +117,7 @@ function cameraDetailAlerts(detail: CameraDetail | null, suffix: "" | "-low", na
 export function buildHealthReport(inputs: HealthInputs): HealthReport {
   const { camera, canon, hotFolder, stalledPrints, printer, disk, outbox, eventId, thresholds } = inputs;
   const alerts: HealthAlert[] = [];
+  const album: AlbumStatus = inputs.album ?? { enabled: false, photoCount: null, lastWrittenAt: null, lastError: null, failingSince: null };
 
   // --- Capture ------------------------------------------------------------
   if (camera.activeSource === "none") {
@@ -258,6 +263,24 @@ export function buildHealthReport(inputs: HealthInputs): HealthReport {
     });
   }
 
+  // A warning, never an error: guests' photos still upload and print; only the album link lags.
+  // Offline is normal (see the outbox comments above) - every publish fails while offline, so
+  // only alert once uploads themselves have succeeded since the album started failing, i.e. the
+  // network is fine and it's the album write specifically that's broken.
+  if (
+    album.enabled &&
+    album.lastError &&
+    album.failingSince &&
+    outbox.lastSyncAt &&
+    outbox.lastSyncAt > album.failingSince
+  ) {
+    alerts.push({
+      level: "warn",
+      code: "album-write-failed",
+      message: `The online album isn't updating (${album.lastError}). Photos still upload; it retries on its own.`,
+    });
+  }
+
   return {
     overall: highestLevel(alerts),
     alerts,
@@ -284,6 +307,7 @@ export function buildHealthReport(inputs: HealthInputs): HealthReport {
     printer,
     disk,
     outbox,
+    album,
     timestamp: new Date().toISOString(),
   };
 }

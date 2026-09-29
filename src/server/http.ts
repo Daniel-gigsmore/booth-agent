@@ -1,4 +1,5 @@
 import express, { Express, NextFunction, Request, Response } from "express";
+import path from "node:path";
 import { AgentContext } from "./context";
 import { sharedSecretAuth } from "./auth";
 import { corsMiddleware } from "./cors";
@@ -6,6 +7,9 @@ import { buildRouter } from "./routes";
 import { createLogger } from "../util/logger";
 
 const log = createLogger("server:http");
+
+/** The album page's files (repo download/), from both src/server and dist/server. */
+const DOWNLOAD_DIR = path.resolve(__dirname, "..", "..", "download");
 
 export function buildHttpApp(ctx: AgentContext): Express {
   const app = express();
@@ -16,6 +20,14 @@ export function buildHttpApp(ctx: AgentContext): Express {
   // larger limit, so the small global parser skips it.
   const json = express.json({ limit: "5mb" });
   app.use((req, res, next) => (req.path === "/layout-import" ? next() : json(req, res, next)));
+  // The album page's own files, so a screen cabled to the booth can show the album with no
+  // internet. Page code only, no data: /album.json and the photos it loads still need the secret.
+  // Anything else under /album (a missing file, a path escaping the folder) is a plain 404 here,
+  // rather than a 401 from auth below or a 500 from the error handler.
+  app.use("/album", express.static(DOWNLOAD_DIR, { index: false }));
+  app.use("/album", (_req: Request, res: Response) => {
+    res.status(404).json({ error: "not found" });
+  });
   app.use(sharedSecretAuth(() => ctx.configStore.current.agent.sharedSecret));
   app.use(buildRouter(ctx));
 

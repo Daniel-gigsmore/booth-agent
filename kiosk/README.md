@@ -39,7 +39,7 @@ The source lives in the booth-agent repo; the booth PC serves the build from `C:
 
 ```powershell
 robocopy kiosk\src C:\BoothAgent\kiosk\src /MIR
-Copy-Item kiosk\index.html, kiosk\package.json, kiosk\package-lock.json, kiosk\tsconfig.json, kiosk\start-kiosk.ps1, kiosk\README.md, kiosk\.env.example C:\BoothAgent\kiosk\
+Copy-Item kiosk\index.html, kiosk\package.json, kiosk\package-lock.json, kiosk\tsconfig.json, kiosk\start-kiosk.ps1, kiosk\start-slideshow.ps1, kiosk\README.md, kiosk\.env.example C:\BoothAgent\kiosk\
 cd C:\BoothAgent\kiosk
 npm install
 npm run build

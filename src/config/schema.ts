@@ -101,6 +101,13 @@ export const BoothConfigSchema = z.object({
     /** Shown in layouts as {event}. Falls back to id. */
     name: z.string().optional(),
   }),
+  album: z
+    .object({
+      // The secret in the event album's link (download/README.md). While it is
+      // unset the agent writes no album manifest at all.
+      token: z.string().regex(/^[A-Za-z0-9_-]{16,}$/).optional(),
+    })
+    .default({}),
   sync: z.object({
     // Backlog size that turns into a /health warning. Being offline is an
     // expected, survivable state, so this is a nudge to check the network -
