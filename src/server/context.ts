@@ -4,6 +4,7 @@ import { CameraManager } from "../camera/CameraManager";
 import { OutboxStore } from "../outbox/outboxStore";
 import { PrintQueue } from "../print/printQueue";
 import { PreflightResult } from "../startup/preflight";
+import { AlbumPublisher } from "../album/albumPublisher";
 
 /** Everything the HTTP/WS layer needs, wired up once in index.ts. */
 export interface AgentContext {
@@ -12,6 +13,8 @@ export interface AgentContext {
   cameraManager: CameraManager;
   outboxStore: OutboxStore;
   printQueue: PrintQueue;
+  /** The event album's manifest writer; /health reports its status. */
+  album: AlbumPublisher;
   /**
    * Most recent preflight result. Starts as the boot-time run and is replaced
    * by POST /health/preflight - the boot run is necessarily pessimistic about

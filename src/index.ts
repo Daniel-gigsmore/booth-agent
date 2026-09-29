@@ -123,6 +123,7 @@ async function main(): Promise<void> {
     cameraManager,
     outboxStore,
     printQueue,
+    album: albumPublisher,
     preflight,
   };
 
