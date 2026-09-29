@@ -843,7 +843,9 @@ export function buildRouter(ctx: AgentContext): Router {
 
   router.post("/session", (req: Request, res: Response) => {
     const config = ctx.configStore.current;
-    const parsed = SessionSettingsSchema.safeParse(req.body);
+    // A client that doesn't know attractSlideshow (the Settings tab) keeps whatever is set.
+    const current = readSessionSettings(config.storage.dataDir);
+    const parsed = SessionSettingsSchema.safeParse({ attractSlideshow: current.attractSlideshow, ...req.body });
     if (!parsed.success) {
       res.status(400).json({ error: parsed.error.message });
       return;

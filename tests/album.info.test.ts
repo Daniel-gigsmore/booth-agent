@@ -22,6 +22,7 @@ async function start(album: { token?: string }) {
         event: { id: "gigsmore-launch-2026", name: "Gigsmore Launch" },
         album,
         storage: { dataDir },
+        compositing: { templateDir: path.join(__dirname, "..", "assets", "templates") },
       },
     },
   } as unknown as AgentContext;
@@ -90,6 +91,16 @@ describe("POST /attract-slideshow", () => {
     await start({ token: TOKEN });
     expect((await post("/attract-slideshow", { enabled: "yes" })).status).toBe(400);
     await expect(readFile(path.join(dataDir, "session.json"))).rejects.toThrow();
+  });
+});
+
+describe("POST /session", () => {
+  it("keeps the attract setting when the Settings tab doesn't send it", async () => {
+    await start({ token: TOKEN });
+    await post("/attract-slideshow", { enabled: false });
+    const res = await post("/session", { templateId: "default-4r-grid", firstCountdownSeconds: 4, betweenShotsSeconds: 3 });
+    expect(res.status).toBe(200);
+    expect(readSessionSettings(dataDir)).toMatchObject({ firstCountdownSeconds: 4, attractSlideshow: false });
   });
 });
 
