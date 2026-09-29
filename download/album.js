@@ -152,7 +152,14 @@ if (!link) {
     document.title = `${link.name} · Kachak album`;
   }
   $("play").addEventListener("click", play);
-  $("show").addEventListener("click", stop);
+  $("show").addEventListener("click", () => {
+    // A screen opened with play=1 had no tap to go full screen with: the first click does that, the next one stops.
+    if (link.play && document.fullscreenEnabled && !document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(() => {});
+      return;
+    }
+    stop();
+  });
   $("show").addEventListener("mousemove", wake);
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") stop(); });
   document.addEventListener("fullscreenchange", () => { if (!document.fullscreenElement) stop(); });

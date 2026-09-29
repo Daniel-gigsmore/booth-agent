@@ -1,6 +1,7 @@
 // Thin client for booth-agent (see its README "API" section). Everything the
 // kiosk needs from the camera, printer and outbox goes through here.
 import { templateBody } from "./layout";
+import type { AlbumInfo } from "./album";
 
 const env = import.meta.env;
 const base = env.VITE_AGENT_URL || "http://127.0.0.1:7070";
@@ -9,6 +10,8 @@ const token = env.VITE_AGENT_TOKEN || "";
 export const config = {
   eventName: env.VITE_EVENT_NAME || "",
   eventDate: env.VITE_EVENT_DATE || "",
+  /** The guest download page link with its {captureId} placeholder; "" when not set up. */
+  downloadUrlTemplate: env.VITE_DOWNLOAD_URL || "",
   downloadUrl: (captureId: string) =>
     env.VITE_DOWNLOAD_URL ? env.VITE_DOWNLOAD_URL.replace("{captureId}", captureId) : "",
 };
@@ -189,4 +192,15 @@ export const agent = {
   /** Both restart the camera workers; the cameras come back a few seconds later. */
   swapCameras: () => call("POST", "/cameras/swap"),
   rememberCameras: () => call("POST", "/cameras/remember"),
+  albumInfo: () => call<AlbumInfo>("GET", "/album-info"),
+  setAttractSlideshow: (enabled: boolean) => call("POST", "/attract-slideshow", { enabled }),
+  /** This event's prints on this booth, oldest first. Works offline. */
+  albumPhotos: () => call<{ photos: { id: string }[] }>("GET", "/album.json").then((r) => r.photos.map((p) => p.id)),
 };
+
+/** A print's image, for <img src>. */
+export const printUrl = (captureId: string) => agentUrl(`/captures/${encodeURIComponent(captureId)}/image?variant=composite`);
+
+/** The album page served by the agent, playing the slideshow: for a screen cabled to the booth. */
+export const localSlideshowUrl = (eventName: string) =>
+  agentUrl(`/album/album.html?local=1&play=1&name=${encodeURIComponent(eventName)}`);

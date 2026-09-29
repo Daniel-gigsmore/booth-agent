@@ -4,6 +4,7 @@ import { useHealth } from "./hooks";
 import LayoutEditor, { LayoutThumb } from "./LayoutEditor";
 import { newTemplate, shotCount, CAMERA_ARROW } from "./layout";
 import CameraTab from "./CameraTab";
+import AlbumTab from "./AlbumTab";
 import { cameraNote, slotNote, SLOT_NAME } from "./cameras";
 
 const time = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -237,7 +238,7 @@ function SettingsTab({ onEdit }: { onEdit: (t: Template, all: Template[], inUseI
 }
 
 export default function Operator({ onBack }: { onBack: () => void }) {
-  const [tab, setTab] = useState<"status" | "settings" | "camera">("status");
+  const [tab, setTab] = useState<"status" | "settings" | "camera" | "album">("status");
   const [editing, setEditing] = useState<{ t: Template; ids: string[]; inUseId: string } | null>(null);
   // Bumped after the editor saves, so the Settings tab reloads its list.
   const [settingsKey, setSettingsKey] = useState(0);
@@ -255,6 +256,7 @@ export default function Operator({ onBack }: { onBack: () => void }) {
               <button type="button" className={tab === "status" ? "on" : ""} onClick={() => setTab("status")}>Status</button>
               <button type="button" className={tab === "settings" ? "on" : ""} onClick={() => setTab("settings")}>Settings</button>
               <button type="button" className={tab === "camera" ? "on" : ""} onClick={() => setTab("camera")}>Camera</button>
+              <button type="button" className={tab === "album" ? "on" : ""} onClick={() => setTab("album")}>Album</button>
             </div>
             <button type="button" className="btn outline sm" onClick={onBack}>Back to kiosk</button>
             {/* Chrome lets a page close its own window when it was opened straight from the command line (start-kiosk.ps1). */}
@@ -277,6 +279,8 @@ export default function Operator({ onBack }: { onBack: () => void }) {
         <StatusTab />
       ) : tab === "camera" ? (
         <CameraTab />
+      ) : tab === "album" ? (
+        <AlbumTab />
       ) : (
         <SettingsTab
           key={settingsKey}

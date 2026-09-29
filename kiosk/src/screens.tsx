@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import QRCode from "qrcode";
-import { agent, agentUrl, config, Health, Session, Template, type CameraSlot } from "./agent";
+import { agent, agentUrl, config, Health, printUrl, Session, Template, type CameraSlot } from "./agent";
+import { newIds, nextSlide } from "./album";
 import { useCountdown } from "./hooks";
 import { shotCount, shotPrompt } from "./layout";
 
@@ -46,6 +47,87 @@ function Strip({ photo, className = "" }: { photo?: string; className?: string }
   );
 }
 
+const ALBUM_POLL_MS = 15_000;
+const SLIDE_MS = 6_000;
+
+/**
+ * This event's prints, fading one into the next where the sample strips sit, so the booth shows
+ * what it makes. New prints play next. Read from the agent, so it works offline. Falls back to the
+ * sample strips while there are no prints or the operator has switched it off (Album tab).
+ */
+function AttractPrints({ fallback }: { fallback: React.ReactNode }) {
+  const [on, setOn] = useState(false);
+  const [layers, setLayers] = useState<[string | null, string | null]>([null, null]);
+  const [front, setFront] = useState(0);
+  const album = useRef({ order: [] as string[], queue: [] as string[], current: null as string | null, loaded: false });
+  const frontRef = useRef(0);
+
+  useEffect(() => {
+    let alive = true;
+    const load = async () => {
+      try {
+        const [info, ids] = await Promise.all([agent.albumInfo(), agent.albumPhotos()]);
+        if (!alive) return;
+        const a = album.current;
+        const added = newIds(a.order, ids);
+        if (a.loaded) a.queue.push(...added);
+        a.order = ids;
+        a.loaded = true;
+        setOn(info.attractSlideshow && ids.length > 0);
+      } catch {
+        // Agent busy or restarting: keep whatever is showing.
+      }
+    };
+    void load();
+    const t = setInterval(load, ALBUM_POLL_MS);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!on) return;
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout>;
+    const step = () => {
+      const a = album.current;
+      ({ current: a.current, queue: a.queue } = nextSlide(a.order, a.queue, a.current));
+      if (!a.current) {
+        timer = setTimeout(step, SLIDE_MS);
+        return;
+      }
+      // Loaded off-screen first, so the fade never shows a half-drawn print.
+      const url = printUrl(a.current);
+      const img = new Image();
+      img.onload = () => {
+        if (!alive) return;
+        const back = 1 - frontRef.current;
+        setLayers((l) => (back === 0 ? [url, l[1]] : [l[0], url]));
+        frontRef.current = back;
+        setFront(back);
+        timer = setTimeout(step, SLIDE_MS);
+      };
+      img.onerror = () => {
+        if (alive) timer = setTimeout(step, 1000); // skip it; it comes round again next loop
+      };
+      img.src = url;
+    };
+    step();
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, [on]);
+
+  if (!on) return <>{fallback}</>;
+  return (
+    <div className="attract-prints">
+      {layers.map((src, i) => src && <img key={i} className={i === front ? "on" : ""} src={src} alt="" />)}
+    </div>
+  );
+}
+
 export function Attract({ health, onStart, onOperator }: {
   health: Health | null; onStart: () => void; onOperator: () => void;
 }) {
@@ -78,8 +160,7 @@ export function Attract({ health, onStart, onOperator }: {
         </div>
       </div>
       <div className="attract-strips">
-        <Strip className="tilt-left" />
-        <Strip className="tilt-right" />
+        <AttractPrints fallback={<><Strip className="tilt-left" /><Strip className="tilt-right" /></>} />
       </div>
       {/* Hidden from guests: tap 5 times quickly to open the operator panel. */}
       <button
