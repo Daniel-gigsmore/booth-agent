@@ -37,6 +37,22 @@ export function newIds(known: string[], ids: string[]): string[] {
   return ids.filter((id) => !seen.has(id));
 }
 
+/** Where a slideshow is up to. Kept across Attract remounts, so it doesn't restart after every guest. */
+export interface SlideState {
+  order: string[];
+  queue: string[];
+  current: string | null;
+  loaded: boolean;
+}
+
+/** Takes a fresh list of prints: ones not seen before are queued to play next (all but the first list). */
+export function mergeAlbum(s: SlideState, ids: string[]): void {
+  const added = newIds(s.order, ids);
+  if (s.loaded) s.queue.push(...added);
+  s.order = ids;
+  s.loaded = true;
+}
+
 /** Newly arrived prints (`queue`) play first; otherwise it moves on from `current` through `order`, looping. */
 export function nextSlide(order: string[], queue: string[], current: string | null): { current: string | null; queue: string[] } {
   if (queue.length > 0) return { current: queue[0]!, queue: queue.slice(1) };

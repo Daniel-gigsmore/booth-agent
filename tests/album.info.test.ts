@@ -102,6 +102,13 @@ describe("POST /session", () => {
     expect(res.status).toBe(200);
     expect(readSessionSettings(dataDir)).toMatchObject({ firstCountdownSeconds: 4, attractSlideshow: false });
   });
+
+  it("takes attractSlideshow when the body has it", async () => {
+    await start({ token: TOKEN });
+    await post("/attract-slideshow", { enabled: false });
+    await post("/session", { templateId: "default-4r-grid", firstCountdownSeconds: 3, betweenShotsSeconds: 3, attractSlideshow: true });
+    expect(readSessionSettings(dataDir).attractSlideshow).toBe(true);
+  });
 });
 
 describe("session settings", () => {

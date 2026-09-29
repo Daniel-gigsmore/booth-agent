@@ -19,7 +19,10 @@ async function openOnSecondScreen(url: string): Promise<void> {
   const other = screens.find((s) => !s.isPrimary);
   if (!other) throw new Error("Only one screen is connected. Plug in the TV or projector first.");
   const features = `popup,left=${other.availLeft},top=${other.availTop},width=${other.availWidth},height=${other.availHeight}`;
-  if (!window.open(url, "kachak-slideshow", features)) throw new Error("The browser blocked the window - run start-slideshow.ps1 instead.");
+  // The first time, Chrome's permission prompt can use up the click, so the window is blocked; a second press works.
+  if (!window.open(url, "kachak-slideshow", features)) {
+    throw new Error("Chrome blocked the window. Press the button again; if it still doesn't open, run kiosk\\start-slideshow.ps1.");
+  }
 }
 
 export default function AlbumTab() {

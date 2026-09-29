@@ -12,13 +12,16 @@ let base: string;
 
 beforeAll(() => {
   const store = new OutboxStore(createInMemoryOutboxDb());
-  const add = (id: string, eventId: string, takenAt: string, composite: boolean) => {
+  const add = (id: string, eventId: string, takenAt: string, composite: boolean, printed = composite) => {
     store.insertCapture({ id, eventId, source: "webcam", originalPath: `/tmp/${id}.jpg`, takenAt });
     if (composite) store.setCompositePath(id, `/tmp/${id}-print.jpg`, "4x6");
+    if (printed) store.insertPrintJob({ id: `job-${id}`, captureId: id, size: "4x6", filePath: `/tmp/${id}-print.jpg` });
   };
   add("b", "evt", "2026-09-29T10:02:00.000Z", true);
   add("a", "evt", "2026-09-29T10:01:00.000Z", true);
   add("raw", "evt", "2026-09-29T10:03:00.000Z", false);
+  // Composited, but the guest tapped Retake or ✕ at Review: never printed, so not in the album.
+  add("rejected", "evt", "2026-09-29T10:04:00.000Z", true, false);
   add("elsewhere", "other-evt", "2026-09-29T10:00:00.000Z", true);
   const ctx = {
     configStore: { current: { agent: { allowedOrigins: [], sharedSecret: SECRET }, event: { id: "evt" } } },

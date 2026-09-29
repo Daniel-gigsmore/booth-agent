@@ -32,12 +32,12 @@ export default function App() {
       clearTimeout(timer);
       timer = setTimeout(expire, IDLE_MS);
     };
-    addEventListener("pointerdown", bump);
-    addEventListener("keydown", bump);
+    // A mouse moving or scrolling counts as someone being there too (an operator reading a list).
+    const events = ["pointerdown", "keydown", "wheel", "pointermove"] as const;
+    for (const e of events) addEventListener(e, bump, { passive: true });
     return () => {
       clearTimeout(timer);
-      removeEventListener("pointerdown", bump);
-      removeEventListener("keydown", bump);
+      for (const e of events) removeEventListener(e, bump);
     };
   }, [screen]);
 

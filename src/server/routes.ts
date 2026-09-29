@@ -414,7 +414,7 @@ export function buildRouter(ctx: AgentContext): Router {
     res.set("Cache-Control", "no-store").json({
       token: config.album.token ?? null,
       eventId: config.event.id,
-      eventName: config.event.name ?? config.event.id,
+      eventName: config.event.name || config.event.id,
       attractSlideshow: readSessionSettings(config.storage.dataDir).attractSlideshow,
     });
   });
@@ -843,7 +843,7 @@ export function buildRouter(ctx: AgentContext): Router {
 
   router.post("/session", (req: Request, res: Response) => {
     const config = ctx.configStore.current;
-    // A client that doesn't know attractSlideshow (the Settings tab) keeps whatever is set.
+    // A body without attractSlideshow (an older kiosk, or Settings when GET /session failed) keeps what is set.
     const current = readSessionSettings(config.storage.dataDir);
     const parsed = SessionSettingsSchema.safeParse({ attractSlideshow: current.attractSlideshow, ...req.body });
     if (!parsed.success) {

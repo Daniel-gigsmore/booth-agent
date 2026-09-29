@@ -152,13 +152,17 @@ if (!link) {
     document.title = `${link.name} · Kachak album`;
   }
   $("play").addEventListener("click", play);
+  let triedFullscreen = false;
   $("show").addEventListener("click", () => {
-    // A screen opened with play=1 had no tap to go full screen with: the first click does that, the next one stops.
-    if (link.play && document.fullscreenEnabled && !document.fullscreenElement) {
+    // A screen opened with play=1 had no tap to go full screen with: the first click tries that, the next one stops.
+    if (link.play && !triedFullscreen && document.fullscreenEnabled && !document.fullscreenElement) {
+      triedFullscreen = true;
       document.documentElement.requestFullscreen().catch(() => {});
       return;
     }
     stop();
+    // Opened by the kiosk's "Slideshow on second screen": close rather than leave a grid nobody can get out of.
+    if (window.opener) window.close();
   });
   $("show").addEventListener("mousemove", wake);
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") stop(); });
