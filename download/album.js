@@ -22,6 +22,8 @@ async function poll() {
     loaded = true;
     for (const id of added) $("grid").append(thumb(id));
     show(order.length > 0 ? "ready" : "empty");
+    // A slideshow started before the first photos arrived shouldn't sit on a blank screen until its next tick.
+    if (document.body.classList.contains("playing") && current === null && order.length > 0) advance();
   } catch {
     // Not written yet, or the network blinked: keep whatever is showing (and playing).
     if (!loaded) show("missing");
@@ -95,6 +97,7 @@ let slideTimer;
 let idleTimer;
 
 function play() {
+  if (document.body.classList.contains("playing")) return;
   document.body.classList.add("playing");
   // Only works from a tap; with play=1 the screen's kiosk-mode browser is already full screen.
   document.documentElement.requestFullscreen?.().catch(() => {});
@@ -119,6 +122,7 @@ function advance() {
   const slides = [$("slide-a"), $("slide-b")];
   const next = slides[1 - front];
   const reveal = () => {
+    if (!document.body.classList.contains("playing")) return;
     next.classList.add("on");
     slides[front].classList.remove("on");
     front = 1 - front;
