@@ -72,13 +72,13 @@ Add `&play=1` to start straight in the slideshow, e.g. on a venue TV with intern
 
 ### Booth screen (no internet)
 
-With a TV or projector plugged into the booth PC, run:
+With a TV or projector plugged into the booth PC, use **Slideshow on second screen** in the kiosk's operator Album tab. If Chrome won't place the window, run:
 
 ```
 powershell -NoProfile -ExecutionPolicy Bypass -File C:\BoothAgent\kiosk\start-slideshow.ps1
 ```
 
-It opens `http://127.0.0.1:7070/album/album.html?local=1&play=1&token=<agent secret>` full-screen on the second screen. Photos come straight from the booth, so they show up as soon as they're printed. Use `-Screen <n>` to pick a different screen. Exit with Alt+F4.
+It opens `http://127.0.0.1:7070/album/album.html?local=1&play=1&token=<agent secret>` full-screen on the second screen. Photos come straight from the booth, so they show up as soon as they're printed. Use `-Screen <n>` to pick a different screen. Exit with Alt+F4. The first click on the slideshow puts the page itself in full screen (you may see no change); the next click stops it. A window opened from the operator panel closes instead.
 
 ## Local preview
 

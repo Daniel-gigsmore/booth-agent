@@ -83,10 +83,18 @@ export class OutboxStore {
     return row as unknown as CaptureRow | undefined;
   }
 
-  /** This event's composited captures, oldest first: the album on the booth's own screen. */
+  /**
+   * This event's prints, oldest first: the album on the booth's own screens. Only composites that
+   * were sent to the printer - a guest who taps Retake or ✕ at Review leaves a composite behind.
+   */
   listAlbumPrints(eventId: string): Array<{ id: string; takenAt: string }> {
     return this.db
-      .prepare(`SELECT id, taken_at AS takenAt FROM captures WHERE event_id = ? AND composite_path IS NOT NULL ORDER BY taken_at`)
+      .prepare(
+        `SELECT id, taken_at AS takenAt FROM captures
+         WHERE event_id = ? AND composite_path IS NOT NULL
+           AND EXISTS (SELECT 1 FROM print_jobs p WHERE p.capture_id = captures.id)
+         ORDER BY taken_at`
+      )
       .all(eventId) as Array<{ id: string; takenAt: string }>;
   }
 

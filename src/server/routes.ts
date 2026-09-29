@@ -406,6 +406,32 @@ export function buildRouter(ctx: AgentContext): Router {
     });
   });
 
+  // What the kiosk's operator Album tab needs to build the online album link and QR, and the
+  // attract screen's slideshow switch. The token stays behind the secret: it is not in /health,
+  // which phones on the venue wifi read. Not under /album/, which is served without the secret.
+  router.get("/album-info", (_req: Request, res: Response) => {
+    const config = ctx.configStore.current;
+    res.set("Cache-Control", "no-store").json({
+      token: config.album.token ?? null,
+      eventId: config.event.id,
+      eventName: config.event.name || config.event.id,
+      attractSlideshow: readSessionSettings(config.storage.dataDir).attractSlideshow,
+    });
+  });
+
+  // Its own route rather than POST /session, which needs a layout that loads.
+  router.post("/attract-slideshow", (req: Request, res: Response) => {
+    const parsed = z.object({ enabled: z.boolean() }).safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "enabled must be true or false" });
+      return;
+    }
+    const dataDir = ctx.configStore.current.storage.dataDir;
+    writeSessionSettings(dataDir, { ...readSessionSettings(dataDir), attractSlideshow: parsed.data.enabled });
+    log.info(`Attract slideshow ${parsed.data.enabled ? "on" : "off"}`);
+    res.json({ attractSlideshow: parsed.data.enabled });
+  });
+
   // The kiosk's review screen shows the still the guest just took. /capture
   // only hands back a local path the browser cannot open, so serve the file
   // here. The path comes from the outbox row, never from the request, so the
@@ -817,7 +843,9 @@ export function buildRouter(ctx: AgentContext): Router {
 
   router.post("/session", (req: Request, res: Response) => {
     const config = ctx.configStore.current;
-    const parsed = SessionSettingsSchema.safeParse(req.body);
+    // A body without attractSlideshow (an older kiosk, or Settings when GET /session failed) keeps what is set.
+    const current = readSessionSettings(config.storage.dataDir);
+    const parsed = SessionSettingsSchema.safeParse({ attractSlideshow: current.attractSlideshow, ...req.body });
     if (!parsed.success) {
       res.status(400).json({ error: parsed.error.message });
       return;

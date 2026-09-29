@@ -26,8 +26,10 @@ body {
   user-select: none;
   -webkit-user-select: none;
   touch-action: manipulation;
-  cursor: none; /* touchscreen kiosk */
+  cursor: none; /* touch never shows a pointer; a moving mouse does (body.mouse, see main.tsx) */
 }
+body.mouse { cursor: default; }
+body.mouse button { cursor: pointer; }
 h1, h2, p { margin: 0; }
 img { display: block; }
 button { font: inherit; color: inherit; cursor: inherit; }
@@ -128,6 +130,12 @@ button { font: inherit; color: inherit; cursor: inherit; }
 .attract-copy { display: flex; flex-direction: column; gap: 36px; }
 .attract-strips { width: 600px; flex-shrink: 0; position: relative; }
 .attract-strips .strip { position: absolute; }
+.attract-prints { position: absolute; inset: 0; }
+.attract-prints img {
+  position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain;
+  opacity: 0; transition: opacity 0.8s; filter: drop-shadow(0 30px 60px rgba(0, 0, 0, 0.45));
+}
+.attract-prints img.on { opacity: 1; }
 .tilt-left { left: 20px; top: 40px; transform: rotate(-6deg); }
 .tilt-right { left: 290px; top: 110px; transform: rotate(5deg); }
 .op-dot {
@@ -232,6 +240,10 @@ button { font: inherit; color: inherit; cursor: inherit; }
   gap: 28px;
 }
 .qr-card img { width: 420px; height: 420px; }
+.album-tab { align-items: flex-start; }
+.album-link { font-size: 26px; font-weight: 700; overflow-wrap: anywhere; user-select: text; -webkit-user-select: text; }
+.album-qr { width: 460px; padding: 50px; }
+.album-qr img { width: 360px; height: 360px; }
 .qr-url { font-size: 22px; color: var(--ink-muted); max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ---- Oops ---- */

@@ -14,6 +14,8 @@ export const SessionSettingsSchema = z.object({
   templateId: z.string().min(1),
   firstCountdownSeconds: z.number().int().min(1).max(10),
   betweenShotsSeconds: z.number().int().min(1).max(10),
+  /** The attract screen shows this event's prints. Some clients don't want guests' photos on show. */
+  attractSlideshow: z.boolean().default(true),
 });
 
 export type SessionSettings = z.infer<typeof SessionSettingsSchema>;
@@ -22,6 +24,7 @@ export const DEFAULT_SESSION: SessionSettings = {
   templateId: "default-4r-grid",
   firstCountdownSeconds: 3,
   betweenShotsSeconds: 3,
+  attractSlideshow: true,
 };
 
 function settingsPath(dataDir: string): string {

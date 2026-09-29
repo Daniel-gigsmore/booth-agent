@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import QRCode from "qrcode";
-import { agent, agentUrl, config, Health, Session, Template, type CameraSlot } from "./agent";
+import { agent, agentUrl, config, Health, printUrl, Session, Template, type CameraSlot } from "./agent";
+import { mergeAlbum, nextSlide, type SlideState } from "./album";
 import { useCountdown } from "./hooks";
 import { shotCount, shotPrompt } from "./layout";
 
@@ -46,6 +47,89 @@ function Strip({ photo, className = "" }: { photo?: string; className?: string }
   );
 }
 
+const ALBUM_POLL_MS = 15_000;
+const SLIDE_MS = 6_000;
+
+// Attract unmounts for every guest, so where the slideshow is up to lives out here: coming back, it
+// carries on (with the guest's own print next) instead of restarting from the oldest print.
+const attract: SlideState & { on: boolean; layers: [string | null, string | null]; front: number } = {
+  order: [], queue: [], current: null, loaded: false, on: false, layers: [null, null], front: 0,
+};
+
+/**
+ * This event's prints, fading one into the next where the sample strips sit, so the booth shows
+ * what it makes. New prints play next. Read from the agent, so it works offline. Falls back to the
+ * sample strips while there are no prints or the operator has switched it off (Album tab).
+ */
+function AttractPrints({ fallback }: { fallback: React.ReactNode }) {
+  const [on, setOn] = useState(attract.on);
+  const [layers, setLayers] = useState(attract.layers);
+  const [front, setFront] = useState(attract.front);
+
+  useEffect(() => {
+    let alive = true;
+    const load = async () => {
+      try {
+        const [info, ids] = await Promise.all([agent.albumInfo(), agent.albumPhotos()]);
+        if (!alive) return;
+        mergeAlbum(attract, ids);
+        attract.on = info.attractSlideshow && ids.length > 0;
+        setOn(attract.on);
+      } catch {
+        // Agent busy or restarting: keep whatever is showing.
+      }
+    };
+    void load();
+    const t = setInterval(load, ALBUM_POLL_MS);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!on) return;
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout>;
+    const step = () => {
+      ({ current: attract.current, queue: attract.queue } = nextSlide(attract.order, attract.queue, attract.current));
+      if (!attract.current) {
+        timer = setTimeout(step, SLIDE_MS);
+        return;
+      }
+      // Loaded off-screen first, so the fade never shows a half-drawn print.
+      const url = printUrl(attract.current);
+      const img = new Image();
+      img.onload = () => {
+        if (!alive) return;
+        const back = 1 - attract.front;
+        attract.layers = back === 0 ? [url, attract.layers[1]] : [attract.layers[0], url];
+        attract.front = back;
+        setLayers(attract.layers);
+        setFront(back);
+        timer = setTimeout(step, SLIDE_MS);
+      };
+      img.onerror = () => {
+        if (alive) timer = setTimeout(step, 1000); // skip it; it comes round again next loop
+      };
+      img.src = url;
+    };
+    step();
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, [on]);
+
+  // Also the strips until a print has actually loaded (or if none will).
+  if (!on || !layers[front]) return <>{fallback}</>;
+  return (
+    <div className="attract-prints">
+      {layers.map((src, i) => src && <img key={i} className={i === front ? "on" : ""} src={src} alt="" />)}
+    </div>
+  );
+}
+
 export function Attract({ health, onStart, onOperator }: {
   health: Health | null; onStart: () => void; onOperator: () => void;
 }) {
@@ -78,8 +162,7 @@ export function Attract({ health, onStart, onOperator }: {
         </div>
       </div>
       <div className="attract-strips">
-        <Strip className="tilt-left" />
-        <Strip className="tilt-right" />
+        <AttractPrints fallback={<><Strip className="tilt-left" /><Strip className="tilt-right" /></>} />
       </div>
       {/* Hidden from guests: tap 5 times quickly to open the operator panel. */}
       <button
