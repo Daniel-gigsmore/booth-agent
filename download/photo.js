@@ -1,5 +1,7 @@
 // Pure logic for the guest download page (index.html + main.js). No DOM here, so vitest can test it.
 
+// Must match `supabase.url` in booth.config.json. See "New Supabase project?"
+// in download/README.md if this event uses its own Supabase project.
 export const SUPABASE_URL = "https://pbtnvpykoueiizsvjwlo.supabase.co";
 export const RETRY_MS = 5000;
 export const LATER_AFTER_MS = 120000;

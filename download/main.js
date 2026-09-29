@@ -7,7 +7,7 @@ let file = null;
 
 async function attempt() {
   try {
-    const res = await fetch(imageUrl(link, Date.now()), { cache: "no-store" });
+    const res = await fetch(imageUrl(link, Date.now()), { cache: "no-store", signal: AbortSignal.timeout(20000) });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const blob = await res.blob();
     file = new File([blob], shareFileName(link), { type: "image/jpeg" });
@@ -22,20 +22,26 @@ async function attempt() {
 
 async function share() {
   if (!file) return;
-  if (navigator.canShare?.({ files: [file] })) {
-    try {
-      await navigator.share({ files: [file] });
-      return;
-    } catch (err) {
-      if (err?.name === "AbortError") return;
-      // Share failed for another reason: fall back to a plain download.
+  const button = document.getElementById("share");
+  button.disabled = true;
+  try {
+    if (navigator.canShare?.({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file] });
+        return;
+      } catch (err) {
+        if (err?.name === "AbortError") return;
+        // Share failed for another reason: fall back to a plain download.
+      }
     }
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(file);
+    a.download = file.name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
+  } finally {
+    button.disabled = false;
   }
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(file);
-  a.download = file.name;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
 }
 
 if (!link) {

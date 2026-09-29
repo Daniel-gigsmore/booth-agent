@@ -28,6 +28,14 @@ VITE_DOWNLOAD_URL=https://<site>/?event=gigsmore-launch-2026&name=Gigsmore%20Lau
 
    Each push to `master` then redeploys it.
 
+## New Supabase project?
+
+Each event may get its own fresh Supabase project (see the main README's "Supabase schema setup"). If this event does:
+
+1. Set `SUPABASE_URL` in `download/photo.js` to the same value as `supabase.url` in `booth.config.json`.
+2. Run both migrations in order against the new project's SQL Editor: `20260814000000_captures.sql`, then `20260928000000_public_capture_bucket.sql`.
+3. Push to `master` to redeploy this page.
+
 ## Local preview
 
 ```
