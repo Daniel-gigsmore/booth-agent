@@ -1,12 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { LATER_AFTER_MS, imageUrl, parseLink, shareFileName, waitingState } from "../download/photo.js";
+import { LATER_AFTER_MS, imageUrl, parseLink, projectUrl, shareFileName, waitingState } from "../download/photo.js";
 
 const ID = "080984fe-674a-469b-83c6-493f9bf2d3d5";
 
 describe("parseLink", () => {
   it("reads event, id and name", () => {
     expect(parseLink(`?event=gigsmore-launch-2026&name=Gigsmore%20Launch&id=${ID}`))
-      .toEqual({ event: "gigsmore-launch-2026", id: ID, name: "Gigsmore Launch" });
+      .toEqual({ event: "gigsmore-launch-2026", id: ID, name: "Gigsmore Launch", project: null });
   });
 
   it("treats a missing or blank name as null", () => {
@@ -26,6 +26,8 @@ describe("parseLink", () => {
       `?event=evt&id=${ID}x`,
       `?event=../other&id=${ID}`,
       `?event=a%2Fb&id=${ID}`,
+      `?event=evt&id=${ID}&p=NOT-A-REF`,
+      `?event=evt&id=${ID}&p=abc`,
       "",
     ]) {
       expect(parseLink(search), search).toBeNull();
@@ -35,7 +37,7 @@ describe("parseLink", () => {
 
 describe("imageUrl", () => {
   it("is the public object URL with a cache-buster", () => {
-    expect(imageUrl({ event: "gigsmore-launch-2026", id: ID, name: null }, 1234)).toBe(
+    expect(imageUrl({ event: "gigsmore-launch-2026", id: ID, name: null, project: null }, 1234)).toBe(
       `https://pbtnvpykoueiizsvjwlo.supabase.co/storage/v1/object/public/captures/gigsmore-launch-2026/${ID}.jpg?t=1234`
     );
   });
@@ -52,6 +54,20 @@ describe("waitingState", () => {
 
 describe("shareFileName", () => {
   it("names the file after the event and the id's first 8 characters", () => {
-    expect(shareFileName({ event: "gigsmore-launch-2026", id: ID, name: null })).toBe("kachak-gigsmore-launch-2026-080984fe.jpg");
+    expect(shareFileName({ event: "gigsmore-launch-2026", id: ID, name: null, project: null })).toBe("kachak-gigsmore-launch-2026-080984fe.jpg");
+  });
+});
+
+describe("project", () => {
+  it("reads p as the Supabase project ref", () => {
+    expect(parseLink(`?event=evt&id=${ID}&p=abcdefghijklmnopqrst`)?.project).toBe("abcdefghijklmnopqrst");
+  });
+
+  it("points at p's project, or the default without it", () => {
+    expect(projectUrl({ project: "abcdefghijklmnopqrst" })).toBe("https://abcdefghijklmnopqrst.supabase.co");
+    expect(projectUrl({ project: null })).toBe("https://pbtnvpykoueiizsvjwlo.supabase.co");
+    expect(imageUrl({ event: "evt", id: ID, name: null, project: "abcdefghijklmnopqrst" }, 7)).toBe(
+      `https://abcdefghijklmnopqrst.supabase.co/storage/v1/object/public/captures/evt/${ID}.jpg?t=7`
+    );
   });
 });

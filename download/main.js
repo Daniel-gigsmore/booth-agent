@@ -1,4 +1,5 @@
 import { RETRY_MS, imageUrl, parseLink, shareFileName, waitingState } from "./photo.js";
+import { sharePhoto } from "./share.js";
 
 const show = (state) => { document.body.dataset.state = state; };
 const link = parseLink(location.search);
@@ -25,20 +26,7 @@ async function share() {
   const button = document.getElementById("share");
   button.disabled = true;
   try {
-    if (navigator.canShare?.({ files: [file] })) {
-      try {
-        await navigator.share({ files: [file] });
-        return;
-      } catch (err) {
-        if (err?.name === "AbortError") return;
-        // Share failed for another reason: fall back to a plain download.
-      }
-    }
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(file);
-    a.download = file.name;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
+    await sharePhoto(file);
   } finally {
     button.disabled = false;
   }
