@@ -88,9 +88,11 @@ export const BoothConfigSchema = z.object({
     url: z.string().url(),
     // booth-agent is a trusted local service on hardware Daniel controls,
     // not a browser client - it uses the service_role key (bypasses RLS)
-    // rather than anon. Only the guest-facing web app should ever hold an
-    // anon key. See supabase/migrations/20260814000000_captures.sql for the
-    // RLS policies that assume this split.
+    // rather than anon. The captures bucket is public (see
+    // supabase/migrations/20260928000000_public_capture_bucket.sql, which
+    // also drops anon's read policies entirely); the guest-facing download
+    // page (download/) holds no key at all and just reads the public
+    // object URL by its exact, unguessable path.
     serviceRoleKey: z.string(),
     storageBucket: z.string().default("captures"),
   }),
