@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { ALBUM_RETRY_MS, AlbumBackend, AlbumManifest, AlbumPhoto, AlbumPublisher } from "../src/album/albumPublisher";
+import { ALBUM_RETRY_MS, AlbumBackend, AlbumManifest, AlbumPhoto, AlbumPublisher, AlbumTarget } from "../src/album/albumPublisher";
 import { BoothConfigSchema } from "../src/config/schema";
 
 class FakeBackend implements AlbumBackend {
@@ -31,10 +31,10 @@ class FakeBackend implements AlbumBackend {
 
 const TOKEN = "tok-0123456789abcdef";
 
-function setup(token: string | undefined = TOKEN) {
+function setup(options: { token?: string } = { token: TOKEN }) {
   const backend = new FakeBackend();
   let now = 1_000_000;
-  const target = { eventId: "evt", token };
+  const target: AlbumTarget = { eventId: "evt", token: options.token };
   const publisher = new AlbumPublisher(backend, () => target, () => now);
   return { backend, publisher, target, advance: (ms: number) => { now += ms; } };
 }
@@ -106,7 +106,7 @@ describe("AlbumPublisher", () => {
   });
 
   it("does nothing without a token", async () => {
-    const { backend, publisher } = setup(undefined);
+    const { backend, publisher } = setup({});
     await publisher.publishIfDirty();
     expect(backend.listed).toEqual([]);
     expect(publisher.getStatus()).toEqual({ enabled: false, photoCount: null, lastWrittenAt: null, lastError: null });
