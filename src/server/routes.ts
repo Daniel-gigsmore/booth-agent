@@ -540,6 +540,8 @@ export function buildRouter(ctx: AgentContext): Router {
     for (let i = 0; i < copies; i += 1) {
       jobs.push(ctx.printQueue.enqueue(captureId, size, row.composite_path));
     }
+    // The online album lists printed photos only; its composite may already have uploaded.
+    ctx.album.markDirty();
 
     // Keep the single-job response shape for the common copies=1 case so
     // existing callers (kiosk UI) reading `jobId`/`queuePosition` directly

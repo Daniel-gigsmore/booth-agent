@@ -98,7 +98,11 @@ async function main(): Promise<void> {
 
   const supabaseClient = createSupabaseClient(config.supabase);
   const albumPublisher = new AlbumPublisher(
-    createSupabaseAlbumBackend(supabaseClient, () => configStore.current.supabase.storageBucket),
+    {
+      // Which photos: only the booth knows which composites were printed (not rejected at Review).
+      listPrints: async (eventId) => outboxStore.listPublishedPrints(eventId),
+      ...createSupabaseAlbumBackend(supabaseClient, () => configStore.current.supabase.storageBucket),
+    },
     () => ({ eventId: configStore.current.event.id, token: configStore.current.album.token })
   );
   const syncWorker = new SyncWorker(
