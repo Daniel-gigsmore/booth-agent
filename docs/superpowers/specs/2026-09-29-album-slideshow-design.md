@@ -40,26 +40,19 @@ With no `album.token`, nothing in this section runs and the agent behaves exactl
 ### When it is written
 
 - The album is marked **dirty** when the sync worker successfully uploads a print. That is a row whose uploaded source is its composite (`sourcePath === row.composite_path`, which is also when `print_size` is set on the Supabase row). Uploading a raw original doesn't mark it.
+- It is also marked dirty by `POST /print`, because a composite often uploads before the guest approves it at Review (changed 2026-09-29, see below).
 - The album is also dirty at startup and after the token changes, so a write lost before a restart, or a new token, is caught up.
 - At the end of a sync tick, if the album is dirty and a token is set, the agent writes the manifest. On success it clears dirty. On failure it stays dirty and a later tick retries, no sooner than 15 s after the failure, so an offline booth doesn't hit Supabase every 2 s. A failure never affects photo uploads.
 
 ### What is written
 
-The agent queries Supabase with the service-role client:
-
-```
-select id, taken_at from captures
-where event_id = <event.id> and print_size is not null
-order by taken_at
-```
-
-and uploads to the bucket at `<event.id>/albums/<token>.json` with `upsert: true`, `contentType: application/json` and `cacheControl: "10"`:
+The agent lists, from its local outbox (`OutboxStore.listPublishedPrints`), this event's captures that were **sent to the printer** and whose **composite has uploaded** (`synced_source_path = composite_path`), in `taken_at` order, and uploads to the bucket at `<event.id>/albums/<token>.json` with `upsert: true`, `contentType: application/json` and `cacheControl: "10"`:
 
 ```json
 { "updatedAt": "2026-09-29T10:00:00.000Z", "photos": [{ "id": "<uuid>", "takenAt": "<iso>" }] }
 ```
 
-Querying Supabase rather than the local outbox means the album is complete even if the local data folder was reset, and it only ever lists prints that are really in the bucket. Because a row only gets `print_size` when its composite uploads, a raw original can never appear in the album.
+**Changed 2026-09-29.** The first version queried the Supabase `captures` table (`print_size is not null`). That also listed composites a guest rejected at Review with Retake or ✕, because the composite is made (and may upload) before Review, and Supabase can't tell which were printed. Only the booth's outbox knows. The cost: if the booth's data folder is reset mid-event, earlier prints drop out of the album (their files stay in the bucket). Listing only uploaded composites still means a raw original never appears and every listed photo opens.
 
 After a successful write, the agent lists `<event.id>/albums/` and removes every object except `<token>.json`. That is how a token change revokes the old link. A failed removal is logged and retried after the next write; it never re-marks the album dirty.
 

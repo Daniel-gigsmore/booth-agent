@@ -98,6 +98,22 @@ export class OutboxStore {
       .all(eventId) as Array<{ id: string; takenAt: string }>;
   }
 
+  /**
+   * The online album's photos: as listAlbumPrints, but only once the print itself (not the raw
+   * original) is in Supabase, so every listed photo opens. Supabase can't tell a print from a
+   * composite the guest rejected at Review - only this outbox knows what was printed.
+   */
+  listPublishedPrints(eventId: string): Array<{ id: string; takenAt: string }> {
+    return this.db
+      .prepare(
+        `SELECT id, taken_at AS takenAt FROM captures
+         WHERE event_id = ? AND composite_path IS NOT NULL AND synced_source_path = composite_path
+           AND EXISTS (SELECT 1 FROM print_jobs p WHERE p.capture_id = captures.id)
+         ORDER BY taken_at`
+      )
+      .all(eventId) as Array<{ id: string; takenAt: string }>;
+  }
+
   /** Rows due for an upload attempt now, oldest first, capped at batchSize. */
   getBatchDue(batchSize: number): CaptureRow[] {
     const now = nowIso();
