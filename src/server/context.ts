@@ -5,6 +5,7 @@ import { OutboxStore } from "../outbox/outboxStore";
 import { PrintQueue } from "../print/printQueue";
 import { PreflightResult } from "../startup/preflight";
 import { AlbumPublisher } from "../album/albumPublisher";
+import { EventStore } from "../session/eventStore";
 
 /** Everything the HTTP/WS layer needs, wired up once in index.ts. */
 export interface AgentContext {
@@ -13,6 +14,8 @@ export interface AgentContext {
   cameraManager: CameraManager;
   outboxStore: OutboxStore;
   printQueue: PrintQueue;
+  /** The booth's events; captures, layouts and the album follow the active one. */
+  events: EventStore;
   /** The event album's manifest writer; /health reports its status. */
   album: AlbumPublisher;
   /**

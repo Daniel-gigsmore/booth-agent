@@ -7,6 +7,8 @@ import { Server } from "node:http";
 import sharp from "sharp";
 import { buildHttpApp } from "../src/server/http";
 import { AgentContext } from "../src/server/context";
+import { EventStore } from "../src/session/eventStore";
+import { DEFAULT_SESSION } from "../src/session/sessionSettings";
 import { saveAsset, saveTemplate } from "../src/compositor/template";
 
 const SECRET = "test-secret";
@@ -33,10 +35,10 @@ beforeAll(async () => {
       current: {
         agent: { allowedOrigins: [], sharedSecret: SECRET },
         compositing: { templateDir: dir },
-        event: { id: "evt" },
         storage: { dataDir: dir },
       },
     },
+    events: EventStore.open(dir, { id: "evt", session: DEFAULT_SESSION }),
   } as unknown as AgentContext;
   server = buildHttpApp(ctx).listen(0);
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;

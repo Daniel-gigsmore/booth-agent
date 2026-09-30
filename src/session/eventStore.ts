@@ -36,8 +36,8 @@ export const NewEventSchema = z.object({
 /** What the booth ran on before events.json existed: booth.config.json's event and album token, and session.json. */
 export interface EventSeed {
   id: string;
-  name?: string;
-  albumToken?: string;
+  name?: string | undefined;
+  albumToken?: string | undefined;
   session: SessionSettings;
 }
 

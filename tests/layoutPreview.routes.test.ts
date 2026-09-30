@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, vi, beforeAll, afterAll } from "vitest";
 import { mkdtemp, mkdir, rm, writeFile, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -6,7 +6,16 @@ import { AddressInfo } from "node:net";
 import { Server } from "node:http";
 import sharp from "sharp";
 import { buildHttpApp } from "../src/server/http";
+import { renderSheet } from "../src/compositor/compositor";
 import { AgentContext } from "../src/server/context";
+import { EventStore } from "../src/session/eventStore";
+import { DEFAULT_SESSION } from "../src/session/sessionSettings";
+
+// Spy on the sheet renderer so a test can see which text variables a preview used.
+vi.mock("../src/compositor/compositor", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/compositor/compositor")>();
+  return { ...actual, renderSheet: vi.fn(actual.renderSheet) };
+});
 
 const SECRET = "test-secret";
 let root: string;
@@ -14,6 +23,7 @@ let templateDir: string;
 let hotFolder: string;
 let server: Server;
 let base: string;
+let events: EventStore;
 
 beforeAll(async () => {
   root = await mkdtemp(path.join(tmpdir(), "booth-preview-"));
@@ -21,6 +31,7 @@ beforeAll(async () => {
   hotFolder = path.join(root, "hot");
   await mkdir(templateDir, { recursive: true });
   await writeFile(path.join(root, "outside.png"), await sharp({ create: { width: 4, height: 4, channels: 4, background: "#ff0000" } }).png().toBuffer());
+  events = EventStore.open(root, { id: "evt", name: "Gigsmore Launch", session: DEFAULT_SESSION });
   // Only the layout routes run here; they touch nothing but config.
   const ctx = {
     configStore: {
@@ -28,10 +39,10 @@ beforeAll(async () => {
         agent: { allowedOrigins: [], sharedSecret: SECRET },
         compositing: { templateDir, jpegQuality: 90 },
         printing: { hotFolderPath: hotFolder },
-        event: { id: "evt", name: "Gigsmore Launch" },
         storage: { dataDir: root },
       },
     },
+    events,
   } as unknown as AgentContext;
   server = buildHttpApp(ctx).listen(0);
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -73,6 +84,8 @@ async function filesUnder(dir: string): Promise<string[]> {
   return out;
 }
 
+const lastVariables = () => vi.mocked(renderSheet).mock.calls.at(-1)![0].variables;
+
 describe("layout preview", () => {
   it("renders an unsaved draft as the portrait print sheet", async () => {
     const res = await post("/layout-preview", draft());
@@ -103,5 +116,15 @@ describe("layout preview", () => {
     expect(dropped.some((f) => path.basename(f) === `${jobId}.jpg`)).toBe(true);
     const composites = await filesUnder(path.join(root, "composites"));
     expect(composites.some((f) => path.basename(f) === `${jobId}.jpg`)).toBe(false);
+  });
+});
+
+describe("layout preview {event}", () => {
+  it("uses the active event's name, and follows a switch", async () => {
+    await post("/layout-preview", draft());
+    expect(lastVariables()).toMatchObject({ event: "Gigsmore Launch" });
+    events.create({ name: "TUMI", date: "2026-10-05" });
+    await post("/layout-preview", draft());
+    expect(lastVariables()).toMatchObject({ event: "TUMI" });
   });
 });

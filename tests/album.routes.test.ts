@@ -1,4 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { EventStore } from "../src/session/eventStore";
+import { DEFAULT_SESSION } from "../src/session/sessionSettings";
 import { AddressInfo } from "node:net";
 import { Server } from "node:http";
 import { buildHttpApp } from "../src/server/http";
@@ -9,6 +14,7 @@ import { OutboxStore } from "../src/outbox/outboxStore";
 const SECRET = "test-secret";
 let server: Server;
 let base: string;
+let eventsDir: string;
 
 beforeAll(() => {
   const store = new OutboxStore(createInMemoryOutboxDb());
@@ -23,8 +29,10 @@ beforeAll(() => {
   // Composited, but the guest tapped Retake or ✕ at Review: never printed, so not in the album.
   add("rejected", "evt", "2026-09-29T10:04:00.000Z", true, false);
   add("elsewhere", "other-evt", "2026-09-29T10:00:00.000Z", true);
+  eventsDir = mkdtempSync(path.join(tmpdir(), "booth-album-routes-"));
   const ctx = {
-    configStore: { current: { agent: { allowedOrigins: [], sharedSecret: SECRET }, event: { id: "evt" } } },
+    configStore: { current: { agent: { allowedOrigins: [], sharedSecret: SECRET } } },
+    events: EventStore.open(eventsDir, { id: "evt", session: DEFAULT_SESSION }),
     outboxStore: store,
   } as unknown as AgentContext;
   server = buildHttpApp(ctx).listen(0);
@@ -33,6 +41,7 @@ beforeAll(() => {
 
 afterAll(() => {
   server.close();
+  rmSync(eventsDir, { recursive: true, force: true });
 });
 
 describe("GET /album.json", () => {

@@ -1,10 +1,12 @@
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from "vitest";
-import { mkdtempSync, mkdirSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { AddressInfo } from "node:net";
 import { Server } from "node:http";
 import sharp from "sharp";
+import { EventStore } from "../src/session/eventStore";
+import { DEFAULT_SESSION } from "../src/session/sessionSettings";
 import { buildHttpApp } from "../src/server/http";
 import { AgentContext } from "../src/server/context";
 import { CameraUnavailableError } from "../src/camera/CameraSource";
@@ -44,7 +46,8 @@ const req = (p: string, method = "GET", body?: object) =>
 
 beforeAll(() => {
   const ctx = {
-    configStore: { current: { agent: { allowedOrigins: [], sharedSecret: SECRET }, storage: { dataDir }, event: { id: "evt" } } },
+    configStore: { current: { agent: { allowedOrigins: [], sharedSecret: SECRET }, storage: { dataDir } } },
+    events: EventStore.open(dataDir, { id: "evt", session: DEFAULT_SESSION }),
     cameraManager: manager,
     outboxStore,
     eventBus: { emit: vi.fn() },
@@ -52,7 +55,7 @@ beforeAll(() => {
   server = buildHttpApp(ctx).listen(0);
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 });
-afterAll(() => { server.close(); });
+afterAll(() => { server.close(); rmSync(dataDir, { recursive: true, force: true }); });
 beforeEach(() => { vi.clearAllMocks(); writeCameraSerials(dataDir, {}); });
 
 describe("dual camera routes", () => {

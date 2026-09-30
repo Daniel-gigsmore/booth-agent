@@ -27,7 +27,7 @@ import {
 import { exportLayout, importLayout, copyLayout } from "../compositor/templateTransfer";
 import { FONTS, fontFilePath } from "../compositor/fonts";
 import { textVariables } from "../compositor/variables";
-import { readSessionSettings, writeSessionSettings, SessionSettingsSchema } from "../session/sessionSettings";
+import { SessionSettingsSchema } from "../session/sessionSettings";
 import { renderComposite, renderSheet } from "../compositor/compositor";
 import { samplePhotos } from "../compositor/samples";
 import { originalsDir, compositesDir, aiDownloadsDir, samplesDir } from "../util/paths";
@@ -103,6 +103,7 @@ export function buildRouter(ctx: AgentContext): Router {
 
   router.get("/health", asyncHandler(async (_req: Request, res: Response) => {
     const config = ctx.configStore.current;
+    const event = ctx.events.active();
     const cameraStatus = ctx.cameraManager.getStatus();
     const [hotFolderWritable, diskSpace, printerStatus, stalledPrints, digiCamControlRunning] = await Promise.all([
       isHotFolderWritable(config.printing.hotFolderPath),
@@ -124,7 +125,7 @@ export function buildRouter(ctx: AgentContext): Router {
     if (cameraStatus.low) {
       try {
         layoutUsesLow = usesCamera(
-          loadTemplate(config.compositing.templateDir, readSessionSettings(config.storage.dataDir).templateId),
+          loadTemplate(config.compositing.templateDir, event.session.templateId),
           "low"
         );
       } catch {
@@ -144,7 +145,10 @@ export function buildRouter(ctx: AgentContext): Router {
         printer: printerStatus,
         disk: diskSpace,
         outbox: ctx.outboxStore.getSyncSummary(),
-        eventId: config.event.id,
+        eventId: event.id,
+        eventName: event.name,
+        eventDate: event.date,
+        eventsFileError: ctx.events.loadError,
         thresholds: {
           lowDiskWarnBytes: config.storage.lowDiskWarnBytes,
           lowMediaWarnPrints: config.printing.lowMediaWarnPrints,
@@ -179,7 +183,7 @@ export function buildRouter(ctx: AgentContext): Router {
    * Belongs in the pre-event runbook: set everything up, POST this, expect ok.
    */
   router.post("/health/preflight", asyncHandler(async (_req: Request, res: Response) => {
-    const result = await runPreflight(ctx.configStore.current);
+    const result = await runPreflight(ctx.configStore.current, ctx.events.active().id);
     logPreflight(result);
     ctx.preflight = result;
     res.json(result);
@@ -251,7 +255,7 @@ export function buildRouter(ctx: AgentContext): Router {
 
       ctx.outboxStore.insertCapture({
         id: captureId,
-        eventId: config.event.id,
+        eventId: ctx.events.active().id,
         source: result.source,
         camera: result.camera,
         originalPath: result.filePath,
@@ -402,7 +406,7 @@ export function buildRouter(ctx: AgentContext): Router {
   router.get("/album.json", (_req: Request, res: Response) => {
     res.set("Cache-Control", "no-store").json({
       updatedAt: new Date().toISOString(),
-      photos: ctx.outboxStore.listAlbumPrints(ctx.configStore.current.event.id),
+      photos: ctx.outboxStore.listAlbumPrints(ctx.events.active().id),
     });
   });
 
@@ -410,12 +414,12 @@ export function buildRouter(ctx: AgentContext): Router {
   // attract screen's slideshow switch. The token stays behind the secret: it is not in /health,
   // which phones on the venue wifi read. Not under /album/, which is served without the secret.
   router.get("/album-info", (_req: Request, res: Response) => {
-    const config = ctx.configStore.current;
+    const event = ctx.events.active();
     res.set("Cache-Control", "no-store").json({
-      token: config.album.token ?? null,
-      eventId: config.event.id,
-      eventName: config.event.name || config.event.id,
-      attractSlideshow: readSessionSettings(config.storage.dataDir).attractSlideshow,
+      token: event.albumToken ?? null,
+      eventId: event.id,
+      eventName: event.name,
+      attractSlideshow: event.session.attractSlideshow,
     });
   });
 
@@ -426,8 +430,7 @@ export function buildRouter(ctx: AgentContext): Router {
       res.status(400).json({ error: "enabled must be true or false" });
       return;
     }
-    const dataDir = ctx.configStore.current.storage.dataDir;
-    writeSessionSettings(dataDir, { ...readSessionSettings(dataDir), attractSlideshow: parsed.data.enabled });
+    ctx.events.updateActiveSession({ ...ctx.events.active().session, attractSlideshow: parsed.data.enabled });
     log.info(`Attract slideshow ${parsed.data.enabled ? "on" : "off"}`);
     res.json({ attractSlideshow: parsed.data.enabled });
   });
@@ -493,7 +496,7 @@ export function buildRouter(ctx: AgentContext): Router {
         sourceImagePaths,
         template,
         assetDir: config.compositing.templateDir,
-        variables: textVariables(config.event.name || config.event.id, captureId),
+        variables: textVariables(ctx.events.active().name, captureId),
         printSize,
         outputDir: compositesDir(config),
         jpegQuality: config.compositing.jpegQuality,
@@ -541,7 +544,7 @@ export function buildRouter(ctx: AgentContext): Router {
       jobs.push(ctx.printQueue.enqueue(captureId, size, row.composite_path));
     }
     // The online album lists printed photos only; its composite may already have uploaded.
-    ctx.album.markDirty();
+    ctx.album.markDirty(row.event_id);
 
     // Keep the single-job response shape for the common copies=1 case so
     // existing callers (kiosk UI) reading `jobId`/`queuePosition` directly
@@ -672,7 +675,7 @@ export function buildRouter(ctx: AgentContext): Router {
       sourceImagePaths: await samplePhotos(samplesDir(config), shotCount(template)),
       template,
       assetDir: dir,
-      variables: textVariables(config.event.name || config.event.id, "a1b2c3d4"),
+      variables: textVariables(ctx.events.active().name, "a1b2c3d4"),
       printSize: template.printSize,
       jpegQuality: config.compositing.jpegQuality,
     });
@@ -771,7 +774,7 @@ export function buildRouter(ctx: AgentContext): Router {
   router.post("/templates/:id/delete", (req: Request<{ id: string }>, res: Response) => {
     const config = ctx.configStore.current;
     const { id } = req.params;
-    if (readSessionSettings(config.storage.dataDir).templateId === id) {
+    if (ctx.events.active().session.templateId === id) {
       res.status(409).json({ error: `layout ${id} is in use - pick another layout in Settings first` });
       return;
     }
@@ -826,7 +829,7 @@ export function buildRouter(ctx: AgentContext): Router {
   /** Settings plus the layout they point at, so the kiosk knows how many shots to take. */
   router.get("/session", (_req: Request, res: Response) => {
     const config = ctx.configStore.current;
-    const settings = readSessionSettings(config.storage.dataDir);
+    const settings = ctx.events.active().session;
     try {
       res.json({
         ...settings,
@@ -846,7 +849,7 @@ export function buildRouter(ctx: AgentContext): Router {
   router.post("/session", (req: Request, res: Response) => {
     const config = ctx.configStore.current;
     // A body without attractSlideshow (an older kiosk, or Settings when GET /session failed) keeps what is set.
-    const current = readSessionSettings(config.storage.dataDir);
+    const current = ctx.events.active().session;
     const parsed = SessionSettingsSchema.safeParse({ attractSlideshow: current.attractSlideshow, ...req.body });
     if (!parsed.success) {
       res.status(400).json({ error: parsed.error.message });
@@ -854,7 +857,7 @@ export function buildRouter(ctx: AgentContext): Router {
     }
     try {
       const template = loadTemplate(config.compositing.templateDir, parsed.data.templateId);
-      writeSessionSettings(config.storage.dataDir, parsed.data);
+      ctx.events.updateActiveSession(parsed.data);
       log.info(`Session settings changed: ${JSON.stringify(parsed.data)}`);
       res.json({ ...parsed.data, template });
     } catch (err) {
