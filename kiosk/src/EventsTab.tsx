@@ -56,7 +56,8 @@ export default function EventsTab() {
         {!list ? (
           <div className="muted fs-24">Loading…</div>
         ) : (
-          list.events.map((e) => (
+          <div className="event-list">
+          {list.events.map((e) => (
             <div key={e.id} className="row between event-row">
               <div className="col gap-6">
                 <div className="fs-32">{e.name}</div>
@@ -71,7 +72,8 @@ export default function EventsTab() {
                 </button>
               )}
             </div>
-          ))
+          ))}
+          </div>
         )}
       </div>
     </div>
