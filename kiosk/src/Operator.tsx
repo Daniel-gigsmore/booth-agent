@@ -259,12 +259,19 @@ export default function Operator({ onBack, onAlbum, initialTab }: { onBack: () =
               <button type="button" className={tab === "album" ? "on" : ""} onClick={() => setTab("album")}>Album</button>
             </div>
             <button type="button" className="btn outline sm" onClick={onBack}>Back to kiosk</button>
-            {/* The preview server minimizes the foreground window for us (vite.config.js). */}
-            <button type="button" className="btn outline sm" onClick={() => void fetch("/__minimize", { method: "POST" })}>Minimize kiosk</button>
-            {/* Chrome lets a page close its own window when it was opened straight from the command line (start-kiosk.ps1). */}
-            <button type="button" className="btn outline sm" onClick={() => window.close()}>Close kiosk</button>
           </div>
         )}
+        {/* Windows-style window controls in the stage's top-right corner. */}
+        <div className="win-ctl">
+          {/* The preview server minimizes the foreground window for us (vite.config.js). */}
+          <button type="button" aria-label="Minimize kiosk" onClick={() => void fetch("/__minimize", { method: "POST" })}>
+            <svg width="30" height="30" viewBox="0 0 10 10" stroke="currentColor" strokeWidth="0.6"><path d="M0 5h10" /></svg>
+          </button>
+          {/* Chrome lets a page close its own window when it was opened straight from the command line (start-kiosk.ps1). */}
+          <button type="button" className="close" aria-label="Close kiosk" onClick={() => window.close()}>
+            <svg width="30" height="30" viewBox="0 0 10 10" stroke="currentColor" strokeWidth="0.6"><path d="M0 0l10 10M10 0L0 10" /></svg>
+          </button>
+        </div>
       </div>
 
       {editing ? (
