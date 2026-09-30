@@ -29,7 +29,7 @@ import { FONTS, fontFilePath } from "../compositor/fonts";
 import { textVariables } from "../compositor/variables";
 import { SessionSettingsSchema } from "../session/sessionSettings";
 import { NewEventSchema, UnknownEventError, ActiveEventError, BoothEvent } from "../session/eventStore";
-import { renderComposite, renderSheet } from "../compositor/compositor";
+import { renderComposite, renderPhoto, renderSheet } from "../compositor/compositor";
 import { samplePhotos } from "../compositor/samples";
 import { originalsDir, compositesDir, aiDownloadsDir, samplesDir } from "../util/paths";
 import { isHotFolderWritable, dropIntoHotFolder } from "../print/hotFolder";
@@ -666,13 +666,13 @@ export function buildRouter(ctx: AgentContext): Router {
     res.json({ templates: listTemplates(dir) });
   });
 
-  /** A draft layout (saved or not) rendered with sample photos, exactly as it would print. */
-  async function renderDraft(body: unknown) {
+  /** A draft layout (saved or not) rendered with sample photos: the upright photo, or the sheet as it prints. */
+  async function renderDraft(body: unknown, render: typeof renderPhoto = renderPhoto) {
     const config = ctx.configStore.current;
     const dir = config.compositing.templateDir;
     const template = validateTemplate(body);
     assertImagesAllowed(dir, template);
-    const jpeg = await renderSheet({
+    const jpeg = await render({
       sourceImagePaths: await samplePhotos(samplesDir(config), shotCount(template)),
       template,
       assetDir: dir,
@@ -699,7 +699,7 @@ export function buildRouter(ctx: AgentContext): Router {
     const config = ctx.configStore.current;
     let file: string | null = null;
     try {
-      const { template, jpeg } = await renderDraft(req.body);
+      const { template, jpeg } = await renderDraft(req.body, renderSheet);
       const dir = compositesDir(config);
       await mkdir(dir, { recursive: true });
       const jobId = `test-${uuidv4()}`;

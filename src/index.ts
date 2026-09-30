@@ -15,6 +15,7 @@ import { createSupabaseClient, uploadCaptureToSupabase } from "./supabase/supaba
 import { AlbumPublisher } from "./album/albumPublisher";
 import { createSupabaseAlbumBackend } from "./supabase/albumStorage";
 import { PrintQueue } from "./print/printQueue";
+import { printFileFor } from "./compositor/compositor";
 import { buildHttpApp } from "./server/http";
 import { attachEventsWebSocket } from "./server/ws";
 import { AgentContext } from "./server/context";
@@ -128,7 +129,9 @@ async function main(): Promise<void> {
     config.printing.hotFolderPath,
     config.printing.secondsPerPrint,
     outboxStore,
-    eventBus
+    eventBus,
+    // Composites are saved upright; the printer takes a portrait 4x6 sheet.
+    (file) => printFileFor(file, configStore.current.compositing.jpegQuality)
   );
 
   const ctx: AgentContext = {

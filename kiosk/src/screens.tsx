@@ -303,27 +303,20 @@ export function GetReady({ session, onDone, onFail, onCancel }: {
 const compositeUrl = (captureId: string) => agentUrl(`/captures/${captureId}/image?variant=composite`);
 
 /**
- * A print-ready sheet (a guest's composite, or a layout preview), shown the
- * way the guest will hold it. A landscape layout is stored turned onto the
- * portrait sheet, so it's turned back here.
+ * A guest's photo (or a layout preview) the way the guest holds the print. booth-agent keeps
+ * these upright (a landscape 4x6 landscape, a strip as one strip); only the printer gets them
+ * turned onto its portrait sheet.
  */
 export function CompositePreview({ src, template, maxW, maxH }: {
   src: string; template: Template; maxW: number; maxH: number;
 }) {
-  const landscape = template.printSize === "4x6" && template.cellWidthPx > template.cellHeightPx;
-  // Strips come out two-up on a portrait 4x6 sheet, so the file is always portrait unless turned.
-  const [aw, ah] = landscape ? [3, 2] : [2, 3];
+  const [aw, ah] =
+    template.printSize === "2x6-strip" ? [1, 3] : template.cellWidthPx > template.cellHeightPx ? [3, 2] : [2, 3];
   const scale = Math.min(maxW / aw, maxH / ah);
   const [w, h] = [Math.round(aw * scale), Math.round(ah * scale)];
   return (
     <div className="composite" style={{ width: w, height: h }}>
-      <img
-        src={src}
-        alt="Your print"
-        style={landscape
-          ? { width: h, height: w, left: (w - h) / 2, top: (h - w) / 2, transform: "rotate(-90deg)" }
-          : { width: w, height: h, left: 0, top: 0 }}
-      />
+      <img src={src} alt="Your print" style={{ width: w, height: h, left: 0, top: 0 }} />
     </div>
   );
 }

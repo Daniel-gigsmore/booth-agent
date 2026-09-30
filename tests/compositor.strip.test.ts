@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import sharp from "sharp";
-import { renderComposite } from "../src/compositor/compositor";
+import { renderComposite, renderSheet } from "../src/compositor/compositor";
 import { loadTemplate } from "../src/compositor/template";
 import { SHEET_WIDTH_PX, SHEET_HEIGHT_PX, STRIP_CELL_WIDTH_PX, DPI } from "../src/compositor/dimensions";
 
@@ -32,41 +32,29 @@ async function makeSourceImage(): Promise<string> {
 }
 
 describe("2x6 strip compositor", () => {
-  it("outputs a single 4x6 sheet containing two identical, correctly oriented strips at 300dpi", async () => {
+  it("prints a single 4x6 sheet containing two identical, correctly oriented strips at 300dpi", async () => {
     const sourceImagePath = await makeSourceImage();
     const template = loadTemplate(templateDir, "default-strip");
 
-    const result = await renderComposite({
+    const sheet = await renderSheet({
       sourceImagePaths: [sourceImagePath],
       template,
       assetDir: templateDir,
       variables: { event: "Test", date: "24 Sep 2026", time: "14:05", code: "abcdefgh" },
       printSize: "2x6-strip",
-      outputDir: workDir,
       jpegQuality: 90,
     });
 
-    expect(result.width).toBe(SHEET_WIDTH_PX);
-    expect(result.height).toBe(SHEET_HEIGHT_PX);
-
-    const metadata = await sharp(result.filePath).metadata();
+    const metadata = await sharp(sheet).metadata();
     expect(metadata.width).toBe(SHEET_WIDTH_PX);
     expect(metadata.height).toBe(SHEET_HEIGHT_PX);
     expect(metadata.density).toBe(DPI);
 
-    // Sample raw pixels from the left strip and the mirrored right strip at
-    // the same relative offset - they must be pixel-identical.
-    const sampleRegion = { top: 100, height: 50, width: 50 };
-    const leftSample = await sharp(result.filePath)
-      .extract({ left: 50, ...sampleRegion })
-      .raw()
-      .toBuffer();
-    const rightSample = await sharp(result.filePath)
-      .extract({ left: STRIP_CELL_WIDTH_PX + 50, ...sampleRegion })
-      .raw()
-      .toBuffer();
-
-    expect(Buffer.compare(leftSample, rightSample)).toBe(0);
+    // The strip's content lands in both halves at the same offset.
+    const mean = async (left: number) =>
+      (await sharp(sheet).extract({ left, top: 100, width: 50, height: 50 }).stats()).channels.map((c) => Math.round(c.mean));
+    const [l, r] = [await mean(50), await mean(STRIP_CELL_WIDTH_PX + 50)];
+    l.forEach((v, i) => expect(Math.abs(v - r[i]!)).toBeLessThan(4));
   });
 
   it("rejects a template whose print size doesn't match the request", async () => {

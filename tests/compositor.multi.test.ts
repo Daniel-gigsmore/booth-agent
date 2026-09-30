@@ -42,7 +42,7 @@ function near(actual: Rgb, expected: Rgb): boolean {
 }
 
 describe("multi-photo compositor", () => {
-  it("puts each shot in its own slot of a landscape 4R grid, turned onto the portrait sheet", async () => {
+  it("puts each shot in its own slot of a landscape 4R grid, kept landscape", async () => {
     const template = loadTemplate(templateDir, "default-4r-grid");
     const sources = await Promise.all([RED, GREEN, BLUE, YELLOW].map(solid));
 
@@ -57,16 +57,15 @@ describe("multi-photo compositor", () => {
     });
 
     const meta = await sharp(result.filePath).metadata();
-    expect([meta.width, meta.height]).toEqual([SHEET_WIDTH_PX, SHEET_HEIGHT_PX]);
+    expect([meta.width, meta.height]).toEqual([SHEET_HEIGHT_PX, SHEET_WIDTH_PX]);
 
-    // Rotating the 1800x1200 cell 90deg clockwise maps cell (x, y) to sheet
-    // (1199 - y, x). Sample the centre of each slot through that mapping.
+    // The saved photo is the 1800x1200 cell itself, so slot centres sample directly.
     const colors = [RED, GREEN, BLUE, YELLOW];
     const slots = template.elements.flatMap((e) => (e.type === "photo" ? [e] : []));
     for (const [i, slot] of slots.entries()) {
       const cx = slot.x + Math.floor(slot.width / 2);
       const cy = slot.y + Math.floor(slot.height / 2);
-      const got = await pixel(result.filePath, template.cellHeightPx - 1 - cy, cx);
+      const got = await pixel(result.filePath, cx, cy);
       expect(near(got, colors[i]!), `slot ${i + 1} got ${JSON.stringify(got)}`).toBe(true);
     }
   });
@@ -85,7 +84,7 @@ describe("multi-photo compositor", () => {
     for (const slot of template.elements.flatMap((e) => (e.type === "photo" ? [e] : []))) {
       const cx = slot.x + Math.floor(slot.width / 2);
       const cy = slot.y + Math.floor(slot.height / 2);
-      expect(near(await pixel(result.filePath, template.cellHeightPx - 1 - cy, cx), BLUE)).toBe(true);
+      expect(near(await pixel(result.filePath, cx, cy), BLUE)).toBe(true);
     }
   });
 });

@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import sharp, { Sharp, OverlayOptions } from "sharp";
 import { v4 as uuidv4 } from "uuid";
@@ -164,54 +164,90 @@ async function renderCell(params: CellParams): Promise<Buffer> {
 }
 
 /**
- * The print-ready JPEG at 300dpi, in memory. For "4x6" the cell fills the
- * whole sheet. For "2x6-strip" the same cell is rendered once and mirrored at
- * left and right halves of the sheet, so the DNP's two-up strip cutter
- * produces two identical strips per print. Layout previews use this directly.
+ * The photo as the guest holds it, as a 300dpi JPEG: a 4x6 layout at its own
+ * orientation (1800x1200 landscape or 1200x1800 portrait), a 2x6 layout as one
+ * 600x1800 strip. This is what is saved, uploaded, shown in the albums and
+ * downloaded; printSheet() turns it into what the printer takes.
  */
-export async function renderSheet(params: SheetParams): Promise<Buffer> {
+export async function renderPhoto(params: SheetParams): Promise<Buffer> {
   if (params.template.printSize !== params.printSize) {
     throw new Error(
       `Template "${params.template.id}" is for ${params.template.printSize} but ${params.printSize} was requested`
     );
   }
-
-  let finalImage: Sharp;
-
-  if (params.printSize === "4x6") {
-    const cell = await renderCell(params);
-    // A landscape layout is turned a quarter onto the portrait sheet the
-    // printer feeds; the guest just turns the print round to look at it.
-    const landscape = params.template.cellWidthPx > params.template.cellHeightPx;
-    const upright = landscape ? await sharp(cell).rotate(90).toBuffer() : cell;
-    finalImage = sharp(upright).resize(SHEET_WIDTH_PX, SHEET_HEIGHT_PX, { fit: "fill" });
-  } else {
-    const cell = await renderCell(params);
-    const cellResized = await sharp(cell)
-      .resize(STRIP_CELL_WIDTH_PX, STRIP_CELL_HEIGHT_PX, { fit: "fill" })
-      .toBuffer();
-
-    finalImage = sharp({
-      create: {
-        width: SHEET_WIDTH_PX,
-        height: SHEET_HEIGHT_PX,
-        channels: 4,
-        background: { r: 255, g: 255, b: 255, alpha: 1 },
-      },
-    }).composite([
-      { input: cellResized, left: 0, top: 0 },
-      { input: cellResized, left: STRIP_CELL_WIDTH_PX, top: 0 },
-    ]);
-  }
-
-  return finalImage.jpeg({ quality: params.jpegQuality }).withMetadata({ density: DPI }).toBuffer();
+  const cell = await renderCell(params);
+  const landscape = params.template.cellWidthPx > params.template.cellHeightPx;
+  const [width, height] =
+    params.printSize === "2x6-strip"
+      ? [STRIP_CELL_WIDTH_PX, STRIP_CELL_HEIGHT_PX]
+      : landscape
+        ? [SHEET_HEIGHT_PX, SHEET_WIDTH_PX]
+        : [SHEET_WIDTH_PX, SHEET_HEIGHT_PX];
+  return sharp(cell)
+    .resize(width, height, { fit: "fill" })
+    .jpeg({ quality: params.jpegQuality })
+    .withMetadata({ density: DPI })
+    .toBuffer();
 }
 
-/** Renders the print-ready sheet and saves it under outputDir. */
+/**
+ * What the printer feeds is always a portrait 4x6 sheet. A landscape photo is
+ * turned a quarter onto it (the guest turns the print round to look at it), a
+ * strip goes on twice side by side for the DNP's two-up strip cutter, and
+ * anything already sheet-shaped - a portrait photo, or a composite saved
+ * before photos were kept upright - is returned untouched.
+ */
+export async function printSheet(photo: Buffer, jpegQuality: number): Promise<Buffer> {
+  const { width = 0, height = 0 } = await sharp(photo).metadata();
+  let sheet: Sharp;
+  if (width > height) {
+    sheet = sharp(photo).rotate(90).resize(SHEET_WIDTH_PX, SHEET_HEIGHT_PX, { fit: "fill" });
+  } else if (width === STRIP_CELL_WIDTH_PX && height === STRIP_CELL_HEIGHT_PX) {
+    sheet = sharp({
+      create: { width: SHEET_WIDTH_PX, height: SHEET_HEIGHT_PX, channels: 4, background: { r: 255, g: 255, b: 255, alpha: 1 } },
+    }).composite([
+      { input: photo, left: 0, top: 0 },
+      { input: photo, left: STRIP_CELL_WIDTH_PX, top: 0 },
+    ]);
+  } else {
+    return photo;
+  }
+  return sheet.jpeg({ quality: jpegQuality }).withMetadata({ density: DPI }).toBuffer();
+}
+
+/** The print-ready sheet, in memory. Layout test prints use this. */
+export async function renderSheet(params: SheetParams): Promise<Buffer> {
+  return printSheet(await renderPhoto(params), params.jpegQuality);
+}
+
+/**
+ * The file to hand the hot folder for a saved composite: the composite itself
+ * when it is already sheet-shaped, otherwise its sheet, written once next to it
+ * as <name>-sheet.jpg and reused for reprints. A file that isn't a readable
+ * image is handed over unchanged, as the hot folder always got it.
+ */
+export async function printFileFor(photoPath: string, jpegQuality: number): Promise<string> {
+  const sheetPath = photoPath.replace(/.jpe?g$/i, "") + "-sheet.jpg";
+  if (await access(sheetPath).then(() => true, () => false)) return sheetPath;
+  let photo: Buffer;
+  let sheet: Buffer;
+  try {
+    photo = await readFile(photoPath);
+    sheet = await printSheet(photo, jpegQuality);
+  } catch {
+    return photoPath;
+  }
+  if (sheet === photo) return photoPath;
+  await writeFile(sheetPath, sheet);
+  return sheetPath;
+}
+
+/** Renders the guest's photo (renderPhoto) and saves it under outputDir. */
 export async function renderComposite(params: CompositeParams): Promise<CompositeResult> {
-  const jpeg = await renderSheet(params);
+  const jpeg = await renderPhoto(params);
   await mkdir(params.outputDir, { recursive: true });
   const filePath = path.join(params.outputDir, `composite-${uuidv4()}.jpg`);
   await writeFile(filePath, jpeg);
-  return { filePath, width: SHEET_WIDTH_PX, height: SHEET_HEIGHT_PX };
+  const { width = 0, height = 0 } = await sharp(jpeg).metadata();
+  return { filePath, width, height };
 }
