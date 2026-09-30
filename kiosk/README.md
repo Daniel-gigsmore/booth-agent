@@ -10,7 +10,7 @@ Flow: Attract → Get ready (live view; one countdown and shot per photo slot in
 
 **Mouse:** guests use the touchscreen, so the pointer is hidden. It appears while a mouse moves and hides again after 3 s. The scroll wheel scrolls lists.
 
-**Operator panel:** tap the small status dot in the top-right corner of Attract 5 times quickly (each tap within 1 second of the last). The dot is green, amber or red to match booth-agent's `/health` `overall`. The panel has four tabs:
+**Operator panel:** tap the lock in the top-right corner of Attract. Its ring is green, amber or red to match booth-agent's `/health` `overall`. The panel has four tabs:
 
 - **Status:** camera, printer, sync and hot folder health, plus the last 3 prints with Reprint.
 - **Settings:** pick the layout in use, set the countdown for the first photo and between photos (1–10 s), and create, edit or delete layouts. Changes apply to the next guest.

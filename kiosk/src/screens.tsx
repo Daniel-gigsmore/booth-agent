@@ -140,15 +140,6 @@ export function Attract({ health, onStart, onOperator, onAlbum }: {
   health: Health | null; onStart: () => void; onOperator: () => void; onAlbum: () => void;
 }) {
   const album = useGuestAlbum();
-  // 5 taps on the dot, each within 1 s of the last, opens the operator panel.
-  const taps = useRef({ count: 0, last: 0 });
-  const tapDot = () => {
-    const now = Date.now();
-    const t = taps.current;
-    t.count = now - t.last < 1000 ? t.count + 1 : 1;
-    t.last = now;
-    if (t.count >= 5) onOperator();
-  };
   return (
     <div className="stage attract" onClick={onStart}>
       <div className="attract-main">
@@ -183,17 +174,20 @@ export function Attract({ health, onStart, onOperator, onAlbum }: {
           </button>
         )}
       </div>
-      {/* Hidden from guests: tap 5 times quickly to open the operator panel. */}
+      {/* One tap opens the operator panel. The ring shows booth-agent's health. */}
       <button
         type="button"
-        className="op-dot"
-        aria-label="Operator panel (tap 5 times)"
+        className={`op-lock ${health?.overall ?? "unknown"}`}
+        aria-label="Operator panel"
         onClick={(e) => {
           e.stopPropagation();
-          tapDot();
+          onOperator();
         }}
       >
-        <span className={`status-dot ${health?.overall ?? "unknown"}`} />
+        <Icon size={40} d="M7 11V7a5 5 0 0 1 10 0v4">
+          <rect x="4" y="11" width="16" height="10" rx="2" />
+          <path d="M12 15v2" />
+        </Icon>
       </button>
     </div>
   );
