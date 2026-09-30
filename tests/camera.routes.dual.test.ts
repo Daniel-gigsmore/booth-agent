@@ -1,10 +1,12 @@
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from "vitest";
-import { mkdtempSync, mkdirSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { AddressInfo } from "node:net";
 import { Server } from "node:http";
 import sharp from "sharp";
+import { EventStore } from "../src/session/eventStore";
+import { DEFAULT_SESSION } from "../src/session/sessionSettings";
 import { buildHttpApp } from "../src/server/http";
 import { AgentContext } from "../src/server/context";
 import { CameraUnavailableError } from "../src/camera/CameraSource";
@@ -35,6 +37,7 @@ const manager = {
 const outboxStore = { insertCapture: vi.fn() };
 let server: Server;
 let base: string;
+let events: EventStore;
 const req = (p: string, method = "GET", body?: object) =>
   fetch(`${base}${p}`, {
     method,
@@ -43,8 +46,10 @@ const req = (p: string, method = "GET", body?: object) =>
   });
 
 beforeAll(() => {
+  events = EventStore.open(dataDir, { id: "evt", session: DEFAULT_SESSION });
   const ctx = {
-    configStore: { current: { agent: { allowedOrigins: [], sharedSecret: SECRET }, storage: { dataDir }, event: { id: "evt" } } },
+    configStore: { current: { agent: { allowedOrigins: [], sharedSecret: SECRET }, storage: { dataDir } } },
+    events,
     cameraManager: manager,
     outboxStore,
     eventBus: { emit: vi.fn() },
@@ -52,7 +57,7 @@ beforeAll(() => {
   server = buildHttpApp(ctx).listen(0);
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 });
-afterAll(() => { server.close(); });
+afterAll(() => { server.close(); rmSync(dataDir, { recursive: true, force: true }); });
 beforeEach(() => { vi.clearAllMocks(); writeCameraSerials(dataDir, {}); });
 
 describe("dual camera routes", () => {
@@ -65,6 +70,14 @@ describe("dual camera routes", () => {
     expect(manager.capture).toHaveBeenLastCalledWith(expect.any(String), "low");
     expect(outboxStore.insertCapture).toHaveBeenLastCalledWith(expect.objectContaining({ camera: "low" }));
     expect((await req("/capture", "POST", { camera: "side" })).status).toBe(400);
+  });
+
+  it("tags a capture with the event that is active when it is taken, including after a switch", async () => {
+    await req("/capture", "POST");
+    expect(outboxStore.insertCapture).toHaveBeenLastCalledWith(expect.objectContaining({ eventId: "evt" }));
+    events.create({ name: "TUMI", date: "2026-10-05" });
+    await req("/capture", "POST");
+    expect(outboxStore.insertCapture).toHaveBeenLastCalledWith(expect.objectContaining({ eventId: "tumi-2026-10-05" }));
   });
 
   it("/camera/prefocus passes the camera", async () => {

@@ -8,12 +8,8 @@ const base = env.VITE_AGENT_URL || "http://127.0.0.1:7070";
 const token = env.VITE_AGENT_TOKEN || "";
 
 export const config = {
-  eventName: env.VITE_EVENT_NAME || "",
-  eventDate: env.VITE_EVENT_DATE || "",
-  /** The guest download page link with its {captureId} placeholder; "" when not set up. */
+  /** The guest download page link with its {captureId} (and optional {eventId}/{eventName}) placeholders; "" when not set up. */
   downloadUrlTemplate: env.VITE_DOWNLOAD_URL || "",
-  downloadUrl: (captureId: string) =>
-    env.VITE_DOWNLOAD_URL ? env.VITE_DOWNLOAD_URL.replace("{captureId}", captureId) : "",
 };
 
 /** For <img src>: images can't send an Authorization header, so the agent also accepts ?token=. */
@@ -73,6 +69,10 @@ export interface CameraStatus { connected: boolean; model: string | null; serial
 export interface Health {
   overall: HealthLevel;
   alerts: { level: "warn" | "error"; code: string; message: string }[];
+  /** The active event (events.json). eventName/eventDate are optional for an agent from before events. */
+  eventId: string;
+  eventName?: string;
+  eventDate?: string | null;
   camera: {
     activeSource: string;
     model: string | null;
@@ -152,6 +152,9 @@ export interface PrintJob {
   queued_at: string;
 }
 
+/** One row of the operator's Events tab (GET /events). photoCount = printed photos. */
+export interface EventRow { id: string; name: string; date: string; photoCount: number }
+
 export const agent = {
   capture: (camera: CameraSlot = "high") => call<{ captureId: string }>("POST", "/capture", { camera }),
   /** Composite is filed under the first shot; print and reprint use that id. */
@@ -193,6 +196,9 @@ export const agent = {
   swapCameras: () => call("POST", "/cameras/swap"),
   rememberCameras: () => call("POST", "/cameras/remember"),
   albumInfo: () => call<AlbumInfo>("GET", "/album-info"),
+  events: () => call<{ activeId: string; events: EventRow[] }>("GET", "/events"),
+  createEvent: (name: string, date: string) => call<{ id: string; name: string; date: string }>("POST", "/events", { name, date }),
+  activateEvent: (id: string) => call<{ id: string; name: string; date: string }>("POST", `/events/${encodeURIComponent(id)}/activate`),
   setAttractSlideshow: (enabled: boolean) => call("POST", "/attract-slideshow", { enabled }),
   /** This event's prints on this booth, oldest first. Works offline. */
   albumPhotos: () => call<{ photos: { id: string }[] }>("GET", "/album.json").then((r) => r.photos.map((p) => p.id)),

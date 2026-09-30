@@ -1,4 +1,9 @@
 import { describe, it, expect, afterEach } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { EventStore } from "../src/session/eventStore";
+import { DEFAULT_SESSION } from "../src/session/sessionSettings";
 import { AddressInfo } from "node:net";
 import { Server } from "node:http";
 import { createInMemoryOutboxDb } from "../src/outbox/db";
@@ -34,14 +39,20 @@ describe("OutboxStore.listPublishedPrints", () => {
 });
 
 let server: Server | undefined;
-afterEach(() => server?.close());
+let eventsDir: string | undefined;
+afterEach(() => {
+  server?.close();
+  if (eventsDir) rmSync(eventsDir, { recursive: true, force: true });
+});
 
 describe("POST /print", () => {
   it("marks the album dirty, so a print whose composite uploaded first still gets listed", async () => {
     const outbox = store();
     let dirty = 0;
+    eventsDir = mkdtempSync(path.join(tmpdir(), "booth-album-printed-"));
     const ctx = {
       configStore: { current: { agent: { allowedOrigins: [], sharedSecret: "s" }, printing: { defaultSize: "4x6" } } },
+      events: EventStore.open(eventsDir, { id: "evt", session: DEFAULT_SESSION }),
       outboxStore: outbox,
       printQueue: { enqueue: () => ({ jobId: "j1", queuePosition: 1, estimatedWaitMs: 0 }) },
       album: { markDirty: () => { dirty += 1; } },

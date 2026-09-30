@@ -1,7 +1,7 @@
 // The event album inside the kiosk: the operator panel's link and QR, and the attract screen's slideshow.
 // The slideshow order mirrors download/album-logic.js, which the online album page uses.
 
-/** GET /album-info. `token` is null while the album is off (no album.token in booth.config.json). */
+/** GET /album-info. `token` is null while the album is off (the active event has no album token). */
 export interface AlbumInfo {
   token: string | null;
   eventId: string;

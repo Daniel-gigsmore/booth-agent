@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { buildHealthReport, HealthInputs } from "../src/health/healthReport";
 import { AlbumStatus } from "../src/album/albumPublisher";
 
-function report(album?: AlbumStatus, outboxLastSyncAt: string | null = null) {
+function report(album?: AlbumStatus, outboxLastSyncAt: string | null = null, extra: Partial<HealthInputs> = {}) {
   const inputs: HealthInputs = {
     camera: {
       activeSource: "canon" as never,
@@ -24,6 +24,7 @@ function report(album?: AlbumStatus, outboxLastSyncAt: string | null = null) {
     eventId: "evt",
     thresholds: { lowDiskWarnBytes: 1, lowMediaWarnPrints: 30, outboxBacklogWarn: 50, expectedMediaType: "4x6" },
     ...(album ? { album } : {}),
+    ...extra,
   };
   return buildHealthReport(inputs);
 }
@@ -64,5 +65,21 @@ describe("/health album", () => {
     expect(albumAlerts(report(failing, null))).toEqual([]);
     // Last sync predates the failing streak - stale, not evidence the network is back.
     expect(albumAlerts(report(failing, "2026-09-29T09:00:00.000Z"))).toEqual([]);
+  });
+});
+
+describe("/health event", () => {
+  it("reports the event's name and date, falling back to the id", () => {
+    expect(report(undefined, null, { eventName: "Gigsmore Launch", eventDate: "2026-09-30" })).toMatchObject({
+      eventId: "evt",
+      eventName: "Gigsmore Launch",
+      eventDate: "2026-09-30",
+    });
+    expect(report()).toMatchObject({ eventName: "evt", eventDate: null });
+  });
+
+  it("errors while events.json can't be read", () => {
+    const alerts = report(undefined, null, { eventsFileError: "Unexpected token" }).alerts;
+    expect(alerts).toContainEqual(expect.objectContaining({ level: "error", code: "events-file-unreadable" }));
   });
 });

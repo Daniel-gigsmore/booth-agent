@@ -57,6 +57,11 @@ export interface HealthInputs {
   disk: DiskSpace | null;
   outbox: SyncSummary;
   eventId: string;
+  /** The active event's name and date (events.json). */
+  eventName?: string;
+  eventDate?: string;
+  /** Why events.json couldn't be read; the booth then runs on booth.config.json's event. */
+  eventsFileError?: string | null;
   thresholds: HealthThresholds;
   /** Whether the session layout has a photo on the low camera. */
   layoutUsesLow?: boolean;
@@ -68,6 +73,8 @@ export interface HealthReport {
   overall: HealthLevel;
   alerts: HealthAlert[];
   eventId: string;
+  eventName: string;
+  eventDate: string | null;
   camera: {
     activeSource: string;
     model: string | null;
@@ -263,6 +270,14 @@ export function buildHealthReport(inputs: HealthInputs): HealthReport {
     });
   }
 
+  if (inputs.eventsFileError) {
+    alerts.push({
+      level: "error",
+      code: "events-file-unreadable",
+      message: `events.json can't be read (${inputs.eventsFileError}) - photos go to the event in booth.config.json and events can't be switched. Fix the file, then restart booth-agent. (Deleting it re-creates it from booth.config.json and loses every event created since, and their album links.)`,
+    });
+  }
+
   // A warning, never an error: guests' photos still upload and print; only the album link lags.
   // Offline is normal (see the outbox comments above) - every publish fails while offline, so
   // only alert once uploads themselves have succeeded since the album started failing, i.e. the
@@ -285,6 +300,8 @@ export function buildHealthReport(inputs: HealthInputs): HealthReport {
     overall: highestLevel(alerts),
     alerts,
     eventId,
+    eventName: inputs.eventName ?? eventId,
+    eventDate: inputs.eventDate ?? null,
     camera: {
       activeSource: camera.activeSource,
       model: camera.activeModel,

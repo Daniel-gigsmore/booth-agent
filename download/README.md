@@ -10,13 +10,13 @@ The design is in `docs/superpowers/specs/2026-09-28-guest-download-page-design.m
 https://<site>/?event=<event_id>&name=<display name>&id=<captureId>
 ```
 
-Set this in the kiosk's `.env.local` with `{captureId}` as the placeholder, then rebuild the kiosk:
+Set this in the kiosk's `.env.local` with `{captureId}`, `{eventId}` and `{eventName}` as placeholders, then rebuild the kiosk. The kiosk fills in the event from booth-agent, so switching events in the Events tab needs no rebuild:
 
 ```
-VITE_DOWNLOAD_URL=https://<site>/?event=gigsmore-launch-2026&name=Gigsmore%20Launch&id={captureId}
+VITE_DOWNLOAD_URL=https://<site>/?event={eventId}&name={eventName}&id={captureId}
 ```
 
-`event` must equal booth-agent's `event.id`: photos are stored at `captures/<event.id>/<captureId>.jpg`.
+`event` must equal the active event's id: photos are stored at `captures/<event id>/<captureId>.jpg`. A link with a fixed `event=` still works, but after a switch guests' QR codes point at that fixed event (the Events tab warns about it).
 
 ## One-time setup
 
@@ -46,19 +46,11 @@ Every print from an event, as a grid with Save / Share and a full-screen slidesh
 
 ### Turn it on
 
-Add a secret token (at least 16 characters of `A-Z a-z 0-9 _ -`) to booth-agent's `booth.config.json`. Generate one with:
+Every event created from the kiosk's Events tab gets a secret token automatically (24 characters of `A-Z a-z 0-9 _ -`), kept in booth-agent's `<dataDir>/events.json`. The first event is seeded from `event` and `album.token` in `booth.config.json` on first start; an event migrated without a token has no album (stop the service and add `albumToken` to that event in `events.json`, or create a new event, which gets one).
 
-```
-node -e "console.log(require('crypto').randomBytes(18).toString('base64url'))"
-```
+The agent writes `captures/<event id>/albums/<token>.json` on the next sync pass after the event is switched to or created, and again after each print uploads. `/health` shows `album`, and so does the ALBUM card in the operator panel's Status tab.
 
-```json
-"album": { "token": "<random token>" }
-```
-
-The agent writes `captures/<event.id>/albums/<token>.json` on the next sync pass (about 2 s after `booth.config.json` is saved), and again after each print uploads. `/health` shows `album`, and so does the ALBUM card in the operator panel's Status tab.
-
-Removing the token stops the agent updating the manifest, but does **not** kill a link already sent - the old file is just left as-is in storage. To actually kill a link, change the token: the agent writes a new manifest under the new token and deletes the old one.
+Removing a token stops the agent updating the manifest, but does **not** kill a link already sent - the old file is just left as-is in storage. To actually kill a link, stop the service, change that event's `albumToken` in `events.json` (any 16+ character `A-Z a-z 0-9 _ -` string; `node -e "console.log(require('crypto').randomBytes(18).toString('base64url'))"` makes one), and start it again: the agent writes a new manifest under the new token and deletes the old one. Never edit `events.json` while the service runs - it never re-reads the file and overwrites it on its next write.
 
 The album is only as private as the token: it stays unguessable purely because `20260928000000_public_capture_bucket.sql` removed anon's read/list policies on the `captures` bucket, so never add a SELECT policy on `storage.objects` for it.
 

@@ -26,9 +26,10 @@ export interface AlbumBackend {
   removeOtherManifests(eventId: string, keepToken: string): Promise<void>;
 }
 
-export interface AlbumTarget {
-  eventId: string;
-  token: string | undefined;
+/** Which event is on, and each event's album token (src/session/eventStore.ts). */
+export interface AlbumEvents {
+  activeId(): string;
+  tokenFor(eventId: string): string | undefined;
 }
 
 export interface AlbumStatus {
@@ -41,71 +42,82 @@ export interface AlbumStatus {
 }
 
 /**
- * Keeps `captures/<event>/albums/<token>.json`, the list the album page reads, in step with the
+ * Keeps each event's `captures/<event>/albums/<token>.json`, the list the album page reads, in step with the
  * prints in Supabase. The sync worker calls markDirty() when a print uploads and publishIfDirty()
  * at the end of every tick. A write that fails stays dirty and is retried. Nothing here throws into
  * the sync worker: an album that can't be written must never hold up photo uploads.
  */
 export class AlbumPublisher {
-  // Dirty from the start, so a write lost before a restart is caught up.
-  private dirty = true;
-  private target: string | null = null;
+  // Events whose album needs rewriting. The active event is added on the first tick, so a
+  // write lost before a restart is caught up.
+  private readonly dirty = new Set<string>();
+  private activeTarget: string | null = null;
   private retryAt = 0;
+  /** photoCount and lastWrittenAt are the active event's; lastError and failingSince cover any event. */
   private written: Omit<AlbumStatus, "enabled"> = { photoCount: null, lastWrittenAt: null, lastError: null, failingSince: null };
   private lastLogged: { message: string; at: number } | null = null;
 
   constructor(
     private readonly backend: AlbumBackend,
-    private readonly getTarget: () => AlbumTarget,
+    private readonly events: AlbumEvents,
     private readonly now: () => number = Date.now
   ) {}
 
-  markDirty(): void {
-    this.dirty = true;
+  markDirty(eventId: string): void {
+    this.dirty.add(eventId);
   }
 
   async publishIfDirty(): Promise<void> {
-    const { eventId, token } = this.getTarget();
-    if (!token) return;
-    const target = `${eventId}/${token}`;
-    if (target !== this.target) {
-      // A new token (or event) needs its own manifest right away, and the old one removed.
-      this.target = target;
-      this.dirty = true;
+    const activeId = this.events.activeId();
+    const target = `${activeId}/${this.events.tokenFor(activeId) ?? ""}`;
+    if (target !== this.activeTarget) {
+      // A newly active event (or a new token) needs its manifest right away, so its link works.
+      this.activeTarget = target;
+      this.dirty.add(activeId);
       this.retryAt = 0;
     }
-    if (!this.dirty || this.now() < this.retryAt) return;
+    if (this.dirty.size === 0 || this.now() < this.retryAt) return;
 
-    // Cleared before the write, so a print that uploads while it runs marks it dirty again.
-    this.dirty = false;
-    try {
-      const photos = await this.backend.listPrints(eventId);
-      const at = new Date(this.now()).toISOString();
-      await this.backend.writeManifest(eventId, token, { updatedAt: at, photos });
-      this.written = { photoCount: photos.length, lastWrittenAt: at, lastError: null, failingSince: null };
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      this.dirty = true;
-      this.retryAt = this.now() + ALBUM_RETRY_MS;
-      this.written = {
-        ...this.written,
-        lastError: message,
-        failingSince: this.written.failingSince ?? new Date(this.now()).toISOString(),
-      };
-      this.warnQuietly(`Album manifest not written, will retry: ${message}`);
-      return;
-    }
+    for (const eventId of [...this.dirty]) {
+      const token = this.events.tokenFor(eventId);
+      // Cleared before the write, so a print that uploads while it runs marks it dirty again.
+      this.dirty.delete(eventId);
+      if (!token) continue;
+      try {
+        const photos = await this.backend.listPrints(eventId);
+        const at = new Date(this.now()).toISOString();
+        await this.backend.writeManifest(eventId, token, { updatedAt: at, photos });
+        this.written = {
+          ...(eventId === activeId ? { photoCount: photos.length, lastWrittenAt: at } : this.written),
+          lastError: null,
+          failingSince: null,
+        };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        this.dirty.add(eventId);
+        this.retryAt = this.now() + ALBUM_RETRY_MS;
+        this.written = {
+          ...this.written,
+          lastError: message,
+          failingSince: this.written.failingSince ?? new Date(this.now()).toISOString(),
+        };
+        this.warnQuietly(`Album manifest for ${eventId} not written, will retry: ${message}`);
+        return;
+      }
 
-    try {
-      await this.backend.removeOtherManifests(eventId, token);
-    } catch (err) {
-      // Tried again after the next write; a leftover old manifest is not worth re-dirtying for.
-      this.warnQuietly(`Could not remove old album manifests: ${err instanceof Error ? err.message : String(err)}`);
+      try {
+        await this.backend.removeOtherManifests(eventId, token);
+      } catch (err) {
+        // Tried again after the next write; a leftover old manifest is not worth re-dirtying for.
+        this.warnQuietly(`Could not remove old album manifests: ${err instanceof Error ? err.message : String(err)}`);
+      }
     }
   }
 
   getStatus(): AlbumStatus {
-    if (!this.getTarget().token) return { enabled: false, photoCount: null, lastWrittenAt: null, lastError: null, failingSince: null };
+    if (!this.events.tokenFor(this.events.activeId())) {
+      return { enabled: false, photoCount: null, lastWrittenAt: null, lastError: null, failingSince: null };
+    }
     return { enabled: true, ...this.written };
   }
 

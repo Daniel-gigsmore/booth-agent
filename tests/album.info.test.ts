@@ -1,12 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { AddressInfo } from "node:net";
 import { Server } from "node:http";
 import { buildHttpApp } from "../src/server/http";
 import { AgentContext } from "../src/server/context";
-import { readSessionSettings } from "../src/session/sessionSettings";
+import { EventStore } from "../src/session/eventStore";
+import { DEFAULT_SESSION, readSessionSettings } from "../src/session/sessionSettings";
 
 const SECRET = "test-secret";
 const TOKEN = "tok-0123456789abcdef";
@@ -14,17 +15,19 @@ let dataDir: string;
 let server: Server;
 let base: string;
 
+let events: EventStore;
+
 async function start(album: { token?: string }) {
+  events = EventStore.open(dataDir, { id: "gigsmore-launch-2026", name: "Gigsmore Launch", albumToken: album.token, session: DEFAULT_SESSION });
   const ctx = {
     configStore: {
       current: {
         agent: { allowedOrigins: [], sharedSecret: SECRET },
-        event: { id: "gigsmore-launch-2026", name: "Gigsmore Launch" },
-        album,
         storage: { dataDir },
         compositing: { templateDir: path.join(__dirname, "..", "assets", "templates") },
       },
     },
+    events,
   } as unknown as AgentContext;
   server = buildHttpApp(ctx).listen(0);
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -68,17 +71,23 @@ describe("GET /album-info", () => {
   });
 });
 
+describe("GET /album-info, active event", () => {
+  it("follows the active event", async () => {
+    await start({ token: TOKEN });
+    const created = events.create({ name: "TUMI", date: "2026-10-05" });
+    const body = await (await fetch(`${base}/album-info`, { headers: auth })).json();
+    expect(body).toMatchObject({ token: created.albumToken, eventId: "tumi-2026-10-05", eventName: "TUMI" });
+  });
+});
+
 describe("POST /attract-slideshow", () => {
   it("turns the attract slideshow off and keeps the other session settings", async () => {
     await start({ token: TOKEN });
-    await writeFile(
-      path.join(dataDir, "session.json"),
-      JSON.stringify({ templateId: "overlay-test", firstCountdownSeconds: 5, betweenShotsSeconds: 2 })
-    );
+    events.updateActiveSession({ templateId: "overlay-test", firstCountdownSeconds: 5, betweenShotsSeconds: 2, attractSlideshow: true });
     const res = await post("/attract-slideshow", { enabled: false });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ attractSlideshow: false });
-    expect(readSessionSettings(dataDir)).toEqual({
+    expect(events.active().session).toEqual({
       templateId: "overlay-test",
       firstCountdownSeconds: 5,
       betweenShotsSeconds: 2,
@@ -90,7 +99,7 @@ describe("POST /attract-slideshow", () => {
   it("rejects anything but a boolean", async () => {
     await start({ token: TOKEN });
     expect((await post("/attract-slideshow", { enabled: "yes" })).status).toBe(400);
-    await expect(readFile(path.join(dataDir, "session.json"))).rejects.toThrow();
+    expect(events.active().session.attractSlideshow).toBe(true);
   });
 });
 
@@ -100,14 +109,14 @@ describe("POST /session", () => {
     await post("/attract-slideshow", { enabled: false });
     const res = await post("/session", { templateId: "default-4r-grid", firstCountdownSeconds: 4, betweenShotsSeconds: 3 });
     expect(res.status).toBe(200);
-    expect(readSessionSettings(dataDir)).toMatchObject({ firstCountdownSeconds: 4, attractSlideshow: false });
+    expect(events.active().session).toMatchObject({ firstCountdownSeconds: 4, attractSlideshow: false });
   });
 
   it("takes attractSlideshow when the body has it", async () => {
     await start({ token: TOKEN });
     await post("/attract-slideshow", { enabled: false });
     await post("/session", { templateId: "default-4r-grid", firstCountdownSeconds: 3, betweenShotsSeconds: 3, attractSlideshow: true });
-    expect(readSessionSettings(dataDir).attractSlideshow).toBe(true);
+    expect(events.active().session.attractSlideshow).toBe(true);
   });
 });
 

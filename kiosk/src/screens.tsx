@@ -3,6 +3,7 @@ import QRCode from "qrcode";
 import { agent, agentUrl, config, Health, printUrl, Session, Template, type CameraSlot } from "./agent";
 import { mergeAlbum, nextSlide, type SlideState } from "./album";
 import { useCountdown } from "./hooks";
+import { useEvent, fillDownloadUrl } from "./event";
 import { shotCount, shotPrompt } from "./layout";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -34,14 +35,15 @@ const Logo = () => (
 
 /** A 2x6 print strip. With a photo it shows that photo in every slot, as the strip template does. */
 function Strip({ photo, className = "" }: { photo?: string; className?: string }) {
+  const event = useEvent();
   return (
     <div className={`strip ${className}`}>
       {[0, 1, 2].map((i) =>
         photo ? <img key={i} className="strip-cell" src={photo} alt="" /> : <div key={i} className="strip-cell placeholder" />,
       )}
       <div className="strip-foot">
-        <div className="strip-event">{config.eventName}</div>
-        <div className="strip-date">{config.eventDate}</div>
+        <div className="strip-event">{event?.name}</div>
+        <div className="strip-date">{event?.date}</div>
       </div>
     </div>
   );
@@ -140,12 +142,13 @@ export function Attract({ health, onStart, onOperator, onAlbum }: {
   health: Health | null; onStart: () => void; onOperator: () => void; onAlbum: () => void;
 }) {
   const album = useGuestAlbum();
+  const event = useEvent();
   return (
     <div className="stage attract" onClick={onStart}>
       <div className="attract-main">
         <Logo />
         <div className="attract-copy">
-          {config.eventName && <div className="pill">{config.eventName}</div>}
+          {event?.name && <div className="pill">{event.name}</div>}
           <h1 className="display hero">Strike<br />a pose.</h1>
           <p className="lede">Tap to take your photo. Your print is ready in seconds, with a free download to your phone.</p>
         </div>
@@ -402,7 +405,8 @@ export function Printing({ template, captureId, waitMs, onContinue }: {
 
 export function Done({ captureId, onFinish }: { captureId: string; onFinish: () => void }) {
   const secs = useCountdown(20, onFinish);
-  const url = config.downloadUrl(captureId);
+  const event = useEvent();
+  const url = fillDownloadUrl(config.downloadUrlTemplate, captureId, event);
   const [qr, setQr] = useState("");
   useEffect(() => {
     if (url) QRCode.toDataURL(url, { margin: 0, width: 420, color: { dark: "#15121A", light: "#FBF8F3" } }).then(setQr);

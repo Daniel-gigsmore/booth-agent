@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { agent, Session, Template } from "./agent";
 import { useHealth } from "./hooks";
+import { EventContext, KioskEvent } from "./event";
 import { Attract, Done, GetReady, Oops, Printing, Review } from "./screens";
 import Operator from "./Operator";
 import AlbumScreen from "./AlbumScreen";
@@ -21,6 +22,11 @@ const IDLE_MS = 60_000;
 export default function App() {
   const [screen, setScreen] = useState<Screen>({ name: "attract" });
   const health = useHealth(15_000);
+  // Kept across a failed /health poll, so the Done screen's QR doesn't vanish on one dropped request.
+  const [event, setEvent] = useState<KioskEvent | null>(null);
+  useEffect(() => {
+    if (health) setEvent({ id: health.eventId, name: health.eventName ?? health.eventId, date: health.eventDate ?? "" });
+  }, [health?.eventId, health?.eventName, health?.eventDate]);
   const attract = () => setScreen({ name: "attract" });
 
   useEffect(() => {
@@ -75,51 +81,55 @@ export default function App() {
     }
   }
 
-  switch (screen.name) {
-    case "attract":
-      return (
-        <Attract
-          health={health}
-          onStart={start}
-          onOperator={() => setScreen({ name: "operator" })}
-          onAlbum={() => setScreen({ name: "album", from: "attract" })}
-        />
-      );
-    case "getready":
-      return (
-        <GetReady
-          session={screen.session}
-          onDone={(ids) => composite(screen.session, ids)}
-          onFail={() => setScreen({ name: "oops" })}
-          onCancel={attract}
-        />
-      );
-    case "review":
-      return (
-        <Review
-          template={screen.session.template}
-          captureId={screen.captureId}
-          onApprove={() => print(screen.session.template, screen.captureId)}
-          onRetake={start}
-          onCancel={attract}
-        />
-      );
-    case "printing":
-      return (
-        <Printing
-          template={screen.template}
-          captureId={screen.captureId}
-          waitMs={screen.waitMs}
-          onContinue={() => setScreen({ name: "done", captureId: screen.captureId })}
-        />
-      );
-    case "done":
-      return <Done captureId={screen.captureId} onFinish={attract} />;
-    case "oops":
-      return <Oops hint={screen.hint} onRetry={start} onCancel={attract} />;
-    case "operator":
-      return <Operator initialTab={screen.tab} onBack={attract} onAlbum={() => setScreen({ name: "album", from: "operator" })} />;
-    case "album":
-      return <AlbumScreen onClose={screen.from === "operator" ? () => setScreen({ name: "operator", tab: "album" }) : attract} />;
+  function renderScreen() {
+    switch (screen.name) {
+      case "attract":
+        return (
+          <Attract
+            health={health}
+            onStart={start}
+            onOperator={() => setScreen({ name: "operator" })}
+            onAlbum={() => setScreen({ name: "album", from: "attract" })}
+          />
+        );
+      case "getready":
+        return (
+          <GetReady
+            session={screen.session}
+            onDone={(ids) => composite(screen.session, ids)}
+            onFail={() => setScreen({ name: "oops" })}
+            onCancel={attract}
+          />
+        );
+      case "review":
+        return (
+          <Review
+            template={screen.session.template}
+            captureId={screen.captureId}
+            onApprove={() => print(screen.session.template, screen.captureId)}
+            onRetake={start}
+            onCancel={attract}
+          />
+        );
+      case "printing":
+        return (
+          <Printing
+            template={screen.template}
+            captureId={screen.captureId}
+            waitMs={screen.waitMs}
+            onContinue={() => setScreen({ name: "done", captureId: screen.captureId })}
+          />
+        );
+      case "done":
+        return <Done captureId={screen.captureId} onFinish={attract} />;
+      case "oops":
+        return <Oops hint={screen.hint} onRetry={start} onCancel={attract} />;
+      case "operator":
+        return <Operator initialTab={screen.tab} onBack={attract} onAlbum={() => setScreen({ name: "album", from: "operator" })} />;
+      case "album":
+        return <AlbumScreen onClose={screen.from === "operator" ? () => setScreen({ name: "operator", tab: "album" }) : attract} />;
+    }
   }
+
+  return <EventContext.Provider value={event}>{renderScreen()}</EventContext.Provider>;
 }

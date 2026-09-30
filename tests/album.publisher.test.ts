@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { ALBUM_RETRY_MS, AlbumBackend, AlbumManifest, AlbumPhoto, AlbumPublisher, AlbumTarget } from "../src/album/albumPublisher";
+import { ALBUM_RETRY_MS, AlbumBackend, AlbumManifest, AlbumPhoto, AlbumPublisher } from "../src/album/albumPublisher";
 import { BoothConfigSchema } from "../src/config/schema";
 
 class FakeBackend implements AlbumBackend {
@@ -34,9 +34,14 @@ const TOKEN = "tok-0123456789abcdef";
 function setup(options: { token?: string } = { token: TOKEN }) {
   const backend = new FakeBackend();
   let now = 1_000_000;
-  const target: AlbumTarget = { eventId: "evt", token: options.token };
-  const publisher = new AlbumPublisher(backend, () => target, () => now);
-  return { backend, publisher, target, advance: (ms: number) => { now += ms; } };
+  const tokens: Record<string, string | undefined> = { evt: options.token };
+  const state = { activeId: "evt" };
+  const publisher = new AlbumPublisher(
+    backend,
+    { activeId: () => state.activeId, tokenFor: (id) => tokens[id] },
+    () => now
+  );
+  return { backend, publisher, tokens, state, advance: (ms: number) => { now += ms; } };
 }
 
 describe("AlbumPublisher", () => {
@@ -45,7 +50,7 @@ describe("AlbumPublisher", () => {
     await publisher.publishIfDirty();
     await publisher.publishIfDirty();
     expect(backend.written).toHaveLength(1);
-    publisher.markDirty();
+    publisher.markDirty("evt");
     await publisher.publishIfDirty();
     expect(backend.written).toHaveLength(2);
   });
@@ -106,7 +111,7 @@ describe("AlbumPublisher", () => {
     const { backend, publisher } = setup();
     backend.onList = () => {
       backend.onList = null;
-      publisher.markDirty();
+      publisher.markDirty("evt");
     };
     await publisher.publishIfDirty();
     await publisher.publishIfDirty();
@@ -114,11 +119,53 @@ describe("AlbumPublisher", () => {
   });
 
   it("rewrites when the token changes", async () => {
-    const { backend, publisher, target } = setup();
+    const { backend, publisher, tokens } = setup();
     await publisher.publishIfDirty();
-    target.token = "new-0123456789abcdef";
+    tokens.evt = "new-0123456789abcdef";
     await publisher.publishIfDirty();
     expect(backend.written.map((w) => w.token)).toEqual([TOKEN, "new-0123456789abcdef"]);
+  });
+
+  it("writes each dirty event's album with that event's own token", async () => {
+    const { backend, publisher, tokens, state } = setup();
+    await publisher.publishIfDirty();
+    tokens["new"] = "tok-new-0123456789abcd";
+    state.activeId = "new";
+    publisher.markDirty("evt"); // a print from the old event finished uploading after the switch
+    await publisher.publishIfDirty();
+    expect(backend.written.map((w) => `${w.eventId}/${w.token}`)).toEqual([
+      `evt/${TOKEN}`,
+      `evt/${TOKEN}`,
+      "new/tok-new-0123456789abcd",
+    ]);
+  });
+
+  it("writes a newly active event's album straight away, even with no prints", async () => {
+    const { backend, publisher, tokens, state } = setup();
+    await publisher.publishIfDirty();
+    tokens["new"] = "tok-new-0123456789abcd";
+    state.activeId = "new";
+    await publisher.publishIfDirty();
+    expect(backend.written.at(-1)).toMatchObject({ eventId: "new", token: "tok-new-0123456789abcd" });
+  });
+
+  it("skips a dirty event that has no token", async () => {
+    const { backend, publisher } = setup();
+    await publisher.publishIfDirty();
+    publisher.markDirty("tokenless");
+    await publisher.publishIfDirty();
+    expect(backend.written).toHaveLength(1);
+  });
+
+  it("reports the active event's photo count, not another event's", async () => {
+    const { backend, publisher, tokens, state } = setup();
+    backend.prints = [{ id: "a", takenAt: "2026-09-29T10:00:00.000Z" }];
+    await publisher.publishIfDirty();
+    tokens["new"] = "tok-new-0123456789abcd";
+    state.activeId = "new";
+    backend.prints = [];
+    await publisher.publishIfDirty();
+    expect(publisher.getStatus().photoCount).toBe(0);
   });
 
   it("does nothing without a token", async () => {

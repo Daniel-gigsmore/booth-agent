@@ -10,12 +10,13 @@ Flow: Attract → Get ready (live view; one countdown and shot per photo slot in
 
 **Mouse:** guests use the touchscreen, so the pointer is hidden. It appears while a mouse moves and hides again after 3 s. The scroll wheel scrolls lists.
 
-**Operator panel:** tap the lock in the top-right corner of Attract. Its ring is green, amber or red to match booth-agent's `/health` `overall`. The panel has four tabs:
+**Operator panel:** tap the lock in the top-right corner of Attract. Its ring is green, amber or red to match booth-agent's `/health` `overall`. The panel has five tabs:
 
 - **Status:** camera, printer, sync and hot folder health, plus the last 3 prints with Reprint.
 - **Settings:** pick the layout in use, set the countdown for the first photo and between photos (1–10 s), and create, edit or delete layouts. Changes apply to the next guest.
 - **Camera:** each Canon's settings, live view and a test shot.
-- **Album:** the online album link and its QR code, to send to the client (needs `album.token` in booth-agent and `VITE_DOWNLOAD_URL` here). **Slideshow on second screen** opens the booth's own album full screen on the TV or projector. Chrome must allow "window management" for the kiosk; if it doesn't, run `start-slideshow.ps1`. **Open album** opens the kiosk's album (always, even when it's hidden from guests; ✕ comes back here). **Hide album from guests** turns off both the Attract prints and the View album button.
+- **Album:** the online album link and its QR code, to send to the client (needs the active event to have an album token - new events get one automatically - and `VITE_DOWNLOAD_URL` here). **Slideshow on second screen** opens the booth's own album full screen on the TV or projector. Chrome must allow "window management" for the kiosk; if it doesn't, run `start-slideshow.ps1`. **Open album** opens the kiosk's album (always, even when it's hidden from guests; ✕ comes back here). **Hide album from guests** turns off both the Attract prints and the View album button.
+- **Events:** lists the events with their printed-photo counts and marks the one in use. **Switch** changes the booth to another event, and **Create and switch** starts a new one; photos, layout settings and the album link follow it, and the kiosk reloads on the new event.
 
 **Layout editor:** the left column adds a photo (each photo number is one shot), an image (PNG or JPEG, uploaded to booth-agent), a text or a shape, and sets the background colour and paper. Drag an element to move it and its orange corner dot to resize it. The Selected panel has exact X/Y/W/H, rotation, keep-aspect-ratio, align-to-paper and "Fill paper" controls, plus text (font, size, colour, bold, alignment, and the `{event}` `{date}` `{time}` `{code}` variables filled in per print), shape and photo-number settings. The Layers panel lists elements top first, with show/hide, up/down and delete. Undo/Redo keep the last 50 steps. The editor draws text with booth-agent's own font files, so it looks like the print; line breaks may differ slightly.
 
@@ -23,7 +24,7 @@ Flow: Attract → Get ready (live view; one countdown and shot per photo slot in
 
 ## Setup
 
-1. Copy `.env.example` to `.env`. Set `VITE_AGENT_TOKEN` to booth-agent's `agent.sharedSecret`.
+1. Copy `.env.example` to `.env`. Set `VITE_AGENT_TOKEN` to booth-agent's `agent.sharedSecret`. The event name and date on the strip and screens come from booth-agent's active event (Operator → Events), so there is nothing to set here and switching events needs no rebuild. To show the guest download QR, set `VITE_DOWNLOAD_URL` to the page link with placeholders, e.g. `https://<site>/?event={eventId}&name={eventName}&id={captureId}` (`{eventId}` and `{eventName}` are filled from the active event, `{captureId}` per photo).
 2. Add the kiosk's origin (for example `http://127.0.0.1:4173`) to `agent.allowedOrigins` in booth-agent's `booth.config.json`.
 3. Build and serve the kiosk:
 

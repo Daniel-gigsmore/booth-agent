@@ -7,11 +7,14 @@ import { Server } from "node:http";
 import sharp from "sharp";
 import { buildHttpApp } from "../src/server/http";
 import { AgentContext } from "../src/server/context";
+import { EventStore } from "../src/session/eventStore";
+import { DEFAULT_SESSION } from "../src/session/sessionSettings";
 
 const SECRET = "test-secret";
 let dir: string;
 let server: Server;
 let base: string;
+let events: EventStore;
 
 beforeAll(async () => {
   dir = await mkdtemp(path.join(tmpdir(), "booth-routes-"));
@@ -27,15 +30,16 @@ beforeAll(async () => {
     })
   );
   // Only the template routes run here; they touch nothing but config.
+  events = EventStore.open(dir, { id: "evt", session: DEFAULT_SESSION });
   const ctx = {
     configStore: {
       current: {
         agent: { allowedOrigins: [], sharedSecret: SECRET },
         compositing: { templateDir: dir },
-        event: { id: "evt" },
         storage: { dataDir: dir },
       },
     },
+    events,
   } as unknown as AgentContext;
   server = buildHttpApp(ctx).listen(0);
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -94,6 +98,16 @@ describe("layout routes", () => {
     });
     expect(up.status).toBe(400);
     expect((await fetch(`${base}/templates/new/assets/old.json`, { headers: auth })).status).toBe(404);
+  });
+
+  it("refuses to delete a layout that any event uses, not just the active one", async () => {
+    events.create({ name: "Other" }); // active from here on
+    events.updateActiveSession({ ...DEFAULT_SESSION, templateId: "old" });
+    events.create({ name: "Third" }); // copies "old"...
+    events.updateActiveSession({ ...DEFAULT_SESSION }); // ...but the active event doesn't use it
+    const res = await fetch(`${base}/templates/old/delete`, { method: "POST", headers: auth });
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toMatch(/Other/);
   });
 
   it("no longer serves the old overlay routes", async () => {

@@ -98,10 +98,10 @@ async function checkEdsdkDllArch(dllPath: string): Promise<{ ok: true } | { ok: 
   }
 }
 
-export async function runPreflight(config: BoothConfig): Promise<PreflightResult> {
+export async function runPreflight(config: BoothConfig, eventId: string = config.event.id): Promise<PreflightResult> {
   const checks: PreflightCheck[] = [];
 
-  checks.push(checkEventId(config));
+  checks.push(checkEventId(eventId));
   checks.push(checkSharedSecret(config));
   checks.push(...(await checkCanon(config)));
   checks.push(await checkWebcam(config));
@@ -124,8 +124,8 @@ export async function runPreflight(config: BoothConfig): Promise<PreflightResult
  * symptom until someone goes looking for the photos. Worth a loud banner line
  * on every single boot.
  */
-function checkEventId(config: BoothConfig): PreflightCheck {
-  const id = config.event.id.trim();
+function checkEventId(eventId: string): PreflightCheck {
+  const id = eventId.trim();
   if (id === "" || id === "your-event-id") {
     return fail("event.id", "event.id is unset or still the example value");
   }

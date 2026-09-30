@@ -18,6 +18,8 @@ import { PrintQueue } from "./print/printQueue";
 import { buildHttpApp } from "./server/http";
 import { attachEventsWebSocket } from "./server/ws";
 import { AgentContext } from "./server/context";
+import { EventStore } from "./session/eventStore";
+import { readSessionSettings } from "./session/sessionSettings";
 import { runPreflight, logPreflight } from "./startup/preflight";
 import { createLogger } from "./util/logger";
 
@@ -55,6 +57,14 @@ async function main(): Promise<void> {
   const eventBus = new EventBus();
   const config = configStore.current;
 
+  // First start after the event-switching update: seed events.json from what the booth ran on until now.
+  const events = EventStore.open(config.storage.dataDir, {
+    id: config.event.id,
+    name: config.event.name,
+    albumToken: config.album.token,
+    session: readSessionSettings(config.storage.dataDir),
+  });
+
   // Before anything else touches hardware: verify the external dependencies
   // this agent cannot control (digiCamControl, Hot Folder Print, the printer,
   // disk, config placeholders). Deliberately non-blocking - a booth that
@@ -62,7 +72,7 @@ async function main(): Promise<void> {
   // operator can still run webcam-only or fix the printer while it serves
   // captures. The result is logged as a banner and served at
   // GET /health/preflight.
-  const preflight = await runPreflight(config);
+  const preflight = await runPreflight(config, events.active().id);
   logPreflight(preflight);
 
   // `driver` is read once at startup; switching it needs a service restart.
@@ -103,7 +113,7 @@ async function main(): Promise<void> {
       listPrints: async (eventId) => outboxStore.listPublishedPrints(eventId),
       ...createSupabaseAlbumBackend(supabaseClient, () => configStore.current.supabase.storageBucket),
     },
-    () => ({ eventId: configStore.current.event.id, token: configStore.current.album.token })
+    { activeId: () => events.active().id, tokenFor: (eventId) => events.get(eventId)?.albumToken }
   );
   const syncWorker = new SyncWorker(
     outboxStore,
@@ -128,6 +138,7 @@ async function main(): Promise<void> {
     outboxStore,
     printQueue,
     album: albumPublisher,
+    events,
     preflight,
   };
 
