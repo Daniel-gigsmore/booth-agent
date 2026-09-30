@@ -28,6 +28,7 @@ import { exportLayout, importLayout, copyLayout } from "../compositor/templateTr
 import { FONTS, fontFilePath } from "../compositor/fonts";
 import { textVariables } from "../compositor/variables";
 import { SessionSettingsSchema } from "../session/sessionSettings";
+import { NewEventSchema, UnknownEventError, BoothEvent } from "../session/eventStore";
 import { renderComposite, renderSheet } from "../compositor/compositor";
 import { samplePhotos } from "../compositor/samples";
 import { originalsDir, compositesDir, aiDownloadsDir, samplesDir } from "../util/paths";
@@ -862,6 +863,45 @@ export function buildRouter(ctx: AgentContext): Router {
       res.json({ ...parsed.data, template });
     } catch (err) {
       res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  // The operator panel's Events tab. Switching changes where the next capture goes, so it is
+  // only offered there, never mid-session.
+  const eventSummary = (e: BoothEvent) => ({ id: e.id, name: e.name, date: e.date });
+
+  router.get("/events", (_req: Request, res: Response) => {
+    res.set("Cache-Control", "no-store").json({
+      activeId: ctx.events.active().id,
+      events: ctx.events.list().map((e) => ({ ...eventSummary(e), photoCount: ctx.outboxStore.listAlbumPrints(e.id).length })),
+    });
+  });
+
+  router.post("/events", (req: Request, res: Response) => {
+    const parsed = NewEventSchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.issues.map((i) => i.message).join("; ") });
+      return;
+    }
+    try {
+      const event = ctx.events.create(parsed.data as { name: string; date?: string });
+      log.info(`New event "${event.name}" (${event.id}) is now active`);
+      res.status(201).json(eventSummary(event));
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  router.post("/events/:id/activate", (req: Request<{ id: string }>, res: Response) => {
+    try {
+      const event = ctx.events.activate(req.params.id);
+      // Catches up anything that changed while another event was on.
+      ctx.album.markDirty(event.id);
+      log.info(`Switched to event "${event.name}" (${event.id})`);
+      res.json(eventSummary(event));
+    } catch (err) {
+      const status = err instanceof UnknownEventError ? 404 : 500;
+      res.status(status).json({ error: err instanceof Error ? err.message : String(err) });
     }
   });
 
