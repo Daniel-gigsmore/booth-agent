@@ -259,6 +259,8 @@ export default function Operator({ onBack, onAlbum, initialTab }: { onBack: () =
               <button type="button" className={tab === "album" ? "on" : ""} onClick={() => setTab("album")}>Album</button>
             </div>
             <button type="button" className="btn outline sm" onClick={onBack}>Back to kiosk</button>
+            {/* The preview server minimizes the foreground window for us (vite.config.js). */}
+            <button type="button" className="btn outline sm" onClick={() => void fetch("/__minimize", { method: "POST" })}>Minimize kiosk</button>
             {/* Chrome lets a page close its own window when it was opened straight from the command line (start-kiosk.ps1). */}
             <button type="button" className="btn outline sm" onClick={() => window.close()}>Close kiosk</button>
           </div>
