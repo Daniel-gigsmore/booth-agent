@@ -278,7 +278,11 @@ button { font: inherit; color: inherit; cursor: inherit; }
 .oops-icon { width: 180px; height: 180px; border-radius: 50%; background: var(--surface); display: flex; align-items: center; justify-content: center; color: var(--accent); }
 
 /* ---- Operator ---- */
-.operator { display: flex; flex-direction: column; gap: 36px; padding: 56px 72px; cursor: default; }
+.operator { display: flex; flex-direction: column; gap: 36px; padding: 104px 72px 56px; cursor: default; }
+.win-ctl { position: absolute; top: 0; right: 0; display: flex; }
+.win-ctl button { width: 138px; height: 88px; display: flex; align-items: center; justify-content: center; background: transparent; border: 0; color: var(--text); }
+.win-ctl button:active { background: var(--surface); }
+.win-ctl button.close:active { background: #c42b1c; color: #fff; }
 .banner { display: flex; flex-direction: column; gap: 8px; padding: 24px 32px; border-radius: 20px; border: 2px solid; font-size: 28px; font-weight: 700; }
 .banner.ok { background: #17311f; border-color: #2e6b45; color: var(--ok-text); }
 .banner.warn { background: #33280f; border-color: #7a5b1c; color: #fbe3b0; }
