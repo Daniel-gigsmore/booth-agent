@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { agent, config, Health, PrintJob, SessionSettings, Template } from "./agent";
+import { agent, Health, PrintJob, SessionSettings, Template } from "./agent";
 import { useHealth } from "./hooks";
+import { useEvent } from "./event";
 import LayoutEditor, { LayoutThumb } from "./LayoutEditor";
 import { newTemplate, shotCount, CAMERA_ARROW } from "./layout";
 import CameraTab from "./CameraTab";
@@ -238,6 +239,7 @@ function SettingsTab({ onEdit }: { onEdit: (t: Template, all: Template[], inUseI
 }
 
 export default function Operator({ onBack, onAlbum, initialTab }: { onBack: () => void; onAlbum: () => void; initialTab?: "album" }) {
+  const event = useEvent();
   const [tab, setTab] = useState<"status" | "settings" | "camera" | "album">(initialTab ?? "status");
   const [editing, setEditing] = useState<{ t: Template; ids: string[]; inUseId: string } | null>(null);
   // Bumped after the editor saves, so the Settings tab reloads its list.
@@ -248,7 +250,7 @@ export default function Operator({ onBack, onAlbum, initialTab }: { onBack: () =
       <div className="row between">
         <div className="col gap-6">
           <div className="display fs-64">{editing ? (editing.t.id ? "Edit layout" : "New layout") : "Operator panel"}</div>
-          {config.eventName && <div className="muted fs-24">Event: {config.eventName}</div>}
+          {event?.name && <div className="muted fs-24">Event: {event.name}</div>}
         </div>
         {!editing && (
           <div className="row gap-20">

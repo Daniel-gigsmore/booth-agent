@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import QRCode from "qrcode";
 import { agent, config, printUrl } from "./agent";
+import { useEvent, fillDownloadUrl } from "./event";
 import { mergeAlbum, nextSlide, type SlideState } from "./album";
 
 const POLL_MS = 15_000;
@@ -8,7 +9,7 @@ const SLIDE_MS = 6_000;
 
 /** One print's download QR (the same page as the Done screen's), or nothing when that page isn't set up. */
 function PhotoQr({ id }: { id: string }) {
-  const url = config.downloadUrl(id);
+  const url = fillDownloadUrl(config.downloadUrlTemplate, id, useEvent());
   const [qr, setQr] = useState("");
   useEffect(() => {
     setQr("");
@@ -29,6 +30,7 @@ function PhotoQr({ id }: { id: string }) {
  * offline. Guests reach it from Attract, the operator from the Album tab.
  */
 export default function AlbumScreen({ onClose }: { onClose: () => void }) {
+  const event = useEvent();
   const [ids, setIds] = useState<string[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [viewing, setViewing] = useState<number | null>(null);
@@ -83,7 +85,7 @@ export default function AlbumScreen({ onClose }: { onClose: () => void }) {
       </button>
       <div className="row gap-36 album-head">
         <div className="logo"><span className="logo-dot" />KACHAK</div>
-        {config.eventName && <div className="pill">{config.eventName}</div>}
+        {event?.name && <div className="pill">{event.name}</div>}
         {ids.length > 0 && (
           <button type="button" className="btn primary md" onClick={() => setPlaying(true)}>▶ Play</button>
         )}

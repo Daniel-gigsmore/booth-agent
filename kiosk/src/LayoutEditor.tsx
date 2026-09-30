@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { agent, agentUrl, config, LayoutElement, Template } from "./agent";
+import { agent, agentUrl, LayoutElement, Template } from "./agent";
+import { useEvent } from "./event";
 import { AddPanel, LayersPanel, PropsPanel } from "./EditorPanels";
 import { cssFamily, useAgentFonts } from "./fonts";
 import { CompositePreview } from "./screens";
@@ -51,6 +52,7 @@ const JUSTIFY = { left: "flex-start", center: "center", right: "flex-end" } as c
 
 /** One element as the editor draws it, filling its (already positioned and rotated) box. */
 function ElementBody({ el, layoutId, view, arrows }: { el: LayoutElement; layoutId: string; view: number; arrows: boolean }) {
+  const event = useEvent();
   switch (el.type) {
     case "photo":
       return (
@@ -69,7 +71,7 @@ function ElementBody({ el, layoutId, view, arrows }: { el: LayoutElement; layout
           justifyContent: JUSTIFY[el.align], textAlign: el.align, color: el.color,
           fontFamily: cssFamily(el.font), fontSize: el.size * view, fontWeight: el.bold ? 700 : 400,
         }}>
-          <span>{sampleText(el.text, config.eventName)}</span>
+          <span>{sampleText(el.text, event?.name ?? "")}</span>
         </div>
       );
   }

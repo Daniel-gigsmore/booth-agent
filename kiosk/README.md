@@ -23,7 +23,7 @@ Flow: Attract → Get ready (live view; one countdown and shot per photo slot in
 
 ## Setup
 
-1. Copy `.env.example` to `.env`. Set `VITE_AGENT_TOKEN` to booth-agent's `agent.sharedSecret`.
+1. Copy `.env.example` to `.env`. Set `VITE_AGENT_TOKEN` to booth-agent's `agent.sharedSecret`. The event name and date on the strip and screens come from booth-agent's active event (Operator → Events), so there is nothing to set here and switching events needs no rebuild. To show the guest download QR, set `VITE_DOWNLOAD_URL` to the page link with placeholders, e.g. `https://<site>/?event={eventId}&name={eventName}&id={captureId}` (`{eventId}` and `{eventName}` are filled from the active event, `{captureId}` per photo).
 2. Add the kiosk's origin (for example `http://127.0.0.1:4173`) to `agent.allowedOrigins` in booth-agent's `booth.config.json`.
 3. Build and serve the kiosk:
 
