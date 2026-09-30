@@ -27,7 +27,7 @@ export type UploadFn = (row: CaptureRow) => Promise<{ storagePath: string; sourc
  * gives it a chance to rewrite its manifest. Optional so the worker runs the same without one.
  */
 export interface AlbumHooks {
-  markDirty(): void;
+  markDirty(eventId: string): void;
   publishIfDirty(): Promise<void>;
 }
 
@@ -96,7 +96,7 @@ export class SyncWorker {
       const { storagePath, sourcePath } = await this.uploadFn(row);
       this.store.markSynced(row.id, storagePath, sourcePath);
       // Only the print belongs in the album: the raw original that goes up first does not.
-      if (row.composite_path !== null && sourcePath === row.composite_path) this.album?.markDirty();
+      if (row.composite_path !== null && sourcePath === row.composite_path) this.album?.markDirty(row.event_id);
       this.consecutiveFailures = 0;
       log.info(`Synced capture ${row.id}`);
     } catch (err) {

@@ -6,9 +6,9 @@ import { EventBus } from "../src/events/eventBus";
 
 function makeWorker(uploadFn: UploadFn) {
   const store = new OutboxStore(createInMemoryOutboxDb());
-  const album = { dirtyMarks: 0, publishes: 0 };
+  const album = { dirtyMarks: 0, dirtyEvents: [] as string[], publishes: 0 };
   const hooks: AlbumHooks = {
-    markDirty: () => { album.dirtyMarks += 1; },
+    markDirty: (eventId: string) => { album.dirtyMarks += 1; album.dirtyEvents.push(eventId); },
     publishIfDirty: async () => { album.publishes += 1; },
   };
   const worker = new SyncWorker(
@@ -37,6 +37,7 @@ describe("SyncWorker album hooks", () => {
     insert(store, "print", true);
     await worker.tick();
     expect(album.dirtyMarks).toBe(1);
+    expect(album.dirtyEvents).toEqual(["evt"]);
   });
 
   it("doesn't mark it for a raw original", async () => {
@@ -63,7 +64,7 @@ describe("SyncWorker album hooks", () => {
   it("keeps syncing when the album throws", async () => {
     const store = new OutboxStore(createInMemoryOutboxDb());
     const hooks: AlbumHooks = {
-      markDirty: () => {},
+      markDirty: (_eventId: string) => {},
       publishIfDirty: async () => { throw new Error("album backend down"); },
     };
     const worker = new SyncWorker(
