@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fillDownloadUrl } from "./event";
+import { fillDownloadUrl, namesFixedEvent } from "./event";
 
 const EVENT = { id: "tumi-2026-10-05", name: "TUMI & Co", date: "2026-10-05" };
 
@@ -20,5 +20,13 @@ describe("fillDownloadUrl", () => {
 
   it("is empty until the agent has said which event is on, when the URL needs it", () => {
     expect(fillDownloadUrl("https://x.app/?event={eventId}&id={captureId}", "c1", null)).toBe("");
+  });
+});
+
+describe("namesFixedEvent", () => {
+  it("is true only for a download link that is set but has no {eventId}", () => {
+    expect(namesFixedEvent("https://x.app/?event=gigsmore&id={captureId}")).toBe(true);
+    expect(namesFixedEvent("https://x.app/?event={eventId}&id={captureId}")).toBe(false);
+    expect(namesFixedEvent("")).toBe(false);
   });
 });

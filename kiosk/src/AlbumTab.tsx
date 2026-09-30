@@ -80,7 +80,7 @@ export default function AlbumTab({ onOpenAlbum }: { onOpenAlbum: () => void }) {
         {error && <div className="banner warn">{error}</div>}
         {info && !info.token && (
           <div className="banner warn">
-            The online album is off. Add "album": {"{"} "token": "…" {"}"} to booth.config.json (see download/README.md).
+            This event has no online album. Create a new event (it gets one), or stop the service and add an albumToken to this event in events.json (see download/README.md).
           </div>
         )}
         {info?.token && !link && (

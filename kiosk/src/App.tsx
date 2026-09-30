@@ -22,9 +22,11 @@ const IDLE_MS = 60_000;
 export default function App() {
   const [screen, setScreen] = useState<Screen>({ name: "attract" });
   const health = useHealth(15_000);
-  const event: KioskEvent | null = health
-    ? { id: health.eventId, name: health.eventName ?? health.eventId, date: health.eventDate ?? "" }
-    : null;
+  // Kept across a failed /health poll, so the Done screen's QR doesn't vanish on one dropped request.
+  const [event, setEvent] = useState<KioskEvent | null>(null);
+  useEffect(() => {
+    if (health) setEvent({ id: health.eventId, name: health.eventName ?? health.eventId, date: health.eventDate ?? "" });
+  }, [health?.eventId, health?.eventName, health?.eventDate]);
   const attract = () => setScreen({ name: "attract" });
 
   useEffect(() => {

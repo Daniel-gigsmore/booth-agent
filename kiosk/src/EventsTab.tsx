@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { agent, EventRow } from "./agent";
+import { agent, config, EventRow } from "./agent";
+import { namesFixedEvent } from "./event";
 
 /** Today on this PC as YYYY-MM-DD, the default date for a new event. */
 function today(): string {
@@ -50,6 +51,12 @@ export default function EventsTab() {
           </button>
         </div>
       </div>
+      {namesFixedEvent(config.downloadUrlTemplate) && (
+        <div className="banner warn fs-24">
+          The download link in .env.local names a fixed event, so after switching, guests' QR codes point at the wrong
+          event. Change VITE_DOWNLOAD_URL to use event={"{eventId}"}&amp;name={"{eventName}"} and rebuild the kiosk.
+        </div>
+      )}
       {error && <div className="banner error fs-24">{error}</div>}
       <div className="col gap-20">
         <div className="display fs-36">Events</div>
