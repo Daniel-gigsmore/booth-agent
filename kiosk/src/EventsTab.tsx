@@ -20,10 +20,31 @@ export default function EventsTab() {
   const [date, setDate] = useState(today);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  // The row whose Delete was tapped once; a second tap deletes it.
+  const [confirmId, setConfirmId] = useState<string | null>(null);
 
+  const load = () => agent.events().then(setList, (e: Error) => setError(e.message));
   useEffect(() => {
-    agent.events().then(setList, (e: Error) => setError(e.message));
+    void load();
   }, []);
+
+  /** Only takes it off the list (the active event is unchanged, so no reload); photos and album link stay. */
+  async function remove(id: string) {
+    if (confirmId !== id) {
+      setConfirmId(id);
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      await agent.deleteEvent(id);
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+    setConfirmId(null);
+    setBusy(false);
+  }
 
   async function change(run: () => Promise<unknown>) {
     setBusy(true);
@@ -73,15 +94,21 @@ export default function EventsTab() {
               {e.id === list.activeId ? (
                 <div className="pill">In use</div>
               ) : (
-                <button type="button" className="btn outline sm" disabled={busy}
-                  onClick={() => change(() => agent.activateEvent(e.id))}>
-                  Switch
-                </button>
+                <div className="row gap-20">
+                  <button type="button" className="btn outline sm danger" disabled={busy} onClick={() => remove(e.id)}>
+                    {confirmId === e.id ? "Tap again to delete" : "Delete"}
+                  </button>
+                  <button type="button" className="btn outline sm" disabled={busy}
+                    onClick={() => change(() => agent.activateEvent(e.id))}>
+                    Switch
+                  </button>
+                </div>
               )}
             </div>
           ))}
           </div>
         )}
+        <div className="muted fs-24">Delete only takes an event off this list. Its photos and album link stay.</div>
       </div>
     </div>
   );

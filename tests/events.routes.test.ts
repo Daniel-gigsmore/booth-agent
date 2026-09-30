@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { AddressInfo } from "node:net";
@@ -108,5 +108,35 @@ describe("/events", () => {
     expect(res.status).toBe(500);
     expect((await res.json()).error).toMatch(/events\.json/);
     expect(events.active().id).toBe("evt");
+  });
+
+  it("deletes an event from the list and keeps its album updating", async () => {
+    const test = events.create({ name: "Test", date: "2026-09-30" });
+    events.activate("evt");
+    const res = await post(`/events/${test.id}/delete`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ deleted: test.id });
+    const list = await (await fetch(`${base}/events`, { headers: auth })).json();
+    expect(list.events.map((e: { id: string }) => e.id)).toEqual(["evt"]);
+    expect(events.get(test.id)?.albumToken).toBe(test.albumToken);
+  });
+
+  it("refuses to delete the active event (409) or an unknown one (404)", async () => {
+    const res = await post("/events/evt/delete");
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toMatch(/switch/i);
+    expect((await post("/events/nope/delete")).status).toBe(404);
+  });
+
+  it("answers 500 and keeps the event listed when events.json can't be written", async () => {
+    const test = events.create({ name: "Test", date: "2026-09-30" });
+    events.activate("evt");
+    // A directory where the file should be makes the atomic rename fail.
+    const file = path.join(dataDir, "events.json");
+    await rm(file);
+    await mkdir(file);
+    const res = await post(`/events/${test.id}/delete`);
+    expect(res.status).toBe(500);
+    expect(events.list().map((e) => e.id)).toContain(test.id);
   });
 });

@@ -19,6 +19,11 @@ const BoothEventSchema = z.object({
   date: z.string().regex(DATE),
   albumToken: z.string().regex(/^[A-Za-z0-9_-]{16,}$/).optional(),
   session: SessionSettingsSchema,
+  /**
+   * Taken off the operator's list. The entry stays so its id is never reused (a new event would
+   * share its Supabase folder and album) and late uploads still update its album.
+   */
+  deleted: z.literal(true).optional(),
 });
 export type BoothEvent = z.infer<typeof BoothEventSchema>;
 
@@ -42,6 +47,7 @@ export interface EventSeed {
 }
 
 export class UnknownEventError extends Error {}
+export class ActiveEventError extends Error {}
 
 /** Today on the booth PC's clock, as YYYY-MM-DD. */
 export function localDate(d: Date = new Date()): string {
@@ -125,9 +131,9 @@ export class EventStore {
     return this.file.events.find((e) => e.id === id);
   }
 
-  /** Newest date first. */
+  /** The operator's list, newest date first. Deleted events are left out. */
   list(): BoothEvent[] {
-    return [...this.file.events].sort((a, b) => b.date.localeCompare(a.date) || a.name.localeCompare(b.name));
+    return this.file.events.filter((e) => !e.deleted).sort((a, b) => b.date.localeCompare(a.date) || a.name.localeCompare(b.name));
   }
 
   /** Adds an event and makes it the active one. It starts with the active event's session settings. */
@@ -149,9 +155,21 @@ export class EventStore {
   }
 
   activate(id: string): BoothEvent {
-    const event = this.get(id);
-    if (!event) throw new UnknownEventError(`no event ${id}`);
+    const event = this.listed(id);
     this.save({ ...this.file, activeId: id });
+    return event;
+  }
+
+  /** Takes an event off the list. Its photos, folder and album link are left alone. */
+  remove(id: string): void {
+    this.listed(id);
+    if (id === this.file.activeId) throw new ActiveEventError(`${id} is in use - switch to another event first`);
+    this.save({ ...this.file, events: this.file.events.map((e) => (e.id === id ? { ...e, deleted: true as const } : e)) });
+  }
+
+  private listed(id: string): BoothEvent {
+    const event = this.get(id);
+    if (!event || event.deleted) throw new UnknownEventError(`no event ${id}`);
     return event;
   }
 

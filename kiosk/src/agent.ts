@@ -199,6 +199,7 @@ export const agent = {
   events: () => call<{ activeId: string; events: EventRow[] }>("GET", "/events"),
   createEvent: (name: string, date: string) => call<{ id: string; name: string; date: string }>("POST", "/events", { name, date }),
   activateEvent: (id: string) => call<{ id: string; name: string; date: string }>("POST", `/events/${encodeURIComponent(id)}/activate`),
+  deleteEvent: (id: string) => call<{ deleted: string }>("POST", `/events/${encodeURIComponent(id)}/delete`),
   setAttractSlideshow: (enabled: boolean) => call("POST", "/attract-slideshow", { enabled }),
   /** This event's prints on this booth, oldest first. Works offline. */
   albumPhotos: () => call<{ photos: { id: string }[] }>("GET", "/album.json").then((r) => r.photos.map((p) => p.id)),

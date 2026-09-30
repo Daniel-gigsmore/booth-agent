@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { EventStore, EventSeed, UnknownEventError, eventSlug, NewEventSchema } from "../src/session/eventStore";
+import { EventStore, EventSeed, UnknownEventError, ActiveEventError, eventSlug, NewEventSchema } from "../src/session/eventStore";
 import { DEFAULT_SESSION } from "../src/session/sessionSettings";
 
 const TOKEN = "tok-0123456789abcdef";
@@ -137,5 +137,43 @@ describe("EventStore", () => {
   it("treats a file whose activeId isn't in the list as unreadable", async () => {
     await writeFile(file(), JSON.stringify({ activeId: "gone", events: [{ id: "a", name: "A", date: "2026-01-01", session: DEFAULT_SESSION }] }));
     expect(EventStore.open(dataDir, SEED).loadError).toMatch(/activeId/);
+  });
+
+  describe("remove", () => {
+    it("hides the event from the list but keeps it (and its token) in the file", async () => {
+      const store = EventStore.open(dataDir, SEED, "2026-09-30");
+      const test = store.create({ name: "Test", date: "2026-09-30" });
+      store.activate(SEED.id);
+      store.remove(test.id);
+      expect(store.list().map((e) => e.id)).toEqual([SEED.id]);
+      expect(store.get(test.id)?.albumToken).toBe(test.albumToken);
+      const disk = await onDisk();
+      expect(disk.events.find((e: { id: string }) => e.id === test.id)).toMatchObject({ deleted: true });
+      expect(EventStore.open(dataDir, SEED).list().map((e) => e.id)).toEqual([SEED.id]);
+    });
+
+    it("refuses the active event and an unknown one", () => {
+      const store = EventStore.open(dataDir, SEED, "2026-09-30");
+      expect(() => store.remove(SEED.id)).toThrow(ActiveEventError);
+      expect(() => store.remove("nope")).toThrow(UnknownEventError);
+      expect(store.list()).toHaveLength(1);
+    });
+
+    it("can't switch to a removed event, or remove it twice", () => {
+      const store = EventStore.open(dataDir, SEED, "2026-09-30");
+      const test = store.create({ name: "Test", date: "2026-09-30" });
+      store.activate(SEED.id);
+      store.remove(test.id);
+      expect(() => store.activate(test.id)).toThrow(UnknownEventError);
+      expect(() => store.remove(test.id)).toThrow(UnknownEventError);
+    });
+
+    it("never reuses a removed event's id, so its folder and album stay its own", () => {
+      const store = EventStore.open(dataDir, SEED, "2026-09-30");
+      const first = store.create({ name: "Test", date: "2026-09-30" });
+      store.activate(SEED.id);
+      store.remove(first.id);
+      expect(store.create({ name: "Test", date: "2026-09-30" }).id).toBe("test-2026-09-30-2");
+    });
   });
 });
