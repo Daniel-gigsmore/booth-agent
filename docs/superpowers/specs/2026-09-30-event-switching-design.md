@@ -93,5 +93,5 @@ Switching is only offered in the operator panel, so it never happens mid-session
 ## Deploy
 
 1. Build the agent; the user restarts the service. The first start writes `events.json` from the current config.
-2. Update `C:\BoothAgent\kiosk\.env.local`: `VITE_DOWNLOAD_URL` uses `e={eventId}&name={eventName}` instead of the fixed event (backup first), and `VITE_EVENT_NAME` can go.
+2. Update `C:\BoothAgent\kiosk\.env.local`: `VITE_DOWNLOAD_URL` uses `event={eventId}&name={eventName}` instead of the fixed event (backup first), and `VITE_EVENT_NAME` and `VITE_EVENT_DATE` can go.
 3. Deploy and build the kiosk as usual, then reload it.
