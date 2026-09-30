@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, rm, writeFile, readdir } from "node:fs/promises";
+import { mkdtemp, rm, writeFile, readdir, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PrintQueue } from "../src/print/printQueue";
+import { hotFolderPathFor } from "../src/print/hotFolder";
 import { createInMemoryOutboxDb } from "../src/outbox/db";
 import { OutboxStore } from "../src/outbox/outboxStore";
 import { EventBus } from "../src/events/eventBus";
@@ -48,6 +49,23 @@ async function waitFor(predicate: () => Promise<boolean> | boolean, timeoutMs = 
 }
 
 describe("PrintQueue", () => {
+  it("drops the print-ready file it is given for the composite, not the composite itself", async () => {
+    const sheetPath = path.join(hotFolderBase, "composite-sheet.jpg");
+    await writeFile(sheetPath, "sheet bytes");
+    const store = new OutboxStore(createInMemoryOutboxDb());
+    store.insertCapture({ id: "capture-1", eventId: "event-1", source: "webcam", originalPath: sourceFilePath, takenAt: new Date().toISOString() });
+    const prepared: string[] = [];
+    const queue = new PrintQueue(hotFolderBase, 0.01, store, new EventBus(), async (file) => {
+      prepared.push(file);
+      return sheetPath;
+    });
+    const job = queue.enqueue("capture-1", "4x6", sourceFilePath);
+    const dropped = path.join(hotFolderPathFor(hotFolderBase, "4x6"), `${job.jobId}.jpg`);
+    await waitFor(async () => (await readdir(path.dirname(dropped)).catch(() => [])).includes(`${job.jobId}.jpg`));
+    expect(prepared).toEqual([sourceFilePath]);
+    expect(await readFile(dropped, "utf8")).toBe("sheet bytes");
+  });
+
   it("assigns increasing queue positions and wait estimates across rapid back-to-back prints", async () => {
     const queue = makeQueue(10); // 10s/print, long enough that nothing drains mid-test
     const jobs = [1, 2, 3, 4, 5].map(() => queue.enqueue("capture-1", "4x6", sourceFilePath));

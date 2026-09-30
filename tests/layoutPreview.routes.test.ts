@@ -6,7 +6,7 @@ import { AddressInfo } from "node:net";
 import { Server } from "node:http";
 import sharp from "sharp";
 import { buildHttpApp } from "../src/server/http";
-import { renderSheet } from "../src/compositor/compositor";
+import { renderPhoto } from "../src/compositor/compositor";
 import { AgentContext } from "../src/server/context";
 import { EventStore } from "../src/session/eventStore";
 import { DEFAULT_SESSION } from "../src/session/sessionSettings";
@@ -14,7 +14,7 @@ import { DEFAULT_SESSION } from "../src/session/sessionSettings";
 // Spy on the sheet renderer so a test can see which text variables a preview used.
 vi.mock("../src/compositor/compositor", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/compositor/compositor")>();
-  return { ...actual, renderSheet: vi.fn(actual.renderSheet) };
+  return { ...actual, renderPhoto: vi.fn(actual.renderPhoto) };
 });
 
 const SECRET = "test-secret";
@@ -84,15 +84,15 @@ async function filesUnder(dir: string): Promise<string[]> {
   return out;
 }
 
-const lastVariables = () => vi.mocked(renderSheet).mock.calls.at(-1)![0].variables;
+const lastVariables = () => vi.mocked(renderPhoto).mock.calls.at(-1)![0].variables;
 
 describe("layout preview", () => {
-  it("renders an unsaved draft as the portrait print sheet", async () => {
+  it("renders an unsaved landscape draft upright, the way the guest holds the print", async () => {
     const res = await post("/layout-preview", draft());
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toMatch(/image\/jpeg/);
     const meta = await sharp(Buffer.from(await res.arrayBuffer())).metadata();
-    expect([meta.width, meta.height]).toEqual([1200, 1800]);
+    expect([meta.width, meta.height]).toEqual([1800, 1200]);
   });
 
   it("refuses a draft whose image points outside the layout", async () => {
@@ -114,6 +114,9 @@ describe("layout preview", () => {
     expect(jobId).toMatch(/^test-/);
     const dropped = await filesUnder(hotFolder);
     expect(dropped.some((f) => path.basename(f) === `${jobId}.jpg`)).toBe(true);
+    // The test print is the sheet the printer feeds: the landscape draft turned onto portrait 4x6.
+    const sheet = await sharp(dropped.find((f) => path.basename(f) === `${jobId}.jpg`)!).metadata();
+    expect([sheet.width, sheet.height]).toEqual([1200, 1800]);
     const composites = await filesUnder(path.join(root, "composites"));
     expect(composites.some((f) => path.basename(f) === `${jobId}.jpg`)).toBe(false);
   });

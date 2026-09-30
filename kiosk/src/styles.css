@@ -262,7 +262,7 @@ button { font: inherit; color: inherit; cursor: inherit; }
   display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 24px; align-content: start;
 }
 .album-thumb { padding: 0; border: 0; border-radius: 20px; overflow: hidden; background: var(--surface); }
-.album-thumb img { width: 100%; aspect-ratio: 2 / 3; object-fit: contain; } /* 4x6 sheets are portrait */
+.album-thumb img { width: 100%; aspect-ratio: 1; object-fit: contain; } /* prints are upright: landscape, portrait or a strip */
 .album-empty { flex-grow: 1; display: flex; align-items: center; justify-content: center; color: var(--muted); }
 .album-viewer {
   position: absolute; inset: 0; z-index: 5; background: rgba(12, 10, 15, 0.96);

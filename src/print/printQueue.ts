@@ -46,7 +46,12 @@ export class PrintQueue {
     private readonly hotFolderPath: string,
     private readonly secondsPerPrint: number,
     private readonly outbox: OutboxStore,
-    private readonly eventBus: EventBus
+    private readonly eventBus: EventBus,
+    /**
+     * The file to drop for a composite. index.ts turns an upright photo into the
+     * portrait sheet the printer feeds (compositor printFileFor); the default drops it as-is.
+     */
+    private readonly printFile: (compositeFilePath: string) => Promise<string> = async (file) => file
   ) {}
 
   enqueue(captureId: string, size: PrintSize, compositeFilePath: string): PrintJobPublic {
@@ -81,7 +86,8 @@ export class PrintQueue {
     // by the simulated print duration below - the real printer should start
     // on it as soon as possible.
     this.processingChain = this.processingChain
-      .then(() => dropIntoHotFolder(this.hotFolderPath, size, jobId, compositeFilePath))
+      .then(() => this.printFile(compositeFilePath))
+      .then((file) => dropIntoHotFolder(this.hotFolderPath, size, jobId, file))
       .then((droppedPath) => {
         this.outbox.markPrintDropped(jobId, droppedPath);
       })
