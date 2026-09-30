@@ -47,7 +47,7 @@ Everything that reads `config.event` or `album.token` or `session.json` today re
 - **Compositing** fills `{event}` with the active event's name.
 - **Session settings** routes (`GET`/`POST /session`, the in-use check in `POST /templates/:id/delete`, `POST /attract-slideshow`) read and write the active event's `session`.
 - **`/album-info`** and **`/album.json`** (the kiosk's own album list) use the active event and its token.
-- **`/health`** gains `eventName` next to `eventId`, and an `events-file-unreadable` error alert when `events.json` could not be parsed.
+- **`/health`** gains `eventName` and `eventDate` next to `eventId`, and an `events-file-unreadable` error alert when `events.json` could not be parsed.
 - **Preflight** checks the active event's id instead of `config.event.id`.
 
 ### Album publisher
@@ -71,12 +71,12 @@ Switching is only offered in the operator panel, so it never happens mid-session
 
 ## Kiosk
 
-- **Event name from the agent.** `config.eventName` (from `VITE_EVENT_NAME`) is replaced by `/health`'s `eventName` everywhere it's shown: the Attract pill, the sample strips, the album screen, the layout editor's `{event}` sample text and the operator header. `VITE_EVENT_NAME` is dropped from `.env.example`.
+- **Event name from the agent.** `config.eventName` and `config.eventDate` (from `VITE_EVENT_NAME`/`VITE_EVENT_DATE`) are replaced by `/health`'s `eventName` and `eventDate` everywhere it's shown: the Attract pill, the sample strips, the album screen, the layout editor's `{event}` sample text and the operator header. `VITE_EVENT_NAME` and `VITE_EVENT_DATE` are dropped from `.env.example`.
 - **Download URL.** `VITE_DOWNLOAD_URL` supports `{eventId}` and `{eventName}` placeholders alongside `{captureId}`, filled from `/health`. A URL without them keeps working as before (for the event it names).
 - **Events tab** in the operator panel (next to Album):
   - the list, newest first: name, date, photo count, a marker on the active one, and a "Switch" button on the others;
   - "New event": a name field and a date field (default today) and "Create", which creates and switches.
-  - After a switch or create, the panel reloads its tabs so Settings, Album and the header show the new event.
+  - After a switch or create, the kiosk reloads the page, so every screen (and the attract slideshow's cached prints) starts over on the new event.
 
 ## Error handling
 
