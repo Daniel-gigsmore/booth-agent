@@ -28,7 +28,7 @@ import { exportLayout, importLayout, copyLayout } from "../compositor/templateTr
 import { FONTS, fontFilePath } from "../compositor/fonts";
 import { textVariables } from "../compositor/variables";
 import { SessionSettingsSchema } from "../session/sessionSettings";
-import { NewEventSchema, UnknownEventError, BoothEvent } from "../session/eventStore";
+import { NewEventSchema, UnknownEventError, ActiveEventError, BoothEvent } from "../session/eventStore";
 import { renderComposite, renderSheet } from "../compositor/compositor";
 import { samplePhotos } from "../compositor/samples";
 import { originalsDir, compositesDir, aiDownloadsDir, samplesDir } from "../util/paths";
@@ -902,6 +902,18 @@ export function buildRouter(ctx: AgentContext): Router {
       res.json(eventSummary(event));
     } catch (err) {
       const status = err instanceof UnknownEventError ? 404 : 500;
+      res.status(status).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  // Only takes the event off the operator's list; its photos and album link stay.
+  router.post("/events/:id/delete", (req: Request<{ id: string }>, res: Response) => {
+    try {
+      ctx.events.remove(req.params.id);
+      log.info(`Deleted event ${req.params.id} from the list`);
+      res.json({ deleted: req.params.id });
+    } catch (err) {
+      const status = err instanceof UnknownEventError ? 404 : err instanceof ActiveEventError ? 409 : 500;
       res.status(status).json({ error: err instanceof Error ? err.message : String(err) });
     }
   });
