@@ -99,9 +99,19 @@ export class EventStore {
       return new EventStore(filePath, seeded, null);
     }
     try {
-      return new EventStore(filePath, EventsFileSchema.parse(JSON.parse(readFileSync(filePath, "utf-8"))), null);
+      // PowerShell 5.1 writes a BOM when an operator hand-edits the file.
+      const text = readFileSync(filePath, "utf-8").replace(/^﻿/, "");
+      return new EventStore(filePath, EventsFileSchema.parse(JSON.parse(text)), null);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      // Never echo the file's own text (a JSON error quotes it, and it holds album tokens).
+      const message =
+        err instanceof SyntaxError
+          ? "not valid JSON"
+          : err instanceof z.ZodError
+            ? err.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")
+            : err instanceof Error
+              ? err.message
+              : String(err);
       log.error(`events.json can't be read - running on booth.config.json's event until it is fixed: ${message}`);
       return new EventStore(null, seeded, message);
     }

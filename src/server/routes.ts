@@ -775,8 +775,9 @@ export function buildRouter(ctx: AgentContext): Router {
   router.post("/templates/:id/delete", (req: Request<{ id: string }>, res: Response) => {
     const config = ctx.configStore.current;
     const { id } = req.params;
-    if (ctx.events.active().session.templateId === id) {
-      res.status(409).json({ error: `layout ${id} is in use - pick another layout in Settings first` });
+    const user = ctx.events.list().find((e) => e.session.templateId === id);
+    if (user) {
+      res.status(409).json({ error: `layout ${id} is used by event ${user.name} - pick another layout for that event first` });
       return;
     }
     try {

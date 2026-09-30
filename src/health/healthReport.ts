@@ -274,7 +274,7 @@ export function buildHealthReport(inputs: HealthInputs): HealthReport {
     alerts.push({
       level: "error",
       code: "events-file-unreadable",
-      message: `events.json can't be read (${inputs.eventsFileError}) - photos go to the event in booth.config.json and events can't be switched. Fix or delete the file, then restart booth-agent.`,
+      message: `events.json can't be read (${inputs.eventsFileError}) - photos go to the event in booth.config.json and events can't be switched. Fix the file, then restart booth-agent. (Deleting it re-creates it from booth.config.json and loses every event created since, and their album links.)`,
     });
   }
 

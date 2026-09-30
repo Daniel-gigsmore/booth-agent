@@ -113,10 +113,25 @@ describe("EventStore", () => {
   it("runs on the seed without touching an unreadable file, and refuses to write", async () => {
     await writeFile(file(), "{ not json");
     const store = EventStore.open(dataDir, SEED, "2026-09-30");
-    expect(store.loadError).toMatch(/JSON/);
+    expect(store.loadError).toBe("not valid JSON");
     expect(store.active().id).toBe(SEED.id);
     expect(() => store.create({ name: "TUMI" })).toThrow(/events\.json/);
     expect(await readFile(file(), "utf-8")).toBe("{ not json");
+  });
+
+  it("doesn't echo file contents (e.g. a token) into the load error", async () => {
+    await writeFile(file(), JSON.stringify({ activeId: "a", events: [{ id: "a", name: "A", date: "2026-01-01", albumToken: "SECRETSECRETSECRET1", session: {} }] }));
+    const err = EventStore.open(dataDir, SEED).loadError!;
+    expect(err).toMatch(/session\./);
+    expect(err).not.toMatch(/SECRETSECRETSECRET1/);
+  });
+
+  it("loads a file that starts with a UTF-8 BOM (PowerShell 5.1 writes one)", async () => {
+    const good = { activeId: "a", events: [{ id: "a", name: "A", date: "2026-01-01", session: DEFAULT_SESSION }] };
+    await writeFile(file(), "﻿" + JSON.stringify(good));
+    const store = EventStore.open(dataDir, SEED);
+    expect(store.loadError).toBeNull();
+    expect(store.active().id).toBe("a");
   });
 
   it("treats a file whose activeId isn't in the list as unreadable", async () => {

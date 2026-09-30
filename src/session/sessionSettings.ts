@@ -1,14 +1,12 @@
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 
 /**
  * What a guest session looks like: which layout, and how long the kiosk
- * counts down before each shot. The operator changes these from the kiosk's
- * operator panel during an event, so they live in their own file in the data
- * dir rather than in booth.config.json - the API rewriting that file would
- * clobber comments, formatting and anything an operator was mid-way through
- * editing by hand.
+ * counts down before each shot. Each event carries its own copy in
+ * <dataDir>/events.json (the operator panel edits the active event's); a
+ * leftover session.json is only read once, to seed events.json on first start.
  */
 export const SessionSettingsSchema = z.object({
   templateId: z.string().min(1),
@@ -40,9 +38,4 @@ export function readSessionSettings(dataDir: string): SessionSettings {
   } catch {
     return DEFAULT_SESSION;
   }
-}
-
-export function writeSessionSettings(dataDir: string, settings: SessionSettings): void {
-  mkdirSync(dataDir, { recursive: true });
-  writeFileSync(settingsPath(dataDir), JSON.stringify(settings, null, 2) + "\n");
 }

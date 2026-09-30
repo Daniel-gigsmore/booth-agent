@@ -37,6 +37,7 @@ const manager = {
 const outboxStore = { insertCapture: vi.fn() };
 let server: Server;
 let base: string;
+let events: EventStore;
 const req = (p: string, method = "GET", body?: object) =>
   fetch(`${base}${p}`, {
     method,
@@ -45,9 +46,10 @@ const req = (p: string, method = "GET", body?: object) =>
   });
 
 beforeAll(() => {
+  events = EventStore.open(dataDir, { id: "evt", session: DEFAULT_SESSION });
   const ctx = {
     configStore: { current: { agent: { allowedOrigins: [], sharedSecret: SECRET }, storage: { dataDir } } },
-    events: EventStore.open(dataDir, { id: "evt", session: DEFAULT_SESSION }),
+    events,
     cameraManager: manager,
     outboxStore,
     eventBus: { emit: vi.fn() },
@@ -68,6 +70,14 @@ describe("dual camera routes", () => {
     expect(manager.capture).toHaveBeenLastCalledWith(expect.any(String), "low");
     expect(outboxStore.insertCapture).toHaveBeenLastCalledWith(expect.objectContaining({ camera: "low" }));
     expect((await req("/capture", "POST", { camera: "side" })).status).toBe(400);
+  });
+
+  it("tags a capture with the event that is active when it is taken, including after a switch", async () => {
+    await req("/capture", "POST");
+    expect(outboxStore.insertCapture).toHaveBeenLastCalledWith(expect.objectContaining({ eventId: "evt" }));
+    events.create({ name: "TUMI", date: "2026-10-05" });
+    await req("/capture", "POST");
+    expect(outboxStore.insertCapture).toHaveBeenLastCalledWith(expect.objectContaining({ eventId: "tumi-2026-10-05" }));
   });
 
   it("/camera/prefocus passes the camera", async () => {
