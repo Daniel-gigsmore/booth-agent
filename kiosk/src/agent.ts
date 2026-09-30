@@ -152,6 +152,9 @@ export interface PrintJob {
   queued_at: string;
 }
 
+/** One row of the operator's Events tab (GET /events). photoCount = printed photos. */
+export interface EventRow { id: string; name: string; date: string; photoCount: number }
+
 export const agent = {
   capture: (camera: CameraSlot = "high") => call<{ captureId: string }>("POST", "/capture", { camera }),
   /** Composite is filed under the first shot; print and reprint use that id. */
@@ -193,6 +196,9 @@ export const agent = {
   swapCameras: () => call("POST", "/cameras/swap"),
   rememberCameras: () => call("POST", "/cameras/remember"),
   albumInfo: () => call<AlbumInfo>("GET", "/album-info"),
+  events: () => call<{ activeId: string; events: EventRow[] }>("GET", "/events"),
+  createEvent: (name: string, date: string) => call<{ id: string; name: string; date: string }>("POST", "/events", { name, date }),
+  activateEvent: (id: string) => call<{ id: string; name: string; date: string }>("POST", `/events/${encodeURIComponent(id)}/activate`),
   setAttractSlideshow: (enabled: boolean) => call("POST", "/attract-slideshow", { enabled }),
   /** This event's prints on this booth, oldest first. Works offline. */
   albumPhotos: () => call<{ photos: { id: string }[] }>("GET", "/album.json").then((r) => r.photos.map((p) => p.id)),
