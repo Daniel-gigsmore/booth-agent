@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fillDownloadUrl, namesFixedEvent } from "./event";
+import { fillDownloadUrl, namesFixedEvent } from "./downloadUrl";
 
 const EVENT = { id: "tumi-2026-10-05", name: "TUMI & Co", date: "2026-10-05" };
 
