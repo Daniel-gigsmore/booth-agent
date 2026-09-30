@@ -47,10 +47,12 @@ The source lives in the booth-agent repo; the booth PC serves the build from `C:
 
 ```powershell
 robocopy kiosk\src C:\BoothAgent\kiosk\src /MIR
-Copy-Item kiosk\index.html, kiosk\package.json, kiosk\package-lock.json, kiosk\tsconfig.json, kiosk\start-kiosk.ps1, kiosk\start-slideshow.ps1, kiosk\README.md, kiosk\.env.example C:\BoothAgent\kiosk\
+Copy-Item kiosk\index.html, kiosk\package.json, kiosk\package-lock.json, kiosk\tsconfig.json, kiosk\vite.config.js, kiosk\start-kiosk.ps1, kiosk\start-slideshow.ps1, kiosk\README.md, kiosk\.env.example C:\BoothAgent\kiosk\
 cd C:\BoothAgent\kiosk
 npm install
 npm run build
 ```
 
-`/MIR` is only used on `src\`, which holds no secrets. Never mirror the whole folder: it would delete `.env.local`. `vite preview` serves the new `dist\` straight away; reload the kiosk page (Ctrl+R, or Alt+F4 and reopen the "Kachak Kiosk" shortcut).
+`/MIR` is only used on `src\`, which holds no secrets. Never mirror the whole folder: it would delete `.env.local`. `vite preview` serves the new `dist\` straight away; reload the kiosk page (Ctrl+R, or Alt+F4 and reopen the "Kachak Kiosk" shortcut). A changed `vite.config.js` only takes effect once the preview server restarts: stop the hidden `node ... vite.js preview` process, then reopen the "Kachak Kiosk" shortcut.
+
+**Minimize kiosk** (operator panel) minimizes the full-screen kiosk so you can use the desktop. Tap Chrome in the taskbar to bring it back.
