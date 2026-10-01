@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { agent, Session, Template } from "./agent";
+import { agent, config, Session, Template } from "./agent";
 import { useHealth } from "./hooks";
-import { EventContext, KioskEvent } from "./event";
+import { EventContext, fillDownloadUrl, KioskEvent } from "./event";
 import { Attract, Done, GetReady, Oops, Printing, Review } from "./screens";
 import Operator from "./Operator";
 import AlbumScreen from "./AlbumScreen";
@@ -62,7 +62,8 @@ export default function App() {
     // Only move on if the guest is still on this session - they may have tapped ✕ while it composed.
     const stillHere = (next: Screen) => (s: Screen) => (s.name === "getready" && s.session === session ? next : s);
     try {
-      await agent.composite(captureIds, session.template);
+      // The same link as the Done screen's QR, so the printed code and the on-screen one match.
+      await agent.composite(captureIds, session.template, fillDownloadUrl(config.downloadUrlTemplate, captureIds[0]!, event));
       setScreen(stillHere({ name: "review", session, captureId: captureIds[0]! }));
     } catch {
       setScreen(stillHere({ name: "oops", hint: "We couldn't put your photos together. Please try again." }));

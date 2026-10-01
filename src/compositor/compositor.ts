@@ -2,7 +2,8 @@ import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import sharp, { Sharp, OverlayOptions } from "sharp";
 import { v4 as uuidv4 } from "uuid";
-import { EventTemplate, LayoutElement, TextElement } from "./template";
+import QRCode from "qrcode";
+import { EventTemplate, LayoutElement, QrElement, TextElement } from "./template";
 import { findFont, FONT_DIR } from "./fonts";
 import { TextVariables, fillVariables } from "./variables";
 import {
@@ -22,6 +23,8 @@ export interface CompositeParams {
   assetDir: string;
   /** Values for {event} {date} {time} {code} in text elements. */
   variables: TextVariables;
+  /** What qr elements encode: the guest's download link. Unset = qr elements are left out. */
+  qrUrl?: string | undefined;
   printSize: PrintSize;
   outputDir: string;
   jpegQuality: number;
@@ -41,6 +44,7 @@ interface CellParams {
   template: EventTemplate;
   assetDir: string;
   variables: TextVariables;
+  qrUrl?: string | undefined;
 }
 
 const TRANSPARENT = { r: 0, g: 0, b: 0, alpha: 0 };
@@ -97,6 +101,16 @@ async function renderText(el: TextElement, variables: TextVariables): Promise<Bu
     .toBuffer();
 }
 
+/** The link as a square code (with its quiet zone) centred on a transparent box-sized canvas. */
+async function renderQr(el: QrElement, url: string): Promise<Buffer> {
+  const side = Math.min(el.width, el.height);
+  const code = await QRCode.toBuffer(url, { width: side, color: { dark: el.color, light: el.background } });
+  return sharp({ create: { width: el.width, height: el.height, channels: 4, background: TRANSPARENT } })
+    .composite([{ input: code, gravity: "centre" }])
+    .png()
+    .toBuffer();
+}
+
 /** One element drawn at its own width x height, unrotated. Null = nothing to draw. */
 async function renderElement(el: LayoutElement, params: CellParams): Promise<Buffer | null> {
   switch (el.type) {
@@ -121,6 +135,8 @@ async function renderElement(el: LayoutElement, params: CellParams): Promise<Buf
     }
     case "text":
       return renderText(el, params.variables);
+    case "qr":
+      return params.qrUrl ? renderQr(el, params.qrUrl) : null;
   }
 }
 

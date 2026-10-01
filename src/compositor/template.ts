@@ -52,10 +52,25 @@ export const LayoutElementSchema = z.discriminatedUnion("type", [
     radius: z.number().int().min(0).default(0),
     opacity: z.number().min(0).max(1).default(1),
   }),
+  /** The print's guest download link, drawn square and centred in the box. No link = nothing drawn. */
+  z.object({
+    ...box,
+    type: z.literal("qr"),
+    color: Color.default("#000000"),
+    background: Color.default("#ffffff"),
+  }),
 ]);
 
 export type LayoutElement = z.infer<typeof LayoutElementSchema>;
 export type TextElement = Extract<LayoutElement, { type: "text" }>;
+export type QrElement = Extract<LayoutElement, { type: "qr" }>;
+
+/** A link a qr element may encode: https only, short enough to stay scannable at print size. */
+export const QrUrlSchema = z
+  .string()
+  .max(500)
+  .url()
+  .refine((u) => u.startsWith("https://"), "the download link must be https");
 
 /**
  * A template describes one printable "cell": its pixel size, a background

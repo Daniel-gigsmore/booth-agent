@@ -5,6 +5,7 @@ import path from "node:path";
 import { AddressInfo } from "node:net";
 import { Server } from "node:http";
 import sharp from "sharp";
+import jsQR from "jsqr";
 import { buildHttpApp } from "../src/server/http";
 import { renderPhoto } from "../src/compositor/compositor";
 import { AgentContext } from "../src/server/context";
@@ -100,6 +101,17 @@ describe("layout preview", () => {
     const res = await post("/layout-preview", bad);
     expect(res.status).toBe(400);
     expect((await res.json()).error).toMatch(/doesn't belong/);
+  });
+
+  it("fills a qr element with a scannable sample link", async () => {
+    const res = await post("/layout-preview", draft([{ id: "q", type: "qr", x: 1300, y: 800, width: 360, height: 360 }]));
+    expect(res.status).toBe(200);
+    const { data, info } = await sharp(Buffer.from(await res.arrayBuffer()))
+      .extract({ left: 1300, top: 800, width: 360, height: 360 })
+      .ensureAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+    expect(jsQR(new Uint8ClampedArray(data), info.width, info.height)?.data).toMatch(/^https:\/\//);
   });
 
   it("rejects an invalid draft", async () => {

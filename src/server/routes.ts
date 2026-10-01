@@ -23,6 +23,7 @@ import {
   validateTemplate,
   assertImagesAllowed,
   usesCamera,
+  QrUrlSchema,
 } from "../compositor/template";
 import { exportLayout, importLayout, copyLayout } from "../compositor/templateTransfer";
 import { FONTS, fontFilePath } from "../compositor/fonts";
@@ -74,7 +75,12 @@ const CompositeRequestSchema = z.object({
   templateId: z.string().min(1),
   printSize: PrintSizeSchema.optional(),
   aiOutputUrl: z.string().url().optional(),
+  /** The guest's download link (the kiosk's Done-screen QR), printed by the layout's qr elements. */
+  downloadUrl: QrUrlSchema.optional(),
 });
+
+/** What a qr element shows in layout previews and test prints: scannable, but no guest's photo. */
+const SAMPLE_QR_URL = "https://kachak.example/sample-photo";
 
 const PrintRequestSchema = z.object({
   captureId: z.string().min(1),
@@ -468,7 +474,7 @@ export function buildRouter(ctx: AgentContext): Router {
       res.status(400).json({ error: parsed.error.message });
       return;
     }
-    const { captureId, templateId, aiOutputUrl } = parsed.data;
+    const { captureId, templateId, aiOutputUrl, downloadUrl } = parsed.data;
     const captureIds = parsed.data.captureIds ?? [captureId];
     if (captureIds[0] !== captureId) {
       res.status(400).json({ error: "captureIds must start with captureId" });
@@ -498,6 +504,7 @@ export function buildRouter(ctx: AgentContext): Router {
         template,
         assetDir: config.compositing.templateDir,
         variables: textVariables(ctx.events.active().name, captureId),
+        qrUrl: downloadUrl,
         printSize,
         outputDir: compositesDir(config),
         jpegQuality: config.compositing.jpegQuality,
@@ -677,6 +684,7 @@ export function buildRouter(ctx: AgentContext): Router {
       template,
       assetDir: dir,
       variables: textVariables(ctx.events.active().name, "a1b2c3d4"),
+      qrUrl: SAMPLE_QR_URL,
       printSize: template.printSize,
       jpegQuality: config.compositing.jpegQuality,
     });
