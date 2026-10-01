@@ -201,6 +201,19 @@ export function movedBox(start: Rect, dx: number, dy: number, t: Template): { x:
   };
 }
 
+const ARROWS: Record<string, [number, number]> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+
+/** Where an arrow key moves a box: SNAP a press, 1 with Shift, unsnapped, never fully off the paper. Null = not an arrow. */
+export function nudgedBox(start: Rect, key: string, fine: boolean, t: Template): { x: number; y: number } | null {
+  const dir = ARROWS[key];
+  if (!dir) return null;
+  const step = fine ? 1 : SNAP;
+  return {
+    x: clamp(start.x + dir[0] * step, MIN_SIZE - start.width, t.cellWidthPx - MIN_SIZE),
+    y: clamp(start.y + dir[1] * step, MIN_SIZE - start.height, t.cellHeightPx - MIN_SIZE),
+  };
+}
+
 /** Size after dragging the corner handle. Locked keeps the shape the box had when the drag began. */
 export function resizedBox(start: Pick<Rect, "width" | "height">, dx: number, dy: number, lock: boolean) {
   const width = side(start.width + dx);
