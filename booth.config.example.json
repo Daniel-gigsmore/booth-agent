@@ -13,6 +13,11 @@
       "sessionDir": "C:\\BoothAgent\\data\\canon-session",
       "pollIntervalMs": 1000
     },
+    "nikon": {
+      "enabled": false,
+      "slot": "low",
+      "sdkDir": "C:\\BoothAgent\\nikon"
+    },
     "webcam": {
       "ffmpegPath": "ffmpeg",
       "deviceName": "USB2.0 HD UVC WebCam",

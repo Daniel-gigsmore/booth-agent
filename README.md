@@ -8,6 +8,7 @@ The guest-facing touchscreen UI lives in [`kiosk/`](kiosk/) (React + Vite). It i
 
 - [Architecture](#architecture)
 - [Canon control](#canon-control)
+- [Nikon control](#nikon-control)
 - [Setup](#setup)
 - [DNP Hot Folder Print setup](#dnp-hot-folder-print-setup)
 - [Supabase schema setup](#supabase-schema-setup)
@@ -120,12 +121,36 @@ If the low camera is missing or disconnected, capture falls back low -> high -> 
 
 Hardware verification of two simultaneous EDSDK sessions is pending a 64-bit `EDSDK.dll` for the second body. If two worker processes can't hold the SDK open at once, the fallback is running both cameras through one process instead (approach 2 in the design doc).
 
+## Nikon control
+
+The Nikon Z 30 is driven through Nikon's **Remote SDK v2** (`S-SDKZ-200BF-ALLIN`) in its own worker process (`src/camera/nikon/`), the same way the Canon runs through EDSDK: the SDK's native code can crash or hang without taking printing or sync with it, and `EdsdkSource` supervises the worker (pings, respawn with backoff). The worker speaks the Canon worker's protocol, so nothing above `CameraSource` knows which brand is in a slot.
+
+The Nikon fills one camera position, `capture.nikon.slot` (`"high"` or `"low"`), and the Canon takes the other with whichever driver `capture.canon.driver` says. With a Nikon in the booth, the Camera tab's Swap/Remember don't apply (they pair two Canon bodies by serial) and answer 409; change `slot` in `booth.config.json` instead.
+
+**Only works from the built `dist/`**, like the EDSDK driver.
+
+**Setup:**
+1. Install the **Microsoft Visual C++ Redistributable for Visual Studio 2022 (x64)** - the SDK's DLLs need it.
+2. Copy everything in the SDK's `Module\Win\BinaryFile\` folder (`ControlServiceLayer.dll`, `NkdPTP.dll`, `NkRoyalmile.dll`, `dnssd.dll` and the three `.config` profiles) into `C:\BoothAgent\nikon\` (or set `capture.nikon.sdkDir`). They're not in git: Nikon's licence doesn't allow redistributing them.
+3. The SDK reads the three profiles from `%LOCALAPPDATA%\Nikon\NXTether`. The worker copies them there itself on every start, for the account it runs as - under the service that is LocalSystem's profile (`C:\Windows\System32\config\systemprofile\AppData\Local`), not yours, so there's no manual step.
+4. Close NX Tether, Camera Control Pro 2 and Nikon Transfer 2, and remove them from startup. Only one program can hold the camera; while another has it the worker logs "another program has it" and retries.
+5. On the camera: set Image quality to **JPEG** (or RAW + JPEG). A RAW-only shot fails with a message saying so. The worker switches the camera to save to the PC (SaveMedia = SDRAM) on every connect, so the photo comes over USB instead of staying on the card.
+6. Set `capture.nikon.enabled: true` and `slot`, then `npm ci` (if koffi is new to this checkout - same rules as step 2 of the EDSDK setup) and restart the service.
+7. Check `/health/preflight` (`nikon.sdk`, `nikon.profiles`, `nikon.vcRuntime`), then `/health`: the Nikon's slot should show connected with model `Nikon Z 30`.
+
+**How a shot works:** `StartShooting` (single frame, autofocus on) with a private folder next to the capture's destination; the SDK writes the photo there under its own name, and the worker moves the JPEG into place once its size stops changing. If the camera can't focus it retakes without autofocus, the same rule as the Canon's `8D01` handling. Live view starts when the kiosk asks for frames and stops after 10 s without a request; frames are pushed by the SDK, and one older than a second is not served.
+
+**Not done yet:** camera settings from the operator panel (the Nikon's are strings, not EDSDK codes - change them on the camera for now), and a separate pre-focus (the shot itself focuses).
+
+**Native details worth knowing before touching `nikonNative.ts`:** the SDK's structures are `#pragma pack(2)`, so they're read and written as raw bytes at offsets printed from the real headers (`nikonLayout.ts`); the SDK allocates what it hands back with the `malloc` we give it and we free it with the matching `free`; and it calls back from its own threads, so every SDK call goes through koffi's `.async` - a synchronous call would deadlock the first time the SDK waits on a callback. `tests/nikon.native.test.ts` runs the real binding against a mock SDK (built with the system C compiler) that does all three.
+
 ## Setup
 
 Requirements on the booth PC:
 - **Node.js 22.5+** (for `node:sqlite`)
 - **ffmpeg** on `PATH` (or set `capture.webcam.ffmpegPath` to a full path) - used for the webcam fallback
-- **digiCamControl** installed and running - used for the Canon path
+- **digiCamControl** installed and running - used for the Canon path (unless the EDSDK driver is used)
+- For the Nikon: its Remote SDK DLLs and the Visual C++ 2022 runtime - see [Nikon control](#nikon-control)
 - **DNP Hot Folder Print** utility installed - see below
 
 ```powershell
