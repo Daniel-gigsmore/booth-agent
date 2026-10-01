@@ -21,6 +21,20 @@ export const CanonConfigSchema = z.object({
   pollIntervalMs: z.number().int().positive().default(1000),
 });
 
+/**
+ * A Nikon (Z 30) driven through Nikon's Remote SDK v2 in its own worker
+ * process. `slot` says which of the two camera positions it fills; the Canon
+ * takes the other one. `sdkDir` holds ControlServiceLayer.dll, its DLLs and
+ * the three .config profiles (the SDK's Module\Win\BinaryFile folder).
+ */
+export const NikonConfigSchema = z
+  .object({
+    enabled: z.boolean().default(false),
+    slot: z.enum(["high", "low"]).default("low"),
+    sdkDir: z.string().default("C:\\BoothAgent\\nikon"),
+  })
+  .default({});
+
 export const BoothConfigSchema = z.object({
   agent: z.object({
     port: z.number().int().positive().default(7070),
@@ -33,6 +47,7 @@ export const BoothConfigSchema = z.object({
   capture: z.object({
     sourcePreference: CaptureSourcePreferenceSchema.default("canon"),
     canon: CanonConfigSchema,
+    nikon: NikonConfigSchema,
     webcam: z.object({
       ffmpegPath: z.string().default("ffmpeg"),
       deviceName: z.string(),

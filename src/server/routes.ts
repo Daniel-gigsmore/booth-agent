@@ -383,6 +383,11 @@ export function buildRouter(ctx: AgentContext): Router {
 
   /** Saves `serials` (dropping empty slots) and re-opens both cameras with them. */
   const pair = (res: Response, serials: Partial<Record<CameraSlot, string | null | undefined>>) => {
+    // Pairing tells two Canon bodies apart; a Canon and a Nikon can't be mixed up.
+    if (ctx.configStore.current.capture?.nikon?.enabled) {
+      res.status(409).json({ error: "With the Nikon, which camera is high is set by capture.nikon.slot in booth.config.json" });
+      return;
+    }
     const next: CameraSerials = {};
     if (serials.high) next.high = serials.high;
     if (serials.low) next.low = serials.low;

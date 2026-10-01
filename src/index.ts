@@ -7,6 +7,8 @@ import { EdsdkSource, spawnWorker } from "./camera/edsdk/EdsdkSource";
 import { readSavedCameraSettings, migrateLegacyCameraSettings } from "./camera/cameraSettingsStore";
 import { readCameraSerials, workerTarget } from "./camera/camerasStore";
 import { WebcamSource } from "./camera/WebcamSource";
+import { buildCameraSlots } from "./camera/cameraSlots";
+import { createNikonSource } from "./camera/nikon/NikonSource";
 import { CameraSlot } from "./events/types";
 import { openOutboxDb } from "./outbox/db";
 import { OutboxStore } from "./outbox/outboxStore";
@@ -85,15 +87,25 @@ async function main(): Promise<void> {
     log.warn("Could not move camera.json to camera-high.json", err);
   }
   // Each slot's spawn re-reads cameras.json, so a Swap/Remember takes effect on the worker restart.
-  const edsdkSlot = (slot: CameraSlot) =>
+  const edsdkSlot = (slot: CameraSlot, alone: boolean) =>
     new EdsdkSource(
-      () => spawnWorker(canonConfig.edsdkDllPath, workerTarget(readCameraSerials(dataDir), slot)),
+      () =>
+        spawnWorker(
+          canonConfig.edsdkDllPath,
+          // The only Canon (the Nikon has the other slot): take whichever Canon body is plugged in.
+          alone ? { serial: null, avoid: null, minBodies: 1 } : workerTarget(readCameraSerials(dataDir), slot)
+        ),
       () => readSavedCameraSettings(dataDir, slot)
     );
-  const canonSource = canonConfig.driver === "edsdk" ? edsdkSlot("high") : new CanonTetheredSource(canonConfig);
+  // `capture.nikon` is read once at startup too.
+  const slots = buildCameraSlots(config.capture, {
+    edsdk: edsdkSlot,
+    digiCamControl: () => new CanonTetheredSource(canonConfig),
+    nikon: () => createNikonSource(config.capture.nikon.sdkDir),
+  });
   const webcamSource = new WebcamSource(config.capture.webcam);
   const cameraManager = new CameraManager(
-    { canon: canonSource, webcam: webcamSource, ...(canonConfig.driver === "edsdk" ? { canonLow: edsdkSlot("low") } : {}) },
+    { canon: slots.high, webcam: webcamSource, ...(slots.low ? { canonLow: slots.low } : {}) },
     config.capture.sourcePreference,
     eventBus
   );

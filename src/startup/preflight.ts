@@ -7,6 +7,8 @@ import {
   defaultPrinterStatusPath,
 } from "../print/printerStatus";
 import { APP_LOG_PATH, isDigiCamControlRunning } from "../camera/CanonTetheredSource";
+import { NIKON_LIBRARY } from "../camera/nikon/nikonLayout";
+import { NXTETHER_CONFIG_FILES } from "../camera/nikon/nxTetherConfig";
 import { getDiskSpace } from "../util/disk";
 import { createLogger } from "../util/logger";
 
@@ -75,6 +77,10 @@ const IMAGE_FILE_MACHINE_AMD64 = 0x8664;
  * that header. 0x8664 is IMAGE_FILE_MACHINE_AMD64.
  */
 async function checkEdsdkDllArch(dllPath: string): Promise<{ ok: true } | { ok: false; message: string }> {
+  return checkDllArch(dllPath, "install the 64-bit DLL from Canon's EDSDK");
+}
+
+async function checkDllArch(dllPath: string, fix: string): Promise<{ ok: true } | { ok: false; message: string }> {
   try {
     const fh = await open(dllPath, "r");
     try {
@@ -86,7 +92,7 @@ async function checkEdsdkDllArch(dllPath: string): Promise<{ ok: true } | { ok: 
       if (machine !== IMAGE_FILE_MACHINE_AMD64) {
         return {
           ok: false,
-          message: `EDSDK.dll at ${dllPath} is not 64-bit (machine 0x${machine.toString(16)}) - install the 64-bit DLL from Canon's EDSDK`,
+          message: `${path.basename(dllPath)} at ${dllPath} is not 64-bit (machine 0x${machine.toString(16)}) - ${fix}`,
         };
       }
       return { ok: true };
@@ -104,6 +110,7 @@ export async function runPreflight(config: BoothConfig, eventId: string = config
   checks.push(checkEventId(eventId));
   checks.push(checkSharedSecret(config));
   checks.push(...(await checkCanon(config)));
+  checks.push(...(await checkNikon(config)));
   checks.push(await checkWebcam(config));
   checks.push(...(await checkPrint(config)));
   checks.push(...(await checkStorage(config)));
@@ -197,6 +204,48 @@ export async function checkCanon(config: BoothConfig): Promise<PreflightCheck[]>
     );
   }
 
+  return results;
+}
+
+/** The Visual C++ 2022 runtime the Nikon SDK's DLLs link against (Remote SDK ReadMe). */
+const VC_RUNTIME_DLLS = ["msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll"];
+
+export async function checkNikon(config: BoothConfig, systemDir = path.join(process.env["SystemRoot"] ?? "C:\\Windows", "System32")): Promise<PreflightCheck[]> {
+  const nikon = config.capture.nikon;
+  if (!nikon?.enabled) return [];
+  const results: PreflightCheck[] = [];
+  // The high slot is the main camera; a broken low one only costs the second angle.
+  const level = nikon.slot === "high" && config.capture.sourcePreference === "canon" ? fail : warn;
+
+  const dll = path.join(nikon.sdkDir, NIKON_LIBRARY);
+  if (!(await exists(dll))) {
+    results.push(level("nikon.sdk", `${NIKON_LIBRARY} not found in ${nikon.sdkDir} - copy the Remote SDK's Module\\Win\\BinaryFile folder there`));
+  } else {
+    const arch = await checkDllArch(dll, "use the Windows x64 Remote SDK");
+    results.push(arch.ok ? ok("nikon.sdk", `Nikon Remote SDK found in ${nikon.sdkDir}`) : level("nikon.sdk", arch.message));
+  }
+
+  const missingProfiles: string[] = [];
+  for (const name of NXTETHER_CONFIG_FILES) {
+    if (!(await exists(path.join(nikon.sdkDir, name)))) missingProfiles.push(name);
+  }
+  results.push(
+    missingProfiles.length
+      ? level("nikon.profiles", `${nikon.sdkDir} is missing ${missingProfiles.join(", ")} - they come with ${NIKON_LIBRARY}`)
+      : ok("nikon.profiles", "SDK profiles present (the worker installs them into NXTether)")
+  );
+
+  if (process.platform === "win32") {
+    const missing: string[] = [];
+    for (const name of VC_RUNTIME_DLLS) {
+      if (!(await exists(path.join(systemDir, name)))) missing.push(name);
+    }
+    results.push(
+      missing.length
+        ? level("nikon.vcRuntime", `${missing.join(", ")} not found - install the Microsoft Visual C++ Redistributable for Visual Studio 2022 (x64)`)
+        : ok("nikon.vcRuntime", "Visual C++ runtime present")
+    );
+  }
   return results;
 }
 

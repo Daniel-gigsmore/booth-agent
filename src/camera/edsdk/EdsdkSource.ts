@@ -51,6 +51,18 @@ export function spawnWorker(dllPath: string, target: CameraTarget): WorkerHandle
   return child as unknown as WorkerHandle;
 }
 
+/** How a worker-driven camera names itself in errors and photo file names. */
+export interface WorkerCameraLabel {
+  /** "Canon" / "Nikon" */
+  brand: string;
+  /** Photo file name prefix: "canon" -> canon-<uuid>.jpg */
+  filePrefix: string;
+  /** Log category for the worker's messages. */
+  logName: string;
+}
+
+const CANON: WorkerCameraLabel = { brand: "Canon", filePrefix: "canon", logName: "camera:edsdk" };
+
 interface Pending {
   resolve: (result: Uint8Array | CameraSettings | null) => void;
   reject: (err: Error) => void;
@@ -58,13 +70,16 @@ interface Pending {
 }
 
 /**
- * The Canon, driven through our own EDSDK worker process instead of
- * digiCamControl. EDSDK's native code runs in the child so a crash or hang
+ * A camera driven through our own worker process: the Canon through EDSDK
+ * (instead of digiCamControl), or the Nikon through its Remote SDK - both
+ * workers speak the same protocol (protocol.ts). EDSDK's native code runs in the child so a crash or hang
  * there can't take down printing or sync; this class supervises it (pings,
  * respawn with backoff) and caches the connection state the worker pushes,
  * so isHealthy() is instant for CameraManager's 500 ms poll.
  */
 export class EdsdkSource implements CameraSource {
+  // "canon" is the agent's name for the tethered-camera kind (vs the webcam);
+  // a Nikon in one of the slots reports it too.
   readonly kind = "canon" as const;
 
   private worker: WorkerHandle | null = null;
@@ -88,8 +103,13 @@ export class EdsdkSource implements CameraSource {
 
   constructor(
     private readonly spawn: () => WorkerHandle,
-    private readonly loadSaved: () => SettingChanges = () => ({})
-  ) {}
+    private readonly loadSaved: () => SettingChanges = () => ({}),
+    private readonly label: WorkerCameraLabel = CANON
+  ) {
+    this.log = createLogger(label.logName);
+  }
+
+  private readonly log: ReturnType<typeof createLogger>;
 
   /**
    * Waits for the worker's first answer, so CameraManager doesn't start on
@@ -142,13 +162,13 @@ export class EdsdkSource implements CameraSource {
 
   async capture(destDir: string): Promise<CaptureResult> {
     await mkdir(destDir, { recursive: true });
-    const filePath = path.join(destDir, `canon-${uuidv4()}.jpg`);
+    const filePath = path.join(destDir, `${this.label.filePrefix}-${uuidv4()}.jpg`);
     this.capturesInFlight += 1;
     try {
       await this.request({ type: "capture", destPath: filePath }, TIMEOUT_MS.capture);
       const metadata = await sharp(filePath).metadata();
       if (!metadata.width || !metadata.height) {
-        throw new Error(`Canon capture produced an unreadable image: ${filePath}`);
+        throw new Error(`${this.label.brand} capture produced an unreadable image: ${filePath}`);
       }
       return { filePath, width: metadata.width, height: metadata.height };
     } catch (err) {
@@ -177,12 +197,12 @@ export class EdsdkSource implements CameraSource {
   }
 
   async getSettings(): Promise<CameraSettings> {
-    if (!this.connected) throw new CameraUnavailableError("No Canon camera connected");
+    if (!this.connected) throw new CameraUnavailableError(`No ${this.label.brand} camera connected`);
     return (await this.request({ type: "getSettings" }, TIMEOUT_MS.other)) as CameraSettings;
   }
 
   async setSettings(changes: SettingChanges): Promise<CameraSettings> {
-    if (!this.connected) throw new CameraUnavailableError("No Canon camera connected");
+    if (!this.connected) throw new CameraUnavailableError(`No ${this.label.brand} camera connected`);
     return (await this.request({ type: "setSettings", changes }, TIMEOUT_MS.other)) as CameraSettings;
   }
 
@@ -204,9 +224,9 @@ export class EdsdkSource implements CameraSource {
         if (!this.connected || this.stopping) return;
         result = await this.setSettings(saved);
       }
-      if (result.rejected.length) log.warn(`Camera refused saved settings in its current mode: ${result.rejected.join(", ")}`);
+      if (result.rejected.length) this.log.warn(`Camera refused saved settings in its current mode: ${result.rejected.join(", ")}`);
     } catch (err) {
-      log.warn("Could not apply saved camera settings", err);
+      this.log.warn("Could not apply saved camera settings", err);
     }
   }
 
@@ -262,7 +282,7 @@ export class EdsdkSource implements CameraSource {
       this.detail = { ...message.detail, lastError: message.detail.lastError ?? this.detail?.lastError ?? null };
       return;
     }
-    log[message.level](message.message);
+    this.log[message.level](message.message);
   }
 
   private onExit(worker: WorkerHandle, code: number | null): void {
@@ -287,7 +307,7 @@ export class EdsdkSource implements CameraSource {
     if (this.stopping) return;
     const delay = planned ? RESPAWN_BACKOFF_MS[0] : RESPAWN_BACKOFF_MS[Math.min(this.respawns, RESPAWN_BACKOFF_MS.length - 1)]!;
     if (!planned) this.respawns += 1;
-    log[planned ? "info" : "warn"](`Camera worker exited (code ${String(code)}), restarting in ${delay} ms`);
+    this.log[planned ? "info" : "warn"](`Camera worker exited (code ${String(code)}), restarting in ${delay} ms`);
     this.respawnTimer = setTimeout(() => this.start(), delay);
   }
 
@@ -302,7 +322,7 @@ export class EdsdkSource implements CameraSource {
       if (this.capturesInFlight > 0) return;
       this.missedPings += 1;
       if (this.missedPings >= MAX_MISSED_PINGS && this.worker === worker) {
-        log.warn("Camera worker stopped answering; killing it");
+        this.log.warn("Camera worker stopped answering; killing it");
         worker.kill();
       }
     }
