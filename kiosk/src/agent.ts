@@ -109,7 +109,9 @@ export type TextElement = Box & {
   type: "text"; text: string; font: string; size: number; color: string; align: "left" | "center" | "right"; bold: boolean;
 };
 export type RectElement = Box & { type: "rect"; fill: string; radius: number; opacity: number };
-export type LayoutElement = PhotoElement | ImageElement | TextElement | RectElement;
+/** The guest's download link as a QR code, square and centred in its box. */
+export type QrElement = Box & { type: "qr"; color: string; background: string };
+export type LayoutElement = PhotoElement | ImageElement | TextElement | RectElement | QrElement;
 
 /** A print layout: a background and elements in layer order (first = bottom). Each distinct photo shot is one photo per guest. */
 export interface Template {
@@ -157,9 +159,9 @@ export interface EventRow { id: string; name: string; date: string; photoCount: 
 
 export const agent = {
   capture: (camera: CameraSlot = "high") => call<{ captureId: string }>("POST", "/capture", { camera }),
-  /** Composite is filed under the first shot; print and reprint use that id. */
-  composite: (captureIds: string[], template: Template) =>
-    call("POST", "/composite", { captureId: captureIds[0], captureIds, templateId: template.id }),
+  /** Composite is filed under the first shot; print and reprint use that id. downloadUrl ("" = none) feeds the layout's QR codes. */
+  composite: (captureIds: string[], template: Template, downloadUrl: string) =>
+    call("POST", "/composite", { captureId: captureIds[0], captureIds, templateId: template.id, downloadUrl: downloadUrl || undefined }),
   print: (captureId: string, size: PrintSize) =>
     call<{ jobId: string; estimatedWaitMs: number }>("POST", "/print", { captureId, size }),
   session: () => call<Session>("GET", "/session"),

@@ -68,6 +68,7 @@ export function AddPanel({ t, busy, onAdd, onImage, onPaper, onBackground, onAlt
       </label>
       <button type="button" className="add-btn" disabled={!canAdd(t, "text")} onClick={() => onAdd("text")}>Text</button>
       <button type="button" className="add-btn" disabled={!canAdd(t, "rect")} onClick={() => onAdd("rect")}>Shape</button>
+      <button type="button" className="add-btn" disabled={!canAdd(t, "qr")} onClick={() => onAdd("qr")}>QR code</button>
       <ColorField label="Background" value={t.background} onChange={onBackground} />
       <div className="field">
         <span>Paper</span>
@@ -191,6 +192,13 @@ export function PropsPanel({ el, t, fonts, lock, onLock, onPatch, onCamera }: {
         </>
       )}
       {el.type === "text" && <TextProps el={el} fonts={fonts} onPatch={onPatch} />}
+      {el.type === "qr" && (
+        <>
+          <ColorField label="Code" value={el.color} onChange={(color) => onPatch({ color })} />
+          <ColorField label="Behind code" value={el.background} onChange={(background) => onPatch({ background })} />
+          <div className="muted fs-22">Prints each guest's download link. Keep it dark on light and at least 300 wide so phones can scan it.</div>
+        </>
+      )}
       {el.type === "rect" && (
         <>
           <ColorField label="Fill" value={el.fill} onChange={(fill) => onPatch({ fill })} />

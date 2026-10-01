@@ -90,7 +90,7 @@ export function newId(t: Template, prefix: string): string {
   return `${prefix}-${n}`;
 }
 
-export type AddKind = "photo" | "text" | "rect";
+export type AddKind = "photo" | "text" | "rect" | "qr";
 
 export function canAdd(t: Template, kind: AddKind | "image"): boolean {
   if (t.elements.length >= MAX_ELEMENTS) return false;
@@ -112,6 +112,10 @@ export function addElement(t: Template, kind: AddKind): { template: Template; id
       ...box(newId(t, "text"), 60, snap(H / 2 - 60), W - 120, 120),
       type: "text", text: "{event}", font: "Manrope", size: 80, color: "#222222", align: "center", bold: true,
     });
+  }
+  if (kind === "qr") {
+    // 1 inch at 300dpi, bottom right: big enough for a phone to scan off the print.
+    return withElement(t, { ...box(newId(t, "qr"), W - 330, H - 330, 300, 300), type: "qr", color: "#000000", background: "#ffffff" });
   }
   return withElement(t, { ...box(newId(t, "shape"), 30, 30, snap(W / 3), snap(H / 6)), type: "rect", fill: "#f26b3a", radius: 0, opacity: 1 });
 }
@@ -273,6 +277,7 @@ export function elementLabel(el: LayoutElement): string {
     case "photo": return `Photo ${el.shot + 1}`;
     case "image": return "Image";
     case "rect": return "Shape";
+    case "qr": return "QR code";
     case "text": {
       const s = el.text.trim() || "(empty)";
       return `Text: ${s.length > 18 ? `${s.slice(0, 18)}…` : s}`;

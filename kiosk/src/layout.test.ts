@@ -43,6 +43,14 @@ describe("new layouts and elements", () => {
     expect(shape.template.elements.at(-1)).toMatchObject({ type: "rect", fill: "#f26b3a" });
   });
 
+  it("adds a square QR code, dark on white", () => {
+    const { template, id } = addElement(layout([photo("p", 0)]), "qr");
+    const qr = template.elements.at(-1)!;
+    expect(qr).toMatchObject({ id, type: "qr", color: "#000000", background: "#ffffff" });
+    expect(qr.width).toBe(qr.height);
+    expect(elementLabel(qr)).toBe("QR code");
+  });
+
   it("stops adding photos at 12 shots and elements at 40", () => {
     const twelve = layout(Array.from({ length: MAX_SHOTS }, (_, i) => photo(`p${i}`, i)));
     expect(canAdd(twelve, "photo")).toBe(false);

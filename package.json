@@ -25,6 +25,7 @@
     "koffi": "^3.3.1",
     "node-windows": "^1.0.0-beta.8",
     "pg": "^8.23.0",
+    "qrcode": "^1.5.4",
     "sharp": "^0.35.4",
     "uuid": "^14.0.2",
     "ws": "^8.18.0",
@@ -34,7 +35,9 @@
     "@types/express": "^4.17.21",
     "@types/node": "^22.13.0",
     "@types/pg": "^8.23.1",
+    "@types/qrcode": "^1.5.6",
     "@types/ws": "^8.5.12",
+    "jsqr": "^1.4.0",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.5.4",
     "vitest": "^5.0.1"

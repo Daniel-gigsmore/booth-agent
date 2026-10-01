@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { agent, agentUrl, LayoutElement, Template } from "./agent";
+import QRCode from "qrcode";
+import { agent, agentUrl, LayoutElement, QrElement, Template } from "./agent";
 import { useEvent } from "./event";
 import { AddPanel, LayersPanel, PropsPanel } from "./EditorPanels";
 import { cssFamily, useAgentFonts } from "./fonts";
@@ -31,6 +32,18 @@ export function LayoutThumb({ t, height }: { t: Template; height: number }) {
               href={agentUrl(`/templates/${t.id}/assets/${e.file}`)} />;
           case "rect":
             return <rect key={e.id} {...at} transform={turn} fill={e.fill} fillOpacity={e.opacity} rx={e.radius} />;
+          case "qr": {
+            // A dark square on its light one; the thumbnail is too small for a real code.
+            const side = Math.min(e.width, e.height);
+            const x = e.x + (e.width - side) / 2;
+            const y = e.y + (e.height - side) / 2;
+            return (
+              <g key={e.id} transform={turn}>
+                <rect x={x} y={y} width={side} height={side} fill={e.background} />
+                <rect x={x + side * 0.15} y={y + side * 0.15} width={side * 0.7} height={side * 0.7} fill={e.color} />
+              </g>
+            );
+          }
           case "text":
             // A bar where the text goes; the thumbnail is too small to read.
             return <rect key={e.id} x={e.x} y={e.y + e.height * 0.3} width={e.width} height={e.height * 0.4}
@@ -46,6 +59,15 @@ function slugFor(name: string, taken: string[]): string {
   let id = base;
   for (let n = 2; taken.includes(id); n += 1) id = `${base}-${n}`;
   return id;
+}
+
+/** A real (sample) code in the element's colours, so the operator sees its size and contrast. */
+function QrBody({ el }: { el: QrElement }) {
+  const [src, setSrc] = useState("");
+  useEffect(() => {
+    QRCode.toDataURL("https://kachak.example/sample-photo", { width: 300, color: { dark: el.color, light: el.background } }).then(setSrc, () => setSrc(""));
+  }, [el.color, el.background]);
+  return <img className="el-fill" style={{ objectFit: "contain", imageRendering: "pixelated" }} src={src || undefined} alt="" draggable={false} />;
 }
 
 const JUSTIFY = { left: "flex-start", center: "center", right: "flex-end" } as const;
@@ -65,6 +87,8 @@ function ElementBody({ el, layoutId, view, arrows }: { el: LayoutElement; layout
       return <img className="el-fill" src={agentUrl(`/templates/${layoutId}/assets/${el.file}`)} alt="" draggable={false} />;
     case "rect":
       return <div className="el-fill" style={{ background: el.fill, opacity: el.opacity, borderRadius: el.radius * view }} />;
+    case "qr":
+      return <QrBody el={el} />;
     case "text":
       return (
         <div className="el-text" style={{
