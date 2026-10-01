@@ -7,7 +7,7 @@ import { cssFamily, useAgentFonts } from "./fonts";
 import { CompositePreview } from "./screens";
 import {
   addElement, addImage, AddKind, alternateCameras, CAMERA_ARROW, cameraOf, changePaper, History, historyCommit, historyCommitFrom, historyOf, historyRedo,
-  historyReplace, historyUndo, moveLayer, movedBox, removeElement, resizedBox, sampleText, setShotCamera, updateElement, usesLowCamera,
+  historyReplace, historyUndo, moveLayer, movedBox, nudgedBox, removeElement, resizedBox, sampleText, setShotCamera, updateElement, usesLowCamera,
 } from "./layout";
 
 /** Small picture of a layout, for the Settings list. */
@@ -140,6 +140,25 @@ export default function LayoutEditor({ initial, takenIds, inUseId, onClose }: {
   const change = (next: Template, key?: string) => setH((cur) => historyCommit(cur, next, key));
   const patch = (id: string, p: Partial<LayoutElement>, key?: string) =>
     setH((cur) => historyCommit(cur, updateElement(cur.present, id, p), key));
+
+  // Arrow keys move the selected element (Shift = 1px); a run of presses is one undo step.
+  // Left alone while typing in a field, and while the preview covers the editor.
+  useEffect(() => {
+    if (!selected || preview) return;
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.target as HTMLElement).closest("input, textarea, select")) return;
+      if (!nudgedBox(selected, e.key, e.shiftKey, t)) return;
+      e.preventDefault();
+      // From the latest layout, so held-down key repeats never move from a stale position.
+      setH((cur) => {
+        const el = cur.present.elements.find((x) => x.id === selected.id);
+        const to = el && nudgedBox(el, e.key, e.shiftKey, cur.present);
+        return to ? historyCommit(cur, updateElement(cur.present, el.id, to), `${el.id}:nudge`) : cur;
+      });
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selected, preview, t]);
 
   function startDrag(e: React.PointerEvent, el: LayoutElement, mode: Drag["mode"]) {
     e.stopPropagation();

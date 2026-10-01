@@ -3,7 +3,7 @@ import type { LayoutElement, Template } from "./agent";
 import {
   addElement, addImage, alignPatch, alternateCameras, canAdd, canRemove, cameraForShot, changePaper, compactShots,
   elementLabel, fillPatch, historyCommit, historyCommitFrom, historyOf, historyRedo, historyReplace, historyUndo,
-  HISTORY_LIMIT, MERGE_MS, MAX_SHOTS, movedBox, moveLayer, newId, newTemplate, normalizeAngle, removeElement,
+  HISTORY_LIMIT, MERGE_MS, MAX_SHOTS, movedBox, moveLayer, newId, nudgedBox, newTemplate, normalizeAngle, removeElement,
   resizedBox, sampleText, setShotCamera, shotCount, shotPrompt, sizePatch, templateBody, updateElement, usesLowCamera,
 } from "./layout";
 
@@ -107,6 +107,17 @@ describe("editing elements", () => {
     const start = { x: 100, y: 100, width: 300, height: 200 };
     expect(movedBox(start, 13, 26, t)).toEqual({ x: 110, y: 130 });
     expect(movedBox(start, -5000, 5000, t)).toEqual({ x: -280, y: 1180 });
+  });
+
+  it("nudges with the arrow keys: 10 a press, 1 with Shift, never off the paper", () => {
+    const t = layout([]);
+    const el = { x: 103, y: 100, width: 300, height: 200 };
+    expect(nudgedBox(el, "ArrowRight", false, t)).toEqual({ x: 113, y: 100 });
+    expect(nudgedBox(el, "ArrowLeft", true, t)).toEqual({ x: 102, y: 100 });
+    expect(nudgedBox(el, "ArrowUp", false, t)).toEqual({ x: 103, y: 90 });
+    expect(nudgedBox(el, "ArrowDown", true, t)).toEqual({ x: 103, y: 101 });
+    expect(nudgedBox({ ...el, x: 1780 }, "ArrowRight", false, t)).toEqual({ x: 1780, y: 100 });
+    expect(nudgedBox(el, "Enter", false, t)).toBeNull();
   });
 
   it("resizes keeping the shape when locked", () => {
