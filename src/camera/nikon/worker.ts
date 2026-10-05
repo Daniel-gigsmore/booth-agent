@@ -88,8 +88,9 @@ async function handle(request: RequestBody): Promise<Uint8Array | CameraSettings
       setImmediate(() => void stop()); // answer first, then exit
       return null;
     case "getSettings":
-    case "setSettings":
       return worker.getSettings();
+    case "setSettings":
+      return worker.setSettings(request.changes);
   }
 }
 

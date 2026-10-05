@@ -41,6 +41,14 @@ export const NK = {
   // Capabilities
   CAP_BATTERY_LEVEL: 48, // kNkMAIDCapType_Integer, 1..100
   CAP_SAVE_MEDIA: 0x8305,
+  // Exposure settings: kNkMAIDCapability_VendorBaseDX2 (0x8100) + the offsets in Maid3d1.h
+  CAP_COMPRESSION_LEVEL: 0x8110, // packed-string enum: JPEG quality
+  CAP_EXPOSURE_MODE: 0x8111, // unsigned enum, eNkMAIDExposureMode
+  CAP_SHUTTER_SPEED: 0x8112, // packed-string enum
+  CAP_APERTURE: 0x8113, // packed-string enum
+  CAP_EXPOSURE_COMP: 0x8115, // range
+  CAP_SENSITIVITY: 0x8117, // packed-string enum (ISO)
+  CAP_WB_MODE: 0x8118, // packed-string enum
 
   // eNkMAIDSaveMedia: SDRAM = the photo goes to the PC, not the card
   SAVE_MEDIA_SDRAM: 1,
@@ -48,9 +56,16 @@ export const NK = {
   // eNkMAIDDataType
   DATA_INTEGER_PTR: 5,
   DATA_UNSIGNED_PTR: 6,
+  DATA_RANGE_PTR: 14,
+  DATA_ENUM_PTR: 16,
+
+  // eNkMAIDArrayType
+  ARRAY_UNSIGNED: 2,
+  ARRAY_PACKED_STRING: 7,
 
   // eNkSDKGetSettingRequestType
   GET_VALUE: 0,
+  GET_SUPPORTED_VALUES: 1,
 
   // eNkMAIDShootingType
   SHOOT_SINGLE: 1,
@@ -210,6 +225,109 @@ export const LIVEVIEW = { size: 900, imageSize: 0, imageData: 892 } as const;
 
 /** NkMAIDUIRequestInfo: ULONG ulType, ULONG ulDefault, ... - only the default answer is read. */
 export const UI_REQUEST = { readBytes: 8, defaultResult: 4 } as const;
+
+/**
+ * NkMAIDEnum: ULONG ulType, ulElements, ulValue, ulDefault; SWORD wPhysicalBytes; LPVOID pData.
+ * For a packed-string enum (ISO, shutter, aperture...) pData holds the option
+ * strings back to back, each NUL-terminated, and ulElements is their total
+ * byte length (the SDK's own sample walks pData with it as the bound); for an
+ * unsigned enum it is the number of 4-byte values. ulValue is an index into
+ * that list, and so is what a set writes back.
+ */
+export const ENUM = { size: 26, type: 0, elements: 4, value: 8, def: 12, physicalBytes: 16, data: 18 } as const;
+
+/** NkMAIDRange: DOUB_P value, default; ULONG valueIndex, defaultIndex; DOUB_P lower, upper; ULONG steps. */
+export const RANGE = { size: 44, value: 0, def: 8, valueIndex: 16, defaultIndex: 20, lower: 24, upper: 32, steps: 40 } as const;
+
+export interface NikonEnumHeader {
+  type: number;
+  elements: number;
+  def: number;
+  physicalBytes: number;
+}
+
+export interface NikonEnumValue extends NikonEnumHeader {
+  /** Index of the current value in the option list. */
+  value: number;
+  /** The option list: strings for a packed-string enum, numbers for an unsigned one. */
+  options: Array<string | number>;
+}
+
+export interface NikonRange {
+  value: number;
+  def: number;
+  valueIndex: number;
+  defaultIndex: number;
+  lower: number;
+  upper: number;
+  /** 0 = continuous (set `value`); otherwise the range has this many evenly spaced steps (set `valueIndex`). */
+  steps: number;
+}
+
+/** Splits a packed-string option list: NUL-terminated strings, `byteLength` bytes in all. */
+export function splitPackedStrings(bytes: Buffer): string[] {
+  const out: string[] = [];
+  let start = 0;
+  for (let i = 0; i < bytes.length; i += 1) {
+    if (bytes[i] === 0) {
+      out.push(bytes.toString("latin1", start, i));
+      start = i + 1;
+    }
+  }
+  return out;
+}
+
+export function decodeEnumHeader(head: Buffer): NikonEnumHeader & { value: number } {
+  return {
+    type: head.readUInt32LE(ENUM.type),
+    elements: head.readUInt32LE(ENUM.elements),
+    value: head.readUInt32LE(ENUM.value),
+    def: head.readUInt32LE(ENUM.def),
+    physicalBytes: head.readInt16LE(ENUM.physicalBytes),
+  };
+}
+
+/** A NkMAIDEnum that sets index `index`, with pData NULL as the SDK expects for a set. */
+export function encodeEnumSet(header: NikonEnumHeader, index: number): Buffer {
+  const buf = Buffer.alloc(ENUM.size);
+  buf.writeUInt32LE(header.type, ENUM.type);
+  buf.writeUInt32LE(header.elements, ENUM.elements);
+  buf.writeUInt32LE(index >>> 0, ENUM.value);
+  buf.writeUInt32LE(header.def, ENUM.def);
+  buf.writeInt16LE(header.physicalBytes, ENUM.physicalBytes);
+  return buf;
+}
+
+export function decodeRange(bytes: Buffer): NikonRange {
+  return {
+    value: bytes.readDoubleLE(RANGE.value),
+    def: bytes.readDoubleLE(RANGE.def),
+    valueIndex: bytes.readUInt32LE(RANGE.valueIndex),
+    defaultIndex: bytes.readUInt32LE(RANGE.defaultIndex),
+    lower: bytes.readDoubleLE(RANGE.lower),
+    upper: bytes.readDoubleLE(RANGE.upper),
+    steps: bytes.readUInt32LE(RANGE.steps),
+  };
+}
+
+export function encodeRange(range: NikonRange): Buffer {
+  const buf = Buffer.alloc(RANGE.size);
+  buf.writeDoubleLE(range.value, RANGE.value);
+  buf.writeDoubleLE(range.def, RANGE.def);
+  buf.writeUInt32LE(range.valueIndex, RANGE.valueIndex);
+  buf.writeUInt32LE(range.defaultIndex, RANGE.defaultIndex);
+  buf.writeDoubleLE(range.lower, RANGE.lower);
+  buf.writeDoubleLE(range.upper, RANGE.upper);
+  buf.writeUInt32LE(range.steps, RANGE.steps);
+  return buf;
+}
+
+/** eNkMAIDExposureMode, for the Camera tab's mode line. */
+const EXPOSURE_MODES: Record<number, string> = {
+  0: "P", 1: "A", 2: "S", 3: "M", 5: "Auto", 6: "Portrait", 7: "Landscape", 8: "Close-up", 9: "Sports",
+  10: "Night portrait", 11: "Night view", 12: "Child", 13: "Flash off", 14: "Scene", 17: "Effects",
+};
+export const exposureModeLabel = (value: number): string => EXPOSURE_MODES[value] ?? `mode ${value}`;
 
 /** NkMAIDCapInfo pointer handed to CapChange events, which the client must free. */
 export const EVENTS_WITH_OWNED_POINTER: ReadonlySet<number> = new Set([
