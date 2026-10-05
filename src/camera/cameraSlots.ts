@@ -10,7 +10,8 @@ export interface CameraFactories {
    */
   edsdk(slot: CameraSlot, alone: boolean): CameraSource;
   digiCamControl(): CameraSource;
-  nikon(): CameraSource;
+  /** The Nikon for `slot`; the slot also names its saved settings file. */
+  nikon(slot: CameraSlot): CameraSource;
 }
 
 /**
@@ -27,5 +28,6 @@ export function buildCameraSlots(capture: BoothConfig["capture"], make: CameraFa
   }
   const canonSlot: CameraSlot = capture.nikon.slot === "high" ? "low" : "high";
   const canon = edsdk ? make.edsdk(canonSlot, true) : make.digiCamControl();
-  return capture.nikon.slot === "high" ? { high: make.nikon(), low: canon } : { high: canon, low: make.nikon() };
+  const nikonSlot = capture.nikon.slot;
+  return nikonSlot === "high" ? { high: make.nikon("high"), low: canon } : { high: canon, low: make.nikon("low") };
 }

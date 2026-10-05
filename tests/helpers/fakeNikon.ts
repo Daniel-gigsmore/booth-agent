@@ -1,7 +1,7 @@
 import { writeFileSync } from "node:fs";
 import path from "node:path";
 import { NikonApi, NikonDevice, NikonHandlers } from "../../src/camera/nikon/nikonApi";
-import { NK } from "../../src/camera/nikon/nikonLayout";
+import { NK, NikonEnumHeader, NikonEnumValue, NikonRange } from "../../src/camera/nikon/nikonLayout";
 
 /** A Nikon SDK stand-in: one Z 30, shots that write a file into the shot folder. */
 export class FakeNikon implements NikonApi {
@@ -23,6 +23,21 @@ export class FakeNikon implements NikonApi {
   shots: Array<{ dir: string; autoFocus: boolean }> = [];
   /** Runs inside every shot, e.g. to fire an SDK event mid-capture. */
   onShoot: (() => void) | null = null;
+  /** Enum settings by capability; a capability that is absent answers CapabilityNotSupported. */
+  enums = new Map<number, NikonEnumValue>([
+    [NK.CAP_SENSITIVITY, { type: NK.ARRAY_PACKED_STRING, elements: 0, def: 0, physicalBytes: 1, value: 1, options: ["ISO 100", "ISO 200", "ISO 400"] }],
+    [NK.CAP_APERTURE, { type: NK.ARRAY_PACKED_STRING, elements: 0, def: 0, physicalBytes: 1, value: 0, options: ["f/3.5", "f/5.6"] }],
+    [NK.CAP_EXPOSURE_MODE, { type: NK.ARRAY_UNSIGNED, elements: 0, def: 0, physicalBytes: 4, value: 3, options: [0, 1, 2, 3] }],
+  ]);
+  ranges = new Map<number, NikonRange>([
+    [NK.CAP_EXPOSURE_COMP, { value: 0, def: 0, valueIndex: 2, defaultIndex: 2, lower: -0.6, upper: 0.6, steps: 5 }],
+  ]);
+  /** Capabilities whose next set fails, mapped to the error. */
+  setErrors = new Map<number, number>();
+  /** Everything set, in order: [capability, index]. */
+  sets: Array<[number, number]> = [];
+  /** When non-zero, every settings read fails with this. */
+  readErr = 0;
   liveviewErr: number = NK.OK;
   liveview = false;
   terminated = false;
@@ -49,6 +64,37 @@ export class FakeNikon implements NikonApi {
   }
   async getInteger(capability: number) {
     return capability === NK.CAP_BATTERY_LEVEL ? { err: NK.OK, value: this.battery } : { err: -107, value: 0 };
+  }
+  async getEnum(capability: number) {
+    if (this.readErr) return { err: this.readErr, enum: null };
+    const e = this.enums.get(capability);
+    return e ? { err: NK.OK, enum: { ...e, options: [...e.options] } } : { err: -107, enum: null };
+  }
+  async setEnum(capability: number, _header: NikonEnumHeader, index: number) {
+    const err = this.setErrors.get(capability);
+    if (err !== undefined) {
+      this.setErrors.delete(capability);
+      return err;
+    }
+    this.sets.push([capability, index]);
+    const e = this.enums.get(capability);
+    if (e) e.value = index;
+    return NK.OK;
+  }
+  async getRange(capability: number) {
+    if (this.readErr) return { err: this.readErr, range: null };
+    const r = this.ranges.get(capability);
+    return r ? { err: NK.OK, range: { ...r } } : { err: -107, range: null };
+  }
+  async setRange(capability: number, range: NikonRange) {
+    const err = this.setErrors.get(capability);
+    if (err !== undefined) {
+      this.setErrors.delete(capability);
+      return err;
+    }
+    this.sets.push([capability, range.valueIndex]);
+    this.ranges.set(capability, { ...range });
+    return NK.OK;
   }
   async shoot(dir: string, autoFocus: boolean) {
     this.shots.push({ dir, autoFocus });

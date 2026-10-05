@@ -101,7 +101,7 @@ async function main(): Promise<void> {
   const slots = buildCameraSlots(config.capture, {
     edsdk: edsdkSlot,
     digiCamControl: () => new CanonTetheredSource(canonConfig),
-    nikon: () => createNikonSource(config.capture.nikon.sdkDir),
+    nikon: (slot) => createNikonSource(config.capture.nikon.sdkDir, () => readSavedCameraSettings(dataDir, slot)),
   });
   const webcamSource = new WebcamSource(config.capture.webcam);
   const cameraManager = new CameraManager(

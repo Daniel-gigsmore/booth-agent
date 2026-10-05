@@ -3,6 +3,14 @@ import path from "node:path";
 import { NikonApi, NikonHandlers } from "./nikonApi";
 import {
   decodeDevices,
+  decodeEnumHeader,
+  decodeRange,
+  encodeEnumSet,
+  encodeRange,
+  ENUM,
+  RANGE,
+  splitPackedStrings,
+  NikonEnumHeader,
   DEVICE_INFO,
   encodeCallbacks,
   encodeShooting,
@@ -245,6 +253,81 @@ export function loadNikon(sdkDir: string, options: NikonNativeOptions = {}): Nik
         }
       } finally {
         type.free();
+      }
+    },
+
+    async getEnum(capability) {
+      // The option list and the current index are separate requests; each hands back its own
+      // NkMAIDEnum (and pData) that we free.
+      const read = async (request: number) => {
+        const type = nativeBytes(Buffer.alloc(4));
+        try {
+          const { err, out } = await withOut(8, (holder) => run(f.getCapability, capability, request, holder, type.ptr));
+          const ptr = out.readBigUInt64LE(0);
+          if (ptr === 0n) return { err: err === NK.OK ? -117 : err, head: null, options: [] as Array<string | number> };
+          let data: Ptr = null;
+          try {
+            if (err !== NK.OK) return { err, head: null, options: [] as Array<string | number> };
+            if (readBytes(type.ptr, 4).readInt32LE(0) !== NK.DATA_ENUM_PTR) return { err: -126, head: null, options: [] as Array<string | number> };
+            const head = decodeEnumHeader(readBytes(ptr, ENUM.size));
+            data = readBytes(ptr, ENUM.size).readBigUInt64LE(ENUM.data);
+            let options: Array<string | number> = [];
+            if (!isNull(data) && head.elements > 0) {
+              if (head.type === NK.ARRAY_PACKED_STRING) options = splitPackedStrings(readBytes(data, Math.min(head.elements, 65_536)));
+              else if (head.type === NK.ARRAY_UNSIGNED) {
+                const raw = readBytes(data, Math.min(head.elements, 4_096) * 4);
+                for (let i = 0; i + 4 <= raw.length; i += 4) options.push(raw.readUInt32LE(i));
+              }
+            }
+            return { err, head, options };
+          } finally {
+            freeSdk(data);
+            freeSdk(ptr);
+          }
+        } finally {
+          type.free();
+        }
+      };
+      const supported = await read(NK.GET_SUPPORTED_VALUES);
+      if (supported.err !== NK.OK || !supported.head) return { err: supported.err, enum: null };
+      const current = await read(NK.GET_VALUE);
+      if (current.err !== NK.OK || !current.head) return { err: current.err, enum: null };
+      return { err: NK.OK, enum: { ...supported.head, value: current.head.value, options: supported.options } };
+    },
+
+    async setEnum(capability, header: NikonEnumHeader, index) {
+      const mem = nativeBytes(encodeEnumSet(header, index));
+      try {
+        return await run(f.setCapability, capability, mem.ptr, NK.DATA_ENUM_PTR);
+      } finally {
+        mem.free();
+      }
+    },
+
+    async getRange(capability) {
+      const type = nativeBytes(Buffer.alloc(4));
+      try {
+        const { err, out } = await withOut(8, (holder) => run(f.getCapability, capability, NK.GET_VALUE, holder, type.ptr));
+        const ptr = out.readBigUInt64LE(0);
+        if (ptr === 0n) return { err: err === NK.OK ? -117 : err, range: null };
+        try {
+          if (err !== NK.OK) return { err, range: null };
+          if (readBytes(type.ptr, 4).readInt32LE(0) !== NK.DATA_RANGE_PTR) return { err: -126, range: null };
+          return { err, range: decodeRange(readBytes(ptr, RANGE.size)) };
+        } finally {
+          freeSdk(ptr);
+        }
+      } finally {
+        type.free();
+      }
+    },
+
+    async setRange(capability, range) {
+      const mem = nativeBytes(encodeRange(range));
+      try {
+        return await run(f.setCapability, capability, mem.ptr, NK.DATA_RANGE_PTR);
+      } finally {
+        mem.free();
       }
     },
 

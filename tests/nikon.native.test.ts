@@ -43,6 +43,9 @@ describe.skipIf(!library)("Nikon native binding (mock SDK)", () => {
     saveMedia: () => number;
     lastAutoFocus: () => number;
     uiAnswer: () => number;
+    settingIndex: (cap: number) => number;
+    evIndex: () => number;
+    refuseNextSet: (cap: number) => void;
   };
 
   const waitFor = async (check: () => boolean | Promise<boolean>, what: string, ms = 3_000) => {
@@ -60,6 +63,9 @@ describe.skipIf(!library)("Nikon native binding (mock SDK)", () => {
       saveMedia: lib.func("uint32 mock_save_media()"),
       lastAutoFocus: lib.func("int32 mock_last_autofocus()"),
       uiAnswer: lib.func("uint32 mock_ui_answer()"),
+      settingIndex: lib.func("uint32 mock_setting_index(uint32 cap)"),
+      evIndex: lib.func("uint32 mock_ev_index()"),
+      refuseNextSet: lib.func("void mock_refuse_next_set(uint32 cap)"),
     };
     dir = mkdtempSync(path.join(tmpdir(), "nikon-native-"));
     events = [];
@@ -108,6 +114,32 @@ describe.skipIf(!library)("Nikon native binding (mock SDK)", () => {
     await worker.capture(path.join(dir, "captures", "nikon-b.jpg"));
     // Live view stopping joins the SDK's frame thread; that must not deadlock.
     worker.frame();
+  });
+
+  it("reads the settings the SDK allocates: packed strings, an unsigned enum and a range", async () => {
+    const settings = await worker.getSettings();
+    expect(settings.mode).toBe("P");
+    expect(settings.settings.iso.options.map((o) => o.label)).toEqual(["ISO 100", "ISO 200", "ISO 400", "ISO 800"]);
+    expect(settings.settings.iso.value).toEqual({ code: 1, label: "ISO 200" });
+    expect(settings.settings.av.value?.label).toBe("f/5.6");
+    expect(settings.settings.tv.options).toHaveLength(3);
+    expect(settings.settings.ev.options.map((o) => o.label)).toEqual(["-1.0", "-0.7", "-0.3", "0", "+0.3", "+0.7", "+1.0"]);
+    expect(settings.settings.ev.value).toEqual({ code: 3, label: "0" });
+  });
+
+  it("sets an enum by index and a range by step, and reports what the camera refuses", async () => {
+    const result = await worker.setSettings({ iso: 3, ev: 5, av: 0 });
+    expect(mock.settingIndex(NK.CAP_SENSITIVITY)).toBe(3);
+    expect(mock.settingIndex(NK.CAP_APERTURE)).toBe(0);
+    expect(mock.evIndex()).toBe(5);
+    expect(result.rejected).toEqual([]);
+    expect(result.settings.iso.value?.label).toBe("ISO 800");
+    expect(result.settings.ev.value?.label).toBe("+0.7");
+
+    mock.refuseNextSet(NK.CAP_SHUTTER_SPEED);
+    const refused = await worker.setSettings({ tv: 2, wb: 1, iso: 99 });
+    expect(refused.rejected.sort()).toEqual(["iso", "tv"]); // tv: the SDK said no; iso: no such option
+    expect(mock.settingIndex(NK.CAP_WB_MODE)).toBe(1);
   });
 
   it("notices the camera being unplugged through the SDK's event", async () => {

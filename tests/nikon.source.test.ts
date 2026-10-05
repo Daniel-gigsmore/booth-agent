@@ -35,7 +35,7 @@ class FakeNikonWorker extends EventEmitter implements WorkerHandle {
 
 describe("Nikon CameraSource", () => {
   it("captures to nikon-<uuid>.jpg through the shared worker supervisor", async () => {
-    const source = createNikonSource("C:\\nikon", () => new FakeNikonWorker(true));
+    const source = createNikonSource("C:\\nikon", () => ({}), () => new FakeNikonWorker(true));
     expect(await source.initialize()).toBe(true);
     expect(source.getModel()).toBe("Nikon Z 30");
     const result = await source.capture(mkdtempSync(path.join(tmpdir(), "nikon-src-")));
@@ -45,7 +45,7 @@ describe("Nikon CameraSource", () => {
   });
 
   it("names the brand when it isn't connected", async () => {
-    const source = createNikonSource("C:\\nikon", () => new FakeNikonWorker(false));
+    const source = createNikonSource("C:\\nikon", () => ({}), () => new FakeNikonWorker(false));
     expect(await source.initialize()).toBe(false);
     await expect(source.getSettings()).rejects.toThrow(CameraUnavailableError);
     await expect(source.getSettings()).rejects.toThrow("No Nikon camera connected");

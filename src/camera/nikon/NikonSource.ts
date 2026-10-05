@@ -1,6 +1,7 @@
 import { fork } from "node:child_process";
 import path from "node:path";
 import { EdsdkSource, WorkerHandle } from "../edsdk/EdsdkSource";
+import { SettingChanges } from "../edsdk/protocol";
 import { createLogger } from "../../util/logger";
 
 const log = createLogger("camera:nikon");
@@ -19,9 +20,14 @@ export function spawnNikonWorker(sdkDir: string): WorkerHandle {
 /**
  * The Nikon (Z 30) as a CameraSource. The supervision - pings, respawn with
  * backoff, request timeouts - is EdsdkSource's, unchanged: the Nikon worker
- * answers the same protocol. It has no operator settings yet, so nothing is
- * re-applied on connect.
+ * answers the same protocol - including the operator settings, whose codes
+ * are option indexes (nikonSettings.ts). `loadSaved` is the operator's saved
+ * settings for this slot, re-applied after every (re)connect.
  */
-export function createNikonSource(sdkDir: string, spawn: () => WorkerHandle = () => spawnNikonWorker(sdkDir)): EdsdkSource {
-  return new EdsdkSource(spawn, () => ({}), { brand: "Nikon", filePrefix: "nikon", logName: "camera:nikon" });
+export function createNikonSource(
+  sdkDir: string,
+  loadSaved: () => SettingChanges = () => ({}),
+  spawn: () => WorkerHandle = () => spawnNikonWorker(sdkDir)
+): EdsdkSource {
+  return new EdsdkSource(spawn, loadSaved, { brand: "Nikon", filePrefix: "nikon", logName: "camera:nikon" });
 }

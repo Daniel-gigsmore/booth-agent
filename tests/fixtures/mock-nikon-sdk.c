@@ -26,6 +26,8 @@ typedef struct { uint32_t id; char name[64]; _Bool available; uint32_t pid; char
 typedef struct { uint32_t type, numShots, bulb, start, interval; _Bool autoFocus; char16_t path[1024]; void *out; } Shooting;
 typedef struct { uint32_t imageSize; uint16_t physical, bits; char header[884]; void *image; } LiveViewData;
 typedef struct { uint32_t id, type, visibility, operations; char description[256]; } CapInfo;
+typedef struct { uint32_t type, elements, value, def; int16_t physical; void *data; } EnumData;
+typedef struct { double value, def; uint32_t valueIndex, defaultIndex; double lower, upper; uint32_t steps; } RangeData;
 typedef struct { CapInfo *caps; uint32_t count, size; } EnumCapInfo;
 typedef struct { uint32_t type, def; int32_t sync; char *prompt, *detail; void *object; uint64_t data; } UIRequest;
 #pragma pack(pop)
@@ -37,6 +39,10 @@ _Static_assert(offsetof(Shooting, path) == 22, "ImageSavePath");
 _Static_assert(sizeof(LiveViewData) == 900, "NkMAIDLiveViewData");
 _Static_assert(offsetof(LiveViewData, image) == 892, "pImageData");
 _Static_assert(sizeof(CapInfo) == 272, "NkMAIDCapInfo");
+_Static_assert(sizeof(EnumData) == 26, "NkMAIDEnum");
+_Static_assert(offsetof(EnumData, data) == 18, "NkMAIDEnum.pData");
+_Static_assert(sizeof(RangeData) == 44, "NkMAIDRange");
+_Static_assert(offsetof(RangeData, steps) == 40, "NkMAIDRange.ulSteps");
 
 typedef void *(*AllocFn)(size_t);
 typedef void (*FreeFn)(void *);
@@ -159,8 +165,77 @@ int32_t DisconnectDevice(void) {
   return 0;
 }
 
+/* Packed-string enum settings: the option strings back to back, ulElements = their byte length. */
+typedef struct { uint32_t cap; const char *options; uint32_t count; uint32_t index; } PackedSetting;
+static PackedSetting g_packed[] = {
+  {0x8117, "ISO 100\0ISO 200\0ISO 400\0ISO 800\0", 4, 1},
+  {0x8113, "f/3.5\0f/5.6\0f/8\0", 3, 1},
+  {0x8112, "1/125\0""1/60\0""1/30\0", 3, 0},
+  {0x8118, "Auto\0Daylight\0", 2, 0},
+  {0x8110, "Fine\0Normal\0", 2, 0},
+};
+static uint32_t g_exposureMode = 0; /* P */
+static RangeData g_ev = {0, 0, 3, 3, -1.0, 1.0, 7};
+static uint32_t g_refuseSet; /* cap whose next set fails, for the error path */
+
+static PackedSetting *find_packed(uint32_t cap) {
+  for (size_t i = 0; i < sizeof g_packed / sizeof g_packed[0]; i++)
+    if (g_packed[i].cap == cap) return &g_packed[i];
+  return NULL;
+}
+
+static size_t packed_bytes(const PackedSetting *p) {
+  size_t n = 0;
+  for (uint32_t i = 0; i < p->count; i++) {
+    size_t len = strlen(p->options + n) + 1;
+    n += len;
+  }
+  return n;
+}
+
 int32_t GetCapability(uint32_t cap, int32_t request, void **data, int32_t *type) {
   if (!g_connected) return -114;
+  if (request > 1) return -106;
+  PackedSetting *packed = find_packed(cap);
+  if (packed) {
+    EnumData *e = g_alloc(sizeof(EnumData));
+    memset(e, 0, sizeof *e);
+    e->type = 7; /* PackedString */
+    e->value = packed->index;
+    e->physical = 1;
+    if (request == 1) {
+      size_t bytes = packed_bytes(packed);
+      e->elements = (uint32_t)bytes;
+      e->data = g_alloc(bytes);
+      memcpy(e->data, packed->options, bytes);
+    }
+    *data = e;
+    *type = 16; /* EnumPtr */
+    return 0;
+  }
+  if (cap == 0x8111) {
+    static const uint32_t modes[] = {0, 1, 2, 3};
+    EnumData *e = g_alloc(sizeof(EnumData));
+    memset(e, 0, sizeof *e);
+    e->type = 2; /* Unsigned */
+    e->value = g_exposureMode;
+    e->physical = 4;
+    if (request == 1) {
+      e->elements = 4;
+      e->data = g_alloc(sizeof modes);
+      memcpy(e->data, modes, sizeof modes);
+    }
+    *data = e;
+    *type = 16;
+    return 0;
+  }
+  if (cap == 0x8115 && request == 0) {
+    RangeData *r = g_alloc(sizeof(RangeData));
+    *r = g_ev;
+    *data = r;
+    *type = 14; /* RangePtr */
+    return 0;
+  }
   if (request != 0) return -106;
   if (cap == 48) {
     int32_t *value = g_alloc(sizeof(int32_t));
@@ -174,6 +249,23 @@ int32_t GetCapability(uint32_t cap, int32_t request, void **data, int32_t *type)
 
 int32_t SetCapability(uint32_t cap, void *data, int32_t type) {
   if (!g_connected) return -114;
+  if (cap == g_refuseSet) {
+    g_refuseSet = 0;
+    return -104; /* OutOfRangeValue */
+  }
+  PackedSetting *packed = find_packed(cap);
+  if (packed && type == 16) {
+    EnumData *e = data;
+    if (e->type != 7 || e->data != NULL || e->value >= packed->count) return -104;
+    packed->index = e->value;
+    return 0;
+  }
+  if (cap == 0x8115 && type == 14) {
+    RangeData *r = data;
+    if (r->steps != 7 || r->valueIndex >= 7) return -104;
+    g_ev.valueIndex = r->valueIndex;
+    return 0;
+  }
   if (cap == 0x8305 && type == 6) {
     g_saveMedia = *(uint32_t *)data;
     return 0;
@@ -266,3 +358,9 @@ void mock_unplug(void) {
 uint32_t mock_save_media(void) { return g_saveMedia; }
 int32_t mock_last_autofocus(void) { return g_lastAutoFocus; }
 uint32_t mock_ui_answer(void) { return g_uiAnswer; }
+uint32_t mock_setting_index(uint32_t cap) {
+  PackedSetting *p = find_packed(cap);
+  return p ? p->index : 0xffffffffu;
+}
+uint32_t mock_ev_index(void) { return g_ev.valueIndex; }
+void mock_refuse_next_set(uint32_t cap) { g_refuseSet = cap; }

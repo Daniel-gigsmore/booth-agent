@@ -1,5 +1,5 @@
-import type { NikonDevice } from "./nikonLayout";
-export type { NikonDevice };
+import type { NikonDevice, NikonEnumHeader, NikonEnumValue, NikonRange } from "./nikonLayout";
+export type { NikonDevice, NikonEnumHeader, NikonEnumValue, NikonRange };
 
 /** What the SDK reports on its own threads; nikonNative relays it on the worker's main thread. */
 export interface NikonHandlers {
@@ -26,6 +26,15 @@ export interface NikonApi {
   disconnect(): Promise<void>;
   setUnsigned(capability: number, value: number): Promise<number>;
   getInteger(capability: number): Promise<{ err: number; value: number }>;
+  /**
+   * An enum capability: its option list (the SDK's "supported values") and the
+   * index of the current value. `enum` is null when the camera doesn't offer it right now.
+   */
+  getEnum(capability: number): Promise<{ err: number; enum: NikonEnumValue | null }>;
+  /** Sets an enum capability to option `index`; `header` is what getEnum returned for it. */
+  setEnum(capability: number, header: NikonEnumHeader, index: number): Promise<number>;
+  getRange(capability: number): Promise<{ err: number; range: NikonRange | null }>;
+  setRange(capability: number, range: NikonRange): Promise<number>;
   /** One single-frame shot, saved by the SDK into saveDir. Resolves once the SDK returns. */
   shoot(saveDir: string, autoFocus: boolean): Promise<number>;
   startLiveView(): Promise<number>;

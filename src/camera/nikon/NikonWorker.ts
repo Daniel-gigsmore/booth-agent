@@ -2,7 +2,8 @@ import { mkdir, readdir, rename, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { NikonApi, NikonDevice } from "./nikonApi";
 import { DISCONNECT_RESULTS, NK, nkError } from "./nikonLayout";
-import { CameraDetail, CameraSettings, LogLevel, WorkerEvent } from "../edsdk/protocol";
+import { CameraDetail, CameraSettings, LogLevel, SettingChanges, WorkerEvent } from "../edsdk/protocol";
+import { applyNikonSettings, readNikonSettings } from "./nikonSettings";
 import { Clock, realClock } from "../edsdk/CameraWorker";
 import { AsyncMutex } from "../../util/mutex";
 
@@ -168,8 +169,31 @@ export class NikonWorker {
     return latest && now - latest.at <= FRAME_FRESH_MS ? latest.jpeg : null;
   }
 
-  getSettings(): CameraSettings {
-    throw new Error("Camera settings aren't supported for the Nikon yet - change them on the camera");
+  /** The operator-adjustable settings and what each may be set to (see nikonSettings.ts). */
+  async getSettings(): Promise<CameraSettings> {
+    this.requireIdle();
+    return this.settingsCall(() => readNikonSettings(this.api));
+  }
+
+  async setSettings(changes: SettingChanges): Promise<CameraSettings> {
+    this.requireIdle();
+    return this.settingsCall(() => applyNikonSettings(this.api, changes));
+  }
+
+  private requireIdle(): void {
+    if (!this.device) throw new Error("No Nikon camera connected");
+    if (this.capturing) throw new Error("The Nikon is taking a photo - try again in a moment");
+  }
+
+  /** Runs inside the SDK mutex; a "camera has gone" error also drops the connection, like any other call would. */
+  private async settingsCall(call: () => Promise<CameraSettings>): Promise<CameraSettings> {
+    try {
+      return await this.sdk.run(call);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (/^Nikon disconnected/.test(message)) void this.drop(message);
+      throw err;
+    }
   }
 
   async shutdown(): Promise<void> {
