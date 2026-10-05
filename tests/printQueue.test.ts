@@ -61,7 +61,9 @@ describe("PrintQueue", () => {
     });
     const job = queue.enqueue("capture-1", "4x6", sourceFilePath);
     const dropped = path.join(hotFolderPathFor(hotFolderBase, "4x6"), `${job.jobId}.jpg`);
-    await waitFor(async () => (await readdir(path.dirname(dropped)).catch(() => [])).includes(`${job.jobId}.jpg`));
+    // stop() resolves once the drop chain has finished, so this doesn't race a
+    // fixed timeout (a cold, busy Windows CI runner once took >2s for this drop).
+    await queue.stop();
     expect(prepared).toEqual([sourceFilePath]);
     expect(await readFile(dropped, "utf8")).toBe("sheet bytes");
   });
@@ -86,13 +88,7 @@ describe("PrintQueue", () => {
     const jobs = [1, 2, 3, 4, 5].map(() => queue.enqueue("capture-1", "4x6", sourceFilePath));
 
     const dir = path.join(hotFolderBase, "s4x6"); // HFP's real folder name for 4x6, see hotFolder.ts
-    await waitFor(async () => {
-      const files = await readdir(dir).catch(() => []);
-      // dropIntoHotFolder stages each drop through a dot-prefixed .tmp file
-      // before the atomic rename to its final name - only count finished
-      // .jpg files, or this resolves early on a job still mid-rename.
-      return files.filter((f) => f.endsWith(".jpg")).length >= 5;
-    });
+    await queue.stop(); // every drop, .tmp-then-rename included, has finished
 
     const files = await readdir(dir);
     const jobFiles = jobs.map((j) => `${j.jobId}.jpg`);
