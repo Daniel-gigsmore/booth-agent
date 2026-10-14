@@ -128,20 +128,38 @@ function Stepper({ label, value, onChange }: { label: string; value: number; onC
   );
 }
 
+interface Alignment { scale: number; offsetX: number; offsetY: number }
+
+function AlignmentSlider({ label, value, min, max, unit, onChange }: {
+  label: string; value: number; min: number; max: number; unit: string;
+  onChange: (v: number) => void;
+}) {
+  return (
+    <div className="align-slider">
+      <div className="row between">
+        <div className="op-label">{label}</div>
+        <div className="bold fs-28">{value}{unit}</div>
+      </div>
+      <input type="range" min={min} max={max} value={value} onChange={(e) => onChange(Number(e.target.value))} />
+    </div>
+  );
+}
+
 function SettingsTab({ onEdit }: { onEdit: (t: Template, all: Template[], inUseId: string) => void }) {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [settings, setSettings] = useState<SessionSettings | null>(null);
+  const [alignment, setAlignment] = useState<Alignment | null>(null);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
   const [note, setNote] = useState("");
 
   useEffect(() => {
     agent.templates().then(setTemplates, (e: Error) => setError(e.message));
-    // A 409 still carries the settings (the chosen layout is missing), so fall back to defaults for the rest.
     agent.session().then(
       (s) => setSettings(s),
       () => setSettings({ templateId: "", firstCountdownSeconds: 3, betweenShotsSeconds: 3 }),
     );
+    agent.printAlignment().then(setAlignment, () => setAlignment({ scale: 100, offsetX: 0, offsetY: 0 }));
   }, []);
 
   async function update(next: SessionSettings) {
@@ -232,6 +250,17 @@ function SettingsTab({ onEdit }: { onEdit: (t: Template, all: Template[], inUseI
           onChange={(v) => update({ ...settings, firstCountdownSeconds: v })} />
         <Stepper label="BETWEEN PHOTOS" value={settings.betweenShotsSeconds}
           onChange={(v) => update({ ...settings, betweenShotsSeconds: v })} />
+        {alignment && (
+          <>
+            <div className="display fs-36">Print alignment</div>
+            <AlignmentSlider label="SCALE" value={alignment.scale} min={50} max={100} unit="%"
+              onChange={(v) => { const next = { ...alignment, scale: v }; setAlignment(next); agent.setPrintAlignment(next); }} />
+            <AlignmentSlider label="HORIZONTAL" value={alignment.offsetX} min={-200} max={200} unit="px"
+              onChange={(v) => { const next = { ...alignment, offsetX: v }; setAlignment(next); agent.setPrintAlignment(next); }} />
+            <AlignmentSlider label="VERTICAL" value={alignment.offsetY} min={-200} max={200} unit="px"
+              onChange={(v) => { const next = { ...alignment, offsetY: v }; setAlignment(next); agent.setPrintAlignment(next); }} />
+          </>
+        )}
         {error && <div className="banner error fs-24">{error}</div>}
         {saved && !error && <div className="muted fs-24">Saved. The next guest gets these settings.</div>}
       </div>

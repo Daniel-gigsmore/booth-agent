@@ -18,6 +18,8 @@ import { AlbumPublisher } from "./album/albumPublisher";
 import { createSupabaseAlbumBackend } from "./supabase/albumStorage";
 import { PrintQueue } from "./print/printQueue";
 import { printFileFor } from "./compositor/compositor";
+import { applyAlignment } from "./print/printAlignment";
+import { AlignmentStore } from "./print/alignmentStore";
 import { buildHttpApp } from "./server/http";
 import { attachEventsWebSocket } from "./server/ws";
 import { AgentContext } from "./server/context";
@@ -137,13 +139,24 @@ async function main(): Promise<void> {
   );
   syncWorker.start();
 
+  const alignmentStore = new AlignmentStore(config.storage.dataDir);
+
   const printQueue = new PrintQueue(
     config.printing.hotFolderPath,
     config.printing.secondsPerPrint,
     outboxStore,
     eventBus,
-    // Composites are saved upright; the printer takes a portrait 4x6 sheet.
-    (file) => printFileFor(file, configStore.current.compositing.jpegQuality)
+    async (file) => {
+      const sheetPath = await printFileFor(file, configStore.current.compositing.jpegQuality);
+      const alignment = alignmentStore.current;
+      if (alignment.scale === 100 && alignment.offsetX === 0 && alignment.offsetY === 0) return sheetPath;
+      const { readFile, writeFile } = await import("node:fs/promises");
+      const sheet = await readFile(sheetPath);
+      const aligned = await applyAlignment(sheet, alignment, configStore.current.compositing.jpegQuality);
+      const alignedPath = sheetPath.replace(/.jpg$/i, "-aligned.jpg");
+      await writeFile(alignedPath, aligned);
+      return alignedPath;
+    }
   );
 
   const ctx: AgentContext = {
@@ -152,6 +165,7 @@ async function main(): Promise<void> {
     cameraManager,
     outboxStore,
     printQueue,
+    alignment: alignmentStore,
     album: albumPublisher,
     events,
     preflight,
