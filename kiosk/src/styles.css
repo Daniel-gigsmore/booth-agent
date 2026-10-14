@@ -224,6 +224,9 @@ button { font: inherit; color: inherit; cursor: inherit; }
 /* ---- Review ---- */
 .review { display: flex; align-items: center; gap: 80px; padding: 80px 96px; }
 .review-frame { width: 1140px; flex-shrink: 0; display: flex; justify-content: center; }
+.copies-row { align-items: center; }
+.copies-btn { width: 64px; height: 64px; font-size: 32px; display: flex; align-items: center; justify-content: center; padding: 0; border-radius: 50%; }
+.copies-count { min-width: 48px; text-align: center; font-weight: 700; }
 
 /* ---- Printing ---- */
 .printing { display: flex; align-items: center; gap: 140px; padding: 90px 160px; }
