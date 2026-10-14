@@ -164,6 +164,9 @@ export const agent = {
     call("POST", "/composite", { captureId: captureIds[0], captureIds, templateId: template.id, downloadUrl: downloadUrl || undefined }),
   print: (captureId: string, size: PrintSize, copies = 1) =>
     call<{ jobId: string; estimatedWaitMs: number }>("POST", "/print", { captureId, size, copies }),
+  printAlignment: () => call<{ scale: number; offsetX: number; offsetY: number }>("GET", "/print/alignment"),
+  setPrintAlignment: (a: Partial<{ scale: number; offsetX: number; offsetY: number }>) =>
+    call<{ scale: number; offsetX: number; offsetY: number }>("POST", "/print/alignment", a),
   session: () => call<Session>("GET", "/session"),
   saveSession: (s: SessionSettings) => call<Session>("POST", "/session", s),
   templates: () => call<{ templates: Template[] }>("GET", "/templates").then((r) => r.templates),

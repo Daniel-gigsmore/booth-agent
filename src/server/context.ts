@@ -6,6 +6,7 @@ import { PrintQueue } from "../print/printQueue";
 import { PreflightResult } from "../startup/preflight";
 import { AlbumPublisher } from "../album/albumPublisher";
 import { EventStore } from "../session/eventStore";
+import { AlignmentStore } from "../print/alignmentStore";
 
 /** Everything the HTTP/WS layer needs, wired up once in index.ts. */
 export interface AgentContext {
@@ -24,4 +25,5 @@ export interface AgentContext {
    * anything that starts after this service does (HFP, the printer).
    */
   preflight: PreflightResult;
+  alignment: AlignmentStore;
 }

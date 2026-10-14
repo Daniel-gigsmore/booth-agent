@@ -636,6 +636,19 @@ export function buildRouter(ctx: AgentContext): Router {
     res.status(202).json({ captureId: original.capture_id, reprintedFrom: original.id, jobs });
   }));
 
+  router.get("/print/alignment", (_req: Request, res: Response) => {
+    res.json(ctx.alignment.current);
+  });
+
+  router.post("/print/alignment", (req: Request, res: Response) => {
+    try {
+      const updated = ctx.alignment.update(req.body as Partial<{ scale: number; offsetX: number; offsetY: number }>);
+      res.json(updated);
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
   /**
    * Captures the sync worker has given up on. Abandonment is deliberately a
    * quiet state in /health (one warn line, one number) rather than a growing
