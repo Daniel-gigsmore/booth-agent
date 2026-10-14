@@ -85,7 +85,7 @@ const SAMPLE_QR_URL = "https://kachak.example/sample-photo";
 const PrintRequestSchema = z.object({
   captureId: z.string().min(1),
   size: PrintSizeSchema.optional(),
-  copies: z.number().int().min(1).max(5).default(1),
+  copies: z.number().int().min(1).max(20).default(1),
 });
 
 /**
@@ -99,7 +99,7 @@ const ReprintRequestSchema = z
     jobId: z.string().min(1).optional(),
     captureId: z.string().min(1).optional(),
     size: PrintSizeSchema.optional(),
-    copies: z.number().int().min(1).max(5).default(1),
+    copies: z.number().int().min(1).max(20).default(1),
   })
   .refine((body) => Boolean(body.jobId) !== Boolean(body.captureId), {
     message: "provide exactly one of jobId or captureId",

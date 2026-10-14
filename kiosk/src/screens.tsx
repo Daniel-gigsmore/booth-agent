@@ -337,7 +337,7 @@ export function Review({ template, captureId, onPrint, onSkip, onRetake, onCance
         <div className="row gap-16 copies-row">
           <button type="button" className="btn outline copies-btn" disabled={copies <= 1} onClick={() => setCopies(copies - 1)}>-</button>
           <span className="fs-48 copies-count">{copies}</span>
-          <button type="button" className="btn outline copies-btn" disabled={copies >= 5} onClick={() => setCopies(copies + 1)}>+</button>
+          <button type="button" className="btn outline copies-btn" disabled={copies >= 20} onClick={() => setCopies(copies + 1)}>+</button>
         </div>
         <div className="col gap-24">
           <button type="button" className="btn primary block" onClick={() => onPrint(copies)}><CheckIcon size={48} />Print {copies > 1 ? `${copies} copies` : ""}</button>
