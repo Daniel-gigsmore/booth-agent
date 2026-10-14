@@ -321,12 +321,10 @@ export function CompositePreview({ src, template, maxW, maxH }: {
   );
 }
 
-const RING = 326.73;
-
-export function Review({ template, captureId, onApprove, onRetake, onCancel }: {
-  template: Template; captureId: string; onApprove: () => void; onRetake: () => void; onCancel: () => void;
+export function Review({ template, captureId, onPrint, onSkip, onRetake, onCancel }: {
+  template: Template; captureId: string; onPrint: (copies: number) => void; onSkip: () => void; onRetake: () => void; onCancel: () => void;
 }) {
-  const secs = useCountdown(10, onApprove);
+  const [copies, setCopies] = useState(1);
   return (
     <div className="stage review">
       <CloseButton onClick={onCancel} />
@@ -335,17 +333,15 @@ export function Review({ template, captureId, onApprove, onRetake, onCancel }: {
       </div>
       <div className="col gap-40 grow">
         <h2 className="display fs-104">Looking<br />good?</h2>
-        <p className="lede fs-32">We'll print it as soon as you say so.</p>
-        <div className="row gap-20">
-          <svg width="96" height="96" viewBox="0 0 120 120" aria-hidden="true">
-            <circle cx="60" cy="60" r="52" fill="none" stroke="#2B2533" strokeWidth="10" />
-            <circle cx="60" cy="60" r="52" fill="none" stroke="#FF6A45" strokeWidth="10" strokeLinecap="round"
-              strokeDasharray={RING} strokeDashoffset={RING * (1 - secs / 10)} transform="rotate(-90 60 60)" />
-          </svg>
-          <div className="muted fs-28">Printing automatically in <b className="hi">{secs}s</b></div>
+        <p className="lede fs-32">Choose how many copies to print.</p>
+        <div className="row gap-16 copies-row">
+          <button type="button" className="btn outline copies-btn" disabled={copies <= 1} onClick={() => setCopies(copies - 1)}>-</button>
+          <span className="fs-48 copies-count">{copies}</span>
+          <button type="button" className="btn outline copies-btn" disabled={copies >= 5} onClick={() => setCopies(copies + 1)}>+</button>
         </div>
         <div className="col gap-24">
-          <button type="button" className="btn primary block" onClick={onApprove}><CheckIcon size={48} />Looks good</button>
+          <button type="button" className="btn primary block" onClick={() => onPrint(copies)}><CheckIcon size={48} />Print {copies > 1 ? `${copies} copies` : ""}</button>
+          <button type="button" className="btn outline block" onClick={onSkip}>Done without printing</button>
           <button type="button" className="btn outline block" onClick={onRetake}><RetakeIcon size={44} />Retake</button>
         </div>
       </div>

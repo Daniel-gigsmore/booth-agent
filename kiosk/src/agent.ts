@@ -162,8 +162,8 @@ export const agent = {
   /** Composite is filed under the first shot; print and reprint use that id. downloadUrl ("" = none) feeds the layout's QR codes. */
   composite: (captureIds: string[], template: Template, downloadUrl: string) =>
     call("POST", "/composite", { captureId: captureIds[0], captureIds, templateId: template.id, downloadUrl: downloadUrl || undefined }),
-  print: (captureId: string, size: PrintSize) =>
-    call<{ jobId: string; estimatedWaitMs: number }>("POST", "/print", { captureId, size }),
+  print: (captureId: string, size: PrintSize, copies = 1) =>
+    call<{ jobId: string; estimatedWaitMs: number }>("POST", "/print", { captureId, size, copies }),
   session: () => call<Session>("GET", "/session"),
   saveSession: (s: SessionSettings) => call<Session>("POST", "/session", s),
   templates: () => call<{ templates: Template[] }>("GET", "/templates").then((r) => r.templates),

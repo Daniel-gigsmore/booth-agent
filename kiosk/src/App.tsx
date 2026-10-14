@@ -70,10 +70,10 @@ export default function App() {
     }
   }
 
-  async function print(template: Template, captureId: string) {
+  async function print(template: Template, captureId: string, copies: number) {
     setScreen({ name: "printing", template, captureId, waitMs: null });
     try {
-      const job = await agent.print(captureId, template.printSize);
+      const job = await agent.print(captureId, template.printSize, copies);
       setScreen((s) =>
         s.name === "printing" && s.captureId === captureId ? { ...s, waitMs: job.estimatedWaitMs } : s,
       );
@@ -107,7 +107,8 @@ export default function App() {
           <Review
             template={screen.session.template}
             captureId={screen.captureId}
-            onApprove={() => print(screen.session.template, screen.captureId)}
+            onPrint={(copies) => print(screen.session.template, screen.captureId, copies)}
+            onSkip={() => setScreen({ name: "done", captureId: screen.captureId })}
             onRetake={start}
             onCancel={attract}
           />
