@@ -142,6 +142,7 @@ export interface SessionSettings {
   templateId: string;
   firstCountdownSeconds: number;
   betweenShotsSeconds: number;
+  filtersEnabled?: boolean;
 }
 
 export interface Session extends SessionSettings {

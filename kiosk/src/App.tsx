@@ -108,6 +108,7 @@ export default function App() {
             template={screen.session.template}
             captureId={screen.captureId}
             captureIds={screen.captureIds}
+            filtersEnabled={screen.session.filtersEnabled ?? false}
             onPrint={(copies) => print(screen.session.template, screen.captureId, copies)}
             onSkip={() => setScreen({ name: "done", captureId: screen.captureId })}
             onRetake={start}

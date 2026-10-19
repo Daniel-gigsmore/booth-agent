@@ -329,8 +329,8 @@ export function CompositePreview({ src, template, maxW, maxH }: {
   );
 }
 
-export function Review({ template, captureId, captureIds, onPrint, onSkip, onRetake, onCancel }: {
-  template: Template; captureId: string; captureIds: string[];
+export function Review({ template, captureId, captureIds, filtersEnabled, onPrint, onSkip, onRetake, onCancel }: {
+  template: Template; captureId: string; captureIds: string[]; filtersEnabled: boolean;
   onPrint: (copies: number) => void; onSkip: () => void; onRetake: () => void; onCancel: () => void;
 }) {
   const [copies, setCopies] = useState(1);
@@ -369,13 +369,15 @@ export function Review({ template, captureId, captureIds, onPrint, onSkip, onRet
       </div>
       <div className="col gap-24 grow">
         <h2 className="display fs-104">Looking<br />good?</h2>
-        <div className="row gap-10 wrap">
-          {FILTERS.map((f) => (
-            <button key={f.id} type="button" disabled={busy}
-              className={`filter-btn${filter === f.id ? " on" : ""}`}
-              onClick={() => setFilter(f.id)}>{f.label}</button>
-          ))}
-        </div>
+        {filtersEnabled && (
+          <div className="row gap-10 wrap">
+            {FILTERS.map((f) => (
+              <button key={f.id} type="button" disabled={busy}
+                className={`filter-btn${filter === f.id ? " on" : ""}`}
+                onClick={() => setFilter(f.id)}>{f.label}</button>
+            ))}
+          </div>
+        )}
         <p className="lede fs-32">Choose how many copies to print.</p>
         <div className="row gap-16 copies-row">
           <button type="button" className="btn outline copies-btn" disabled={copies <= 1 || busy} onClick={() => setCopies(copies - 1)}>-</button>

@@ -881,9 +881,9 @@ export function buildRouter(ctx: AgentContext): Router {
 
   router.post("/session", (req: Request, res: Response) => {
     const config = ctx.configStore.current;
-    // A body without attractSlideshow (an older kiosk, or Settings when GET /session failed) keeps what is set.
+    // A body without attractSlideshow/filtersEnabled (an older kiosk, or Settings when GET /session failed) keeps what is set.
     const current = ctx.events.active().session;
-    const parsed = SessionSettingsSchema.safeParse({ attractSlideshow: current.attractSlideshow, ...req.body });
+    const parsed = SessionSettingsSchema.safeParse({ attractSlideshow: current.attractSlideshow, filtersEnabled: current.filtersEnabled, ...req.body });
     if (!parsed.success) {
       res.status(400).json({ error: parsed.error.message });
       return;
