@@ -344,36 +344,28 @@ export function Review({ template, captureId, captureIds, filtersEnabled, onPrin
   const [copies, setCopies] = useState(1);
   const [filter, setFilter] = useState<PhotoFilter | "none">("none");
   const [busy, setBusy] = useState(false);
+  const [imgKey, setImgKey] = useState(0);
   const event = useEvent();
 
-  const cssFilter = FILTERS.find((f) => f.id === filter)?.css;
-
-  async function applyFilter(): Promise<void> {
-    if (filter === "none") return;
-    await agent.composite(
-      captureIds, template,
-      fillDownloadUrl(config.downloadUrlTemplate, captureId, event),
-      filter,
-    );
-  }
-
-  async function handlePrint() {
+  async function pickFilter(id: PhotoFilter | "none") {
+    setFilter(id);
     setBusy(true);
-    try { await applyFilter(); } catch { /* print with whatever composite exists */ }
-    onPrint(copies);
-  }
-
-  async function handleSkip() {
-    setBusy(true);
-    try { await applyFilter(); } catch {}
-    onSkip();
+    try {
+      await agent.composite(
+        captureIds, template,
+        fillDownloadUrl(config.downloadUrlTemplate, captureId, event),
+        id === "none" ? undefined : id,
+      );
+      setImgKey((k) => k + 1);
+    } catch { /* keep previous composite */ }
+    setBusy(false);
   }
 
   return (
     <div className="stage review">
       <CloseButton onClick={onCancel} />
-      <div className="review-frame" style={cssFilter ? { filter: cssFilter } : undefined}>
-        <CompositePreview src={compositeUrl(captureId)} template={template} maxW={1140} maxH={900} />
+      <div className="review-frame">
+        <CompositePreview src={`${compositeUrl(captureId)}&_=${imgKey}`} template={template} maxW={1140} maxH={900} />
       </div>
       <div className="col gap-24 grow">
         <h2 className="display fs-104">Looking<br />good?</h2>
@@ -382,7 +374,7 @@ export function Review({ template, captureId, captureIds, filtersEnabled, onPrin
             {FILTERS.map((f) => (
               <button key={f.id} type="button" disabled={busy}
                 className={`filter-btn${filter === f.id ? " on" : ""}`}
-                onClick={() => setFilter(f.id)}>{f.label}</button>
+                onClick={() => pickFilter(f.id)}>{f.label}</button>
             ))}
           </div>
         )}
@@ -393,8 +385,8 @@ export function Review({ template, captureId, captureIds, filtersEnabled, onPrin
           <button type="button" className="btn outline copies-btn" disabled={copies >= 20 || busy} onClick={() => setCopies(copies + 1)}>+</button>
         </div>
         <div className="col gap-24">
-          <button type="button" className="btn primary block" disabled={busy} onClick={handlePrint}><CheckIcon size={48} />{busy ? "Applying…" : `Print${copies > 1 ? ` ${copies} copies` : ""}`}</button>
-          <button type="button" className="btn outline block" disabled={busy} onClick={handleSkip}>Done without printing</button>
+          <button type="button" className="btn primary block" disabled={busy} onClick={() => onPrint(copies)}><CheckIcon size={48} />{busy ? "Applying…" : `Print${copies > 1 ? ` ${copies} copies` : ""}`}</button>
+          <button type="button" className="btn outline block" disabled={busy} onClick={onSkip}>Done without printing</button>
           <button type="button" className="btn outline block" disabled={busy} onClick={onRetake}><RetakeIcon size={44} />Retake</button>
         </div>
       </div>
