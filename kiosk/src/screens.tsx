@@ -308,6 +308,14 @@ const FILTERS: { id: PhotoFilter | "none"; label: string; css?: string }[] = [
   { id: "sepia", label: "Sepia", css: "sepia(1)" },
   { id: "warm", label: "Warm", css: "sepia(0.3) saturate(1.2)" },
   { id: "cool", label: "Cool", css: "saturate(0.8) hue-rotate(15deg)" },
+  { id: "1977", label: "1977", css: "sepia(0.3) contrast(1.1) brightness(1.1) saturate(1.3)" },
+  { id: "bw-glam", label: "B&W Glam", css: "grayscale(1) contrast(1.3) brightness(1.1)" },
+  { id: "brannan", label: "Brannan", css: "sepia(0.4) contrast(1.15) saturate(0.9)" },
+  { id: "gotham", label: "Gotham", css: "grayscale(0.6) contrast(1.4) brightness(0.9)" },
+  { id: "hefe", label: "Hefe", css: "sepia(0.2) contrast(1.15) saturate(1.4) brightness(1.05)" },
+  { id: "kelvin", label: "Lord Kelvin", css: "sepia(0.5) saturate(1.5) brightness(1.1) contrast(1.1)" },
+  { id: "nashville", label: "Nashville", css: "sepia(0.25) contrast(1.2) brightness(1.1) saturate(1.3)" },
+  { id: "xpro2", label: "X-PRO II", css: "sepia(0.2) contrast(1.3) saturate(1.3) brightness(1.05)" },
 ];
 
 /**

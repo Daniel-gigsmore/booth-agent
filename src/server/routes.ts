@@ -64,7 +64,7 @@ function slotParam(req: Request, res: Response): CameraSlot | null {
   return null;
 }
 
-const PhotoFilterSchema = z.enum(["bw", "sepia", "warm", "cool"]);
+const PhotoFilterSchema = z.enum(["bw", "sepia", "warm", "cool", "1977", "bw-glam", "brannan", "gotham", "hefe", "kelvin", "nashville", "xpro2"]);
 
 const CompositeRequestSchema = z.object({
   captureId: z.string().min(1),

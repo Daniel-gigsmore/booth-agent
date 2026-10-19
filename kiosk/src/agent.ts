@@ -94,7 +94,7 @@ export interface Health {
 
 export type PrintSize = "4x6" | "2x6-strip";
 
-export type PhotoFilter = "bw" | "sepia" | "warm" | "cool";
+export type PhotoFilter = "bw" | "sepia" | "warm" | "cool" | "1977" | "bw-glam" | "brannan" | "gotham" | "hefe" | "kelvin" | "nashville" | "xpro2";
 
 /** Which of the booth's two Canons: mounted high looking down, or low looking up. */
 export type CameraSlot = "high" | "low";

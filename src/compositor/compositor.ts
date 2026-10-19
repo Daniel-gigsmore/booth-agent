@@ -15,7 +15,7 @@ import {
 } from "./dimensions";
 import { PrintSize } from "../config/schema";
 
-export type PhotoFilter = "bw" | "sepia" | "warm" | "cool";
+export type PhotoFilter = "bw" | "sepia" | "warm" | "cool" | "1977" | "bw-glam" | "brannan" | "gotham" | "hefe" | "kelvin" | "nashville" | "xpro2";
 
 export interface CompositeParams {
   /** One photo per shot, in shot order. Fewer photos than shots repeat from the start. */
@@ -122,6 +122,14 @@ function applyPhotoFilter(pipeline: Sharp, filter: PhotoFilter): Sharp {
     case "sepia": return pipeline.greyscale().tint({ r: 112, g: 66, b: 20 });
     case "warm": return pipeline.tint({ r: 255, g: 230, b: 180 });
     case "cool": return pipeline.tint({ r: 180, g: 210, b: 255 });
+    case "1977": return pipeline.modulate({ brightness: 1.1, saturation: 1.3 }).tint({ r: 255, g: 230, b: 200 });
+    case "bw-glam": return pipeline.greyscale().linear(1.3, -20);
+    case "brannan": return pipeline.modulate({ saturation: 0.9 }).tint({ r: 200, g: 180, b: 140 }).linear(1.15, 0);
+    case "gotham": return pipeline.greyscale().linear(1.4, -30).tint({ r: 180, g: 200, b: 220 });
+    case "hefe": return pipeline.modulate({ brightness: 1.05, saturation: 1.4 }).tint({ r: 255, g: 230, b: 190 }).linear(1.15, 0);
+    case "kelvin": return pipeline.modulate({ brightness: 1.1, saturation: 1.5 }).tint({ r: 255, g: 200, b: 140 });
+    case "nashville": return pipeline.modulate({ brightness: 1.1, saturation: 1.3 }).tint({ r: 255, g: 210, b: 200 });
+    case "xpro2": return pipeline.modulate({ saturation: 1.3 }).tint({ r: 230, g: 210, b: 180 }).linear(1.3, -15);
   }
 }
 
