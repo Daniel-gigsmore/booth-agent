@@ -15,6 +15,8 @@ import {
 } from "./dimensions";
 import { PrintSize } from "../config/schema";
 
+export type PhotoFilter = "bw" | "sepia" | "warm" | "cool";
+
 export interface CompositeParams {
   /** One photo per shot, in shot order. Fewer photos than shots repeat from the start. */
   sourceImagePaths: string[];
@@ -25,6 +27,8 @@ export interface CompositeParams {
   variables: TextVariables;
   /** What qr elements encode: the guest's download link. Unset = qr elements are left out. */
   qrUrl?: string | undefined;
+  /** Applied to photo elements only; template overlays stay untouched. */
+  filter?: PhotoFilter | undefined;
   printSize: PrintSize;
   outputDir: string;
   jpegQuality: number;
@@ -45,6 +49,7 @@ interface CellParams {
   assetDir: string;
   variables: TextVariables;
   qrUrl?: string | undefined;
+  filter?: PhotoFilter | undefined;
 }
 
 const TRANSPARENT = { r: 0, g: 0, b: 0, alpha: 0 };
@@ -111,15 +116,25 @@ async function renderQr(el: QrElement, url: string): Promise<Buffer> {
     .toBuffer();
 }
 
+function applyPhotoFilter(pipeline: Sharp, filter: PhotoFilter): Sharp {
+  switch (filter) {
+    case "bw": return pipeline.greyscale();
+    case "sepia": return pipeline.greyscale().tint({ r: 112, g: 66, b: 20 });
+    case "warm": return pipeline.tint({ r: 255, g: 230, b: 180 });
+    case "cool": return pipeline.tint({ r: 180, g: 210, b: 255 });
+  }
+}
+
 /** One element drawn at its own width x height, unrotated. Null = nothing to draw. */
 async function renderElement(el: LayoutElement, params: CellParams): Promise<Buffer | null> {
   switch (el.type) {
-    case "photo":
-      return sharp(params.sourceImagePaths[el.shot % params.sourceImagePaths.length])
+    case "photo": {
+      let pipeline = sharp(params.sourceImagePaths[el.shot % params.sourceImagePaths.length])
         .rotate() // normalize EXIF orientation before placing
-        .resize(el.width, el.height, { fit: "cover", position: "centre" })
-        .png()
-        .toBuffer();
+        .resize(el.width, el.height, { fit: "cover", position: "centre" });
+      if (params.filter) pipeline = applyPhotoFilter(pipeline, params.filter);
+      return pipeline.png().toBuffer();
+    }
     case "image":
       return sharp(path.join(params.assetDir, el.file))
         .rotate() // normalize EXIF orientation before placing

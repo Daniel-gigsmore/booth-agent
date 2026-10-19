@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import QRCode from "qrcode";
-import { agent, agentUrl, config, Health, printUrl, Session, Template, type CameraSlot } from "./agent";
+import { agent, agentUrl, config, Health, printUrl, Session, Template, type CameraSlot, type PhotoFilter } from "./agent";
 import { mergeAlbum, nextSlide, type SlideState } from "./album";
 import { useCountdown } from "./hooks";
 import { useEvent, fillDownloadUrl } from "./event";
@@ -302,6 +302,14 @@ export function GetReady({ session, onDone, onFail, onCancel }: {
 
 const compositeUrl = (captureId: string) => agentUrl(`/captures/${captureId}/image?variant=composite`);
 
+const FILTERS: { id: PhotoFilter | "none"; label: string; css?: string }[] = [
+  { id: "none", label: "Original" },
+  { id: "bw", label: "B&W", css: "grayscale(1)" },
+  { id: "sepia", label: "Sepia", css: "sepia(1)" },
+  { id: "warm", label: "Warm", css: "sepia(0.3) saturate(1.2)" },
+  { id: "cool", label: "Cool", css: "saturate(0.8) hue-rotate(15deg)" },
+];
+
 /**
  * A guest's photo (or a layout preview) the way the guest holds the print. booth-agent keeps
  * these upright (a landscape 4x6 landscape, a strip as one strip); only the printer gets them
@@ -321,28 +329,63 @@ export function CompositePreview({ src, template, maxW, maxH }: {
   );
 }
 
-export function Review({ template, captureId, onPrint, onSkip, onRetake, onCancel }: {
-  template: Template; captureId: string; onPrint: (copies: number) => void; onSkip: () => void; onRetake: () => void; onCancel: () => void;
+export function Review({ template, captureId, captureIds, onPrint, onSkip, onRetake, onCancel }: {
+  template: Template; captureId: string; captureIds: string[];
+  onPrint: (copies: number) => void; onSkip: () => void; onRetake: () => void; onCancel: () => void;
 }) {
   const [copies, setCopies] = useState(1);
+  const [filter, setFilter] = useState<PhotoFilter | "none">("none");
+  const [busy, setBusy] = useState(false);
+  const event = useEvent();
+
+  const cssFilter = FILTERS.find((f) => f.id === filter)?.css;
+
+  async function applyFilter(): Promise<void> {
+    if (filter === "none") return;
+    await agent.composite(
+      captureIds, template,
+      fillDownloadUrl(config.downloadUrlTemplate, captureId, event),
+      filter,
+    );
+  }
+
+  async function handlePrint() {
+    setBusy(true);
+    try { await applyFilter(); } catch { /* print with whatever composite exists */ }
+    onPrint(copies);
+  }
+
+  async function handleSkip() {
+    setBusy(true);
+    try { await applyFilter(); } catch {}
+    onSkip();
+  }
+
   return (
     <div className="stage review">
       <CloseButton onClick={onCancel} />
-      <div className="review-frame">
+      <div className="review-frame" style={cssFilter ? { filter: cssFilter } : undefined}>
         <CompositePreview src={compositeUrl(captureId)} template={template} maxW={1140} maxH={900} />
       </div>
-      <div className="col gap-40 grow">
+      <div className="col gap-24 grow">
         <h2 className="display fs-104">Looking<br />good?</h2>
+        <div className="row gap-10 wrap">
+          {FILTERS.map((f) => (
+            <button key={f.id} type="button" disabled={busy}
+              className={`filter-btn${filter === f.id ? " on" : ""}`}
+              onClick={() => setFilter(f.id)}>{f.label}</button>
+          ))}
+        </div>
         <p className="lede fs-32">Choose how many copies to print.</p>
         <div className="row gap-16 copies-row">
-          <button type="button" className="btn outline copies-btn" disabled={copies <= 1} onClick={() => setCopies(copies - 1)}>-</button>
+          <button type="button" className="btn outline copies-btn" disabled={copies <= 1 || busy} onClick={() => setCopies(copies - 1)}>-</button>
           <span className="fs-48 copies-count">{copies}</span>
-          <button type="button" className="btn outline copies-btn" disabled={copies >= 20} onClick={() => setCopies(copies + 1)}>+</button>
+          <button type="button" className="btn outline copies-btn" disabled={copies >= 20 || busy} onClick={() => setCopies(copies + 1)}>+</button>
         </div>
         <div className="col gap-24">
-          <button type="button" className="btn primary block" onClick={() => onPrint(copies)}><CheckIcon size={48} />Print {copies > 1 ? `${copies} copies` : ""}</button>
-          <button type="button" className="btn outline block" onClick={onSkip}>Done without printing</button>
-          <button type="button" className="btn outline block" onClick={onRetake}><RetakeIcon size={44} />Retake</button>
+          <button type="button" className="btn primary block" disabled={busy} onClick={handlePrint}><CheckIcon size={48} />{busy ? "Applying…" : `Print${copies > 1 ? ` ${copies} copies` : ""}`}</button>
+          <button type="button" className="btn outline block" disabled={busy} onClick={handleSkip}>Done without printing</button>
+          <button type="button" className="btn outline block" disabled={busy} onClick={onRetake}><RetakeIcon size={44} />Retake</button>
         </div>
       </div>
     </div>
