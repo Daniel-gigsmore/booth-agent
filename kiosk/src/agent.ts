@@ -94,6 +94,8 @@ export interface Health {
 
 export type PrintSize = "4x6" | "2x6-strip";
 
+export type PhotoFilter = "bw" | "sepia" | "warm" | "cool" | "1977" | "bw-glam" | "brannan" | "gotham" | "hefe" | "kelvin" | "nashville" | "xpro2";
+
 /** Which of the booth's two Canons: mounted high looking down, or low looking up. */
 export type CameraSlot = "high" | "low";
 
@@ -140,6 +142,7 @@ export interface SessionSettings {
   templateId: string;
   firstCountdownSeconds: number;
   betweenShotsSeconds: number;
+  filtersEnabled?: boolean;
 }
 
 export interface Session extends SessionSettings {
@@ -160,8 +163,8 @@ export interface EventRow { id: string; name: string; date: string; photoCount: 
 export const agent = {
   capture: (camera: CameraSlot = "high") => call<{ captureId: string }>("POST", "/capture", { camera }),
   /** Composite is filed under the first shot; print and reprint use that id. downloadUrl ("" = none) feeds the layout's QR codes. */
-  composite: (captureIds: string[], template: Template, downloadUrl: string) =>
-    call("POST", "/composite", { captureId: captureIds[0], captureIds, templateId: template.id, downloadUrl: downloadUrl || undefined }),
+  composite: (captureIds: string[], template: Template, downloadUrl: string, filter?: PhotoFilter, filterIntensity?: number) =>
+    call("POST", "/composite", { captureId: captureIds[0], captureIds, templateId: template.id, downloadUrl: downloadUrl || undefined, filter, filterIntensity }),
   print: (captureId: string, size: PrintSize, copies = 1) =>
     call<{ jobId: string; estimatedWaitMs: number }>("POST", "/print", { captureId, size, copies }),
   printAlignment: () => call<{ scale: number; offsetX: number; offsetY: number }>("GET", "/print/alignment"),

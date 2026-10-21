@@ -14,6 +14,8 @@ export const SessionSettingsSchema = z.object({
   betweenShotsSeconds: z.number().int().min(1).max(10),
   /** The attract screen shows this event's prints. Some clients don't want guests' photos on show. */
   attractSlideshow: z.boolean().default(true),
+  /** Guest can pick a photo filter (B&W, sepia, warm, cool) on the Review screen. */
+  filtersEnabled: z.boolean().default(false),
 });
 
 export type SessionSettings = z.infer<typeof SessionSettingsSchema>;
@@ -23,6 +25,7 @@ export const DEFAULT_SESSION: SessionSettings = {
   firstCountdownSeconds: 3,
   betweenShotsSeconds: 3,
   attractSlideshow: true,
+  filtersEnabled: false,
 };
 
 function settingsPath(dataDir: string): string {

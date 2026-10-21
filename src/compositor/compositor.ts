@@ -15,6 +15,8 @@ import {
 } from "./dimensions";
 import { PrintSize } from "../config/schema";
 
+export type PhotoFilter = "bw" | "sepia" | "warm" | "cool" | "1977" | "bw-glam" | "brannan" | "gotham" | "hefe" | "kelvin" | "nashville" | "xpro2";
+
 export interface CompositeParams {
   /** One photo per shot, in shot order. Fewer photos than shots repeat from the start. */
   sourceImagePaths: string[];
@@ -25,6 +27,10 @@ export interface CompositeParams {
   variables: TextVariables;
   /** What qr elements encode: the guest's download link. Unset = qr elements are left out. */
   qrUrl?: string | undefined;
+  /** Applied to photo elements only; template overlays stay untouched. */
+  filter?: PhotoFilter | undefined;
+  /** 1-100, how strong the filter is (100 = full effect). */
+  filterIntensity?: number | undefined;
   printSize: PrintSize;
   outputDir: string;
   jpegQuality: number;
@@ -45,6 +51,8 @@ interface CellParams {
   assetDir: string;
   variables: TextVariables;
   qrUrl?: string | undefined;
+  filter?: PhotoFilter | undefined;
+  filterIntensity?: number | undefined;
 }
 
 const TRANSPARENT = { r: 0, g: 0, b: 0, alpha: 0 };
@@ -111,15 +119,39 @@ async function renderQr(el: QrElement, url: string): Promise<Buffer> {
     .toBuffer();
 }
 
+function applyPhotoFilter(pipeline: Sharp, filter: PhotoFilter): Sharp {
+  switch (filter) {
+    case "bw": return pipeline.greyscale();
+    case "sepia": return pipeline.greyscale().tint({ r: 112, g: 66, b: 20 });
+    case "warm": return pipeline.tint({ r: 255, g: 230, b: 180 });
+    case "cool": return pipeline.tint({ r: 180, g: 210, b: 255 });
+    case "1977": return pipeline.modulate({ brightness: 1.1, saturation: 1.3 }).tint({ r: 255, g: 230, b: 200 });
+    case "bw-glam": return pipeline.greyscale().linear(1.3, -20);
+    case "brannan": return pipeline.modulate({ saturation: 0.9 }).tint({ r: 200, g: 180, b: 140 }).linear(1.15, 0);
+    case "gotham": return pipeline.greyscale().linear(1.4, -30).tint({ r: 180, g: 200, b: 220 });
+    case "hefe": return pipeline.modulate({ brightness: 1.05, saturation: 1.4 }).tint({ r: 255, g: 230, b: 190 }).linear(1.15, 0);
+    case "kelvin": return pipeline.modulate({ brightness: 1.1, saturation: 1.5 }).tint({ r: 255, g: 200, b: 140 });
+    case "nashville": return pipeline.modulate({ brightness: 1.1, saturation: 1.3 }).tint({ r: 255, g: 210, b: 200 });
+    case "xpro2": return pipeline.modulate({ saturation: 1.3 }).tint({ r: 230, g: 210, b: 180 }).linear(1.3, -15);
+  }
+}
+
 /** One element drawn at its own width x height, unrotated. Null = nothing to draw. */
 async function renderElement(el: LayoutElement, params: CellParams): Promise<Buffer | null> {
   switch (el.type) {
-    case "photo":
-      return sharp(params.sourceImagePaths[el.shot % params.sourceImagePaths.length])
-        .rotate() // normalize EXIF orientation before placing
-        .resize(el.width, el.height, { fit: "cover", position: "centre" })
-        .png()
-        .toBuffer();
+    case "photo": {
+      const src = params.sourceImagePaths[el.shot % params.sourceImagePaths.length];
+      const base = sharp(src).rotate().resize(el.width, el.height, { fit: "cover", position: "centre" });
+      if (!params.filter) return base.png().toBuffer();
+      const intensity = params.filterIntensity ?? 100;
+      if (intensity >= 100) return applyPhotoFilter(base, params.filter).png().toBuffer();
+      const original = await base.png().toBuffer();
+      const filtered = await applyPhotoFilter(
+        sharp(src).rotate().resize(el.width, el.height, { fit: "cover", position: "centre" }),
+        params.filter,
+      ).ensureAlpha(intensity / 100).png().toBuffer();
+      return sharp(original).composite([{ input: filtered }]).png().toBuffer();
+    }
     case "image":
       return sharp(path.join(params.assetDir, el.file))
         .rotate() // normalize EXIF orientation before placing
