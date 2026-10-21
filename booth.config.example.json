@@ -7,6 +7,8 @@
   "capture": {
     "sourcePreference": "canon",
     "canon": {
+      "driver": "edsdk",
+      "edsdkDllPath": "C:\\BoothAgent\\edsdk\\EDSDK.dll",
       "digiCamControlExePath": "C:\\Program Files (x86)\\digiCamControl\\CameraControlRemoteCmd.exe",
       "digiCamControlHttpPort": 5513,
       "digiCamControlHttpHost": "127.0.0.1",

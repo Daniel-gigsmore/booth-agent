@@ -57,6 +57,17 @@ try {
     Pop-Location
 }
 
+# Canon's EDSDK DLLs aren't in git (Canon's licence), but the booths can't use the camera without them.
+# Taken from this PC's C:\BoothAgent\edsdk (or $env:EDSDK_DIR) when present, so the installer is complete.
+$EdsdkDir = if ($env:EDSDK_DIR) { $env:EDSDK_DIR } else { "C:\BoothAgent\edsdk" }
+New-Item -ItemType Directory -Force "$Stage\edsdk" | Out-Null
+if ((Test-Path "$EdsdkDir\EDSDK.dll") -and (Test-Path "$EdsdkDir\EdsImage.dll")) {
+    Copy-Item "$EdsdkDir\EDSDK.dll", "$EdsdkDir\EdsImage.dll" "$Stage\edsdk\"
+    Write-Host "Including the Canon EDSDK DLLs from $EdsdkDir"
+} else {
+    Write-Warning "No EDSDK.dll + EdsImage.dll in $EdsdkDir - this installer will NOT include them; copy them to C:\BoothAgent\edsdk on each booth by hand."
+}
+
 $Version = (Get-Content "$Stage\package.json" -Raw | ConvertFrom-Json).version
 Invoke-Step "ISCC" { & $Iscc "/DAppVersion=$Version" "/DStage=$Stage" "/DNodeExe=$Node" "/DOutDir=$Out" (Join-Path $PSScriptRoot "booth-agent.iss") }
 Remove-Item $Stage -Recurse -Force

@@ -34,6 +34,8 @@ Source: "{#Stage}\booth.config.example.json"; DestDir: "{app}"; Flags: ignorever
 ; The booth's real config: written once (with a fresh random shared secret), kept on upgrade and uninstall.
 Source: "{#Stage}\booth.config.example.json"; DestDir: "{app}"; DestName: "booth.config.json"; Flags: onlyifdoesntexist uninsneveruninstall
 Source: "{#NodeExe}"; DestDir: "{app}\node"; Flags: ignoreversion
+; Canon EDSDK (capture.canon.driver "edsdk"), when the build PC had it. Not in git: Canon's licence.
+Source: "{#Stage}\edsdk\*"; DestDir: "C:\BoothAgent\edsdk"; Flags: ignoreversion skipifsourcedoesntexist uninsneveruninstall
 ; The kiosk app (electron-builder --dir).
 Source: "{#Stage}\kiosk\installer\win-unpacked\*"; DestDir: "{app}\kiosk"; Flags: recursesubdirs ignoreversion
 
@@ -172,13 +174,19 @@ begin
       'Press OK once it is saved to install and start the BoothAgent service.', mbInformation, MB_OK, IDOK);
 end;
 
-{ An older booth.config.json may not allow the kiosk's origin yet; without it every kiosk call fails CORS. }
+{ After install: an older booth.config.json may not allow the kiosk's origin yet (every kiosk call
+  would fail CORS), or may still use digiCamControl although the EDSDK the camera needs was just installed. }
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   Text: AnsiString;
 begin
-  if (CurStep = ssPostInstall) and LoadStringFromFile(ConfigPath, Text) and (Pos(KioskOrigin, Text) = 0) then
+  if (CurStep <> ssPostInstall) or not LoadStringFromFile(ConfigPath, Text) then Exit;
+  if Pos(KioskOrigin, Text) = 0 then
     SuppressibleMsgBox('booth.config.json does not list the kiosk in agent.allowedOrigins yet, so the kiosk cannot talk to booth-agent.' + #13#10#13#10 +
       'Add "' + KioskOrigin + '" to agent.allowedOrigins in' + #13#10 + ConfigPath + #13#10 +
+      'and restart the BoothAgent service.', mbInformation, MB_OK, IDOK);
+  if FileExists('C:\BoothAgent\edsdk\EDSDK.dll') and (Pos('"edsdk"', Text) = 0) then
+    SuppressibleMsgBox('The Canon camera driver (EDSDK) is installed, but booth.config.json still uses digiCamControl.' + #13#10#13#10 +
+      'To use it, add "driver": "edsdk", under capture.canon in' + #13#10 + ConfigPath + #13#10 +
       'and restart the BoothAgent service.', mbInformation, MB_OK, IDOK);
 end;
