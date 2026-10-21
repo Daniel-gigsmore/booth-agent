@@ -235,6 +235,8 @@ button { font: inherit; color: inherit; cursor: inherit; }
   transition: border-color 0.15s, background 0.15s;
 }
 .filter-btn.on { border-color: var(--accent); background: var(--accent); color: var(--on-accent); }
+.intensity-row { align-items: center; }
+.intensity-row input[type="range"] { flex: 1; max-width: 280px; accent-color: var(--accent); }
 
 .copies-row { align-items: center; }
 .copies-btn { width: 64px; height: 64px; font-size: 32px; display: flex; align-items: center; justify-content: center; padding: 0; border-radius: 50%; }

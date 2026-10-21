@@ -104,6 +104,25 @@ describe("element renderer", () => {
     expect(near(await pixel(file, 400, 400), { r: 255, g: 128, b: 128 })).toBe(true);
   });
 
+  it("blends a photo filter with the original by filterIntensity", async () => {
+    const template = validateTemplate({
+      id: "t", printSize: "4x6", cellWidthPx: 1200, cellHeightPx: 1800,
+      elements: [{ ...photo, width: 600, height: 600 }],
+    });
+    const at = async (filterIntensity: number) => {
+      const { filePath } = await renderComposite({
+        sourceImagePaths: [await solid(RED)], template, assetDir: workDir, variables: VARS,
+        printSize: "4x6", outputDir: workDir, jpegQuality: 95, filter: "bw", filterIntensity,
+      });
+      return pixel(filePath, 300, 300);
+    };
+    const full = await at(100);
+    const half = await at(50);
+    expect(Math.abs(full.r - full.g)).toBeLessThan(10);
+    expect(half.r).toBeGreaterThan(full.r + 40);
+    expect(half.r).toBeLessThan(RED.r - 40);
+  });
+
   it("rotates about the box centre", async () => {
     // 400x100 centred on (600, 900); at 90 degrees it becomes 100x400.
     const file = await render([photo, { id: "r", type: "rect", fill: "#1e1edc", x: 400, y: 850, width: 400, height: 100, rotation: 90 }]);

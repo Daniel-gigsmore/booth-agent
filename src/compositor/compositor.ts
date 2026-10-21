@@ -29,6 +29,8 @@ export interface CompositeParams {
   qrUrl?: string | undefined;
   /** Applied to photo elements only; template overlays stay untouched. */
   filter?: PhotoFilter | undefined;
+  /** 1-100, how strong the filter is (100 = full effect). */
+  filterIntensity?: number | undefined;
   printSize: PrintSize;
   outputDir: string;
   jpegQuality: number;
@@ -50,6 +52,7 @@ interface CellParams {
   variables: TextVariables;
   qrUrl?: string | undefined;
   filter?: PhotoFilter | undefined;
+  filterIntensity?: number | undefined;
 }
 
 const TRANSPARENT = { r: 0, g: 0, b: 0, alpha: 0 };
@@ -137,11 +140,17 @@ function applyPhotoFilter(pipeline: Sharp, filter: PhotoFilter): Sharp {
 async function renderElement(el: LayoutElement, params: CellParams): Promise<Buffer | null> {
   switch (el.type) {
     case "photo": {
-      let pipeline = sharp(params.sourceImagePaths[el.shot % params.sourceImagePaths.length])
-        .rotate() // normalize EXIF orientation before placing
-        .resize(el.width, el.height, { fit: "cover", position: "centre" });
-      if (params.filter) pipeline = applyPhotoFilter(pipeline, params.filter);
-      return pipeline.png().toBuffer();
+      const src = params.sourceImagePaths[el.shot % params.sourceImagePaths.length];
+      const base = sharp(src).rotate().resize(el.width, el.height, { fit: "cover", position: "centre" });
+      if (!params.filter) return base.png().toBuffer();
+      const intensity = params.filterIntensity ?? 100;
+      if (intensity >= 100) return applyPhotoFilter(base, params.filter).png().toBuffer();
+      const original = await base.png().toBuffer();
+      const filtered = await applyPhotoFilter(
+        sharp(src).rotate().resize(el.width, el.height, { fit: "cover", position: "centre" }),
+        params.filter,
+      ).ensureAlpha(intensity / 100).png().toBuffer();
+      return sharp(original).composite([{ input: filtered }]).png().toBuffer();
     }
     case "image":
       return sharp(path.join(params.assetDir, el.file))
