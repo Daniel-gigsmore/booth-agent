@@ -64,6 +64,8 @@ function slotParam(req: Request, res: Response): CameraSlot | null {
   return null;
 }
 
+const PhotoFilterSchema = z.enum(["bw", "sepia", "warm", "cool", "1977", "bw-glam", "brannan", "gotham", "hefe", "kelvin", "nashville", "xpro2"]);
+
 const CompositeRequestSchema = z.object({
   captureId: z.string().min(1),
   /**
@@ -77,6 +79,8 @@ const CompositeRequestSchema = z.object({
   aiOutputUrl: z.string().url().optional(),
   /** The guest's download link (the kiosk's Done-screen QR), printed by the layout's qr elements. */
   downloadUrl: QrUrlSchema.optional(),
+  /** Applied to photo elements only; template overlays stay untouched. */
+  filter: PhotoFilterSchema.optional(),
 });
 
 /** What a qr element shows in layout previews and test prints: scannable, but no guest's photo. */
@@ -479,7 +483,7 @@ export function buildRouter(ctx: AgentContext): Router {
       res.status(400).json({ error: parsed.error.message });
       return;
     }
-    const { captureId, templateId, aiOutputUrl, downloadUrl } = parsed.data;
+    const { captureId, templateId, aiOutputUrl, downloadUrl, filter } = parsed.data;
     const captureIds = parsed.data.captureIds ?? [captureId];
     if (captureIds[0] !== captureId) {
       res.status(400).json({ error: "captureIds must start with captureId" });
@@ -510,6 +514,7 @@ export function buildRouter(ctx: AgentContext): Router {
         assetDir: config.compositing.templateDir,
         variables: textVariables(ctx.events.active().name, captureId),
         qrUrl: downloadUrl,
+        filter,
         printSize,
         outputDir: compositesDir(config),
         jpegQuality: config.compositing.jpegQuality,
@@ -876,9 +881,9 @@ export function buildRouter(ctx: AgentContext): Router {
 
   router.post("/session", (req: Request, res: Response) => {
     const config = ctx.configStore.current;
-    // A body without attractSlideshow (an older kiosk, or Settings when GET /session failed) keeps what is set.
+    // A body without attractSlideshow/filtersEnabled (an older kiosk, or Settings when GET /session failed) keeps what is set.
     const current = ctx.events.active().session;
-    const parsed = SessionSettingsSchema.safeParse({ attractSlideshow: current.attractSlideshow, ...req.body });
+    const parsed = SessionSettingsSchema.safeParse({ attractSlideshow: current.attractSlideshow, filtersEnabled: current.filtersEnabled, ...req.body });
     if (!parsed.success) {
       res.status(400).json({ error: parsed.error.message });
       return;

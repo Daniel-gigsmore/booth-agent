@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import QRCode from "qrcode";
-import { agent, agentUrl, config, Health, printUrl, Session, Template, type CameraSlot } from "./agent";
+import { agent, agentUrl, config, Health, printUrl, Session, Template, type CameraSlot, type PhotoFilter } from "./agent";
 import { mergeAlbum, nextSlide, type SlideState } from "./album";
 import { useCountdown } from "./hooks";
 import { useEvent, fillDownloadUrl } from "./event";
@@ -302,6 +302,22 @@ export function GetReady({ session, onDone, onFail, onCancel }: {
 
 const compositeUrl = (captureId: string) => agentUrl(`/captures/${captureId}/image?variant=composite`);
 
+const FILTERS: { id: PhotoFilter | "none"; label: string; css?: string }[] = [
+  { id: "none", label: "Original" },
+  { id: "bw", label: "B&W", css: "grayscale(1)" },
+  { id: "sepia", label: "Sepia", css: "sepia(1)" },
+  { id: "warm", label: "Warm", css: "sepia(0.3) saturate(1.2)" },
+  { id: "cool", label: "Cool", css: "saturate(0.8) hue-rotate(15deg)" },
+  { id: "1977", label: "1977", css: "sepia(0.3) contrast(1.1) brightness(1.1) saturate(1.3)" },
+  { id: "bw-glam", label: "B&W Glam", css: "grayscale(1) contrast(1.3) brightness(1.1)" },
+  { id: "brannan", label: "Brannan", css: "sepia(0.4) contrast(1.15) saturate(0.9)" },
+  { id: "gotham", label: "Gotham", css: "grayscale(0.6) contrast(1.4) brightness(0.9)" },
+  { id: "hefe", label: "Hefe", css: "sepia(0.2) contrast(1.15) saturate(1.4) brightness(1.05)" },
+  { id: "kelvin", label: "Lord Kelvin", css: "sepia(0.5) saturate(1.5) brightness(1.1) contrast(1.1)" },
+  { id: "nashville", label: "Nashville", css: "sepia(0.25) contrast(1.2) brightness(1.1) saturate(1.3)" },
+  { id: "xpro2", label: "X-PRO II", css: "sepia(0.2) contrast(1.3) saturate(1.3) brightness(1.05)" },
+];
+
 /**
  * A guest's photo (or a layout preview) the way the guest holds the print. booth-agent keeps
  * these upright (a landscape 4x6 landscape, a strip as one strip); only the printer gets them
@@ -321,28 +337,57 @@ export function CompositePreview({ src, template, maxW, maxH }: {
   );
 }
 
-export function Review({ template, captureId, onPrint, onSkip, onRetake, onCancel }: {
-  template: Template; captureId: string; onPrint: (copies: number) => void; onSkip: () => void; onRetake: () => void; onCancel: () => void;
+export function Review({ template, captureId, captureIds, filtersEnabled, onPrint, onSkip, onRetake, onCancel }: {
+  template: Template; captureId: string; captureIds: string[]; filtersEnabled: boolean;
+  onPrint: (copies: number) => void; onSkip: () => void; onRetake: () => void; onCancel: () => void;
 }) {
   const [copies, setCopies] = useState(1);
+  const [filter, setFilter] = useState<PhotoFilter | "none">("none");
+  const [busy, setBusy] = useState(false);
+  const [imgKey, setImgKey] = useState(0);
+  const event = useEvent();
+
+  async function pickFilter(id: PhotoFilter | "none") {
+    setFilter(id);
+    setBusy(true);
+    try {
+      await agent.composite(
+        captureIds, template,
+        fillDownloadUrl(config.downloadUrlTemplate, captureId, event),
+        id === "none" ? undefined : id,
+      );
+      setImgKey((k) => k + 1);
+    } catch { /* keep previous composite */ }
+    setBusy(false);
+  }
+
   return (
     <div className="stage review">
       <CloseButton onClick={onCancel} />
       <div className="review-frame">
-        <CompositePreview src={compositeUrl(captureId)} template={template} maxW={1140} maxH={900} />
+        <CompositePreview src={`${compositeUrl(captureId)}&_=${imgKey}`} template={template} maxW={1140} maxH={900} />
       </div>
-      <div className="col gap-40 grow">
+      <div className="col gap-24 grow">
         <h2 className="display fs-104">Looking<br />good?</h2>
+        {filtersEnabled && (
+          <div className="row gap-10 wrap">
+            {FILTERS.map((f) => (
+              <button key={f.id} type="button" disabled={busy}
+                className={`filter-btn${filter === f.id ? " on" : ""}`}
+                onClick={() => pickFilter(f.id)}>{f.label}</button>
+            ))}
+          </div>
+        )}
         <p className="lede fs-32">Choose how many copies to print.</p>
         <div className="row gap-16 copies-row">
-          <button type="button" className="btn outline copies-btn" disabled={copies <= 1} onClick={() => setCopies(copies - 1)}>-</button>
+          <button type="button" className="btn outline copies-btn" disabled={copies <= 1 || busy} onClick={() => setCopies(copies - 1)}>-</button>
           <span className="fs-48 copies-count">{copies}</span>
-          <button type="button" className="btn outline copies-btn" disabled={copies >= 20} onClick={() => setCopies(copies + 1)}>+</button>
+          <button type="button" className="btn outline copies-btn" disabled={copies >= 20 || busy} onClick={() => setCopies(copies + 1)}>+</button>
         </div>
         <div className="col gap-24">
-          <button type="button" className="btn primary block" onClick={() => onPrint(copies)}><CheckIcon size={48} />Print {copies > 1 ? `${copies} copies` : ""}</button>
-          <button type="button" className="btn outline block" onClick={onSkip}>Done without printing</button>
-          <button type="button" className="btn outline block" onClick={onRetake}><RetakeIcon size={44} />Retake</button>
+          <button type="button" className="btn primary block" disabled={busy} onClick={() => onPrint(copies)}><CheckIcon size={48} />{busy ? "Applying…" : `Print${copies > 1 ? ` ${copies} copies` : ""}`}</button>
+          <button type="button" className="btn outline block" disabled={busy} onClick={onSkip}>Done without printing</button>
+          <button type="button" className="btn outline block" disabled={busy} onClick={onRetake}><RetakeIcon size={44} />Retake</button>
         </div>
       </div>
     </div>

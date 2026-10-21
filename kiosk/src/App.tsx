@@ -9,7 +9,7 @@ import AlbumScreen from "./AlbumScreen";
 type Screen =
   | { name: "attract" }
   | { name: "getready"; session: Session }
-  | { name: "review"; session: Session; captureId: string }
+  | { name: "review"; session: Session; captureId: string; captureIds: string[] }
   | { name: "printing"; template: Template; captureId: string; waitMs: number | null }
   | { name: "done"; captureId: string }
   | { name: "oops"; hint?: string }
@@ -64,7 +64,7 @@ export default function App() {
     try {
       // The same link as the Done screen's QR, so the printed code and the on-screen one match.
       await agent.composite(captureIds, session.template, fillDownloadUrl(config.downloadUrlTemplate, captureIds[0]!, event));
-      setScreen(stillHere({ name: "review", session, captureId: captureIds[0]! }));
+      setScreen(stillHere({ name: "review", session, captureId: captureIds[0]!, captureIds }));
     } catch {
       setScreen(stillHere({ name: "oops", hint: "We couldn't put your photos together. Please try again." }));
     }
@@ -107,6 +107,8 @@ export default function App() {
           <Review
             template={screen.session.template}
             captureId={screen.captureId}
+            captureIds={screen.captureIds}
+            filtersEnabled={screen.session.filtersEnabled ?? false}
             onPrint={(copies) => print(screen.session.template, screen.captureId, copies)}
             onSkip={() => setScreen({ name: "done", captureId: screen.captureId })}
             onRetake={start}

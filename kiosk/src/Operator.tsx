@@ -250,6 +250,11 @@ function SettingsTab({ onEdit }: { onEdit: (t: Template, all: Template[], inUseI
           onChange={(v) => update({ ...settings, firstCountdownSeconds: v })} />
         <Stepper label="BETWEEN PHOTOS" value={settings.betweenShotsSeconds}
           onChange={(v) => update({ ...settings, betweenShotsSeconds: v })} />
+        <label className="check">
+          <input type="checkbox" checked={settings.filtersEnabled ?? false}
+            onChange={(e) => update({ ...settings, filtersEnabled: e.target.checked })} />
+          Photo filters
+        </label>
         {alignment && (
           <>
             <div className="display fs-36">Print alignment</div>
