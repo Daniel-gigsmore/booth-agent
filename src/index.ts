@@ -26,6 +26,7 @@ import { AgentContext } from "./server/context";
 import { EventStore } from "./session/eventStore";
 import { readSessionSettings } from "./session/sessionSettings";
 import { runPreflight, logPreflight } from "./startup/preflight";
+import { ensureTemplateDir } from "./compositor/templateSeed";
 import { createLogger } from "./util/logger";
 
 const log = createLogger("index");
@@ -54,6 +55,17 @@ process.on("uncaughtException", (err) => {
   log.error("Uncaught exception - continuing", err);
 });
 
+function prepareTemplateDir(dir: string): void {
+  try {
+    const { created, seeded } = ensureTemplateDir(dir);
+    if (created) log.info(`Created the layouts folder ${dir}`);
+    if (seeded.length) log.info(`Added the bundled layouts to ${dir}: ${seeded.join(", ")}`);
+  } catch (err) {
+    // Non-blocking like preflight: the booth still boots and preflight reports the missing folder.
+    log.error(`Could not prepare the layouts folder ${dir}`, err);
+  }
+}
+
 async function main(): Promise<void> {
   const configPath = process.env["BOOTH_CONFIG_PATH"] ?? path.resolve(process.cwd(), "booth.config.json");
   const configStore = ConfigStore.load(configPath);
@@ -69,6 +81,9 @@ async function main(): Promise<void> {
     albumToken: config.album.token,
     session: readSessionSettings(config.storage.dataDir),
   });
+
+  // A fresh install has no layouts folder yet; create it with the bundled layouts so Save works and there's a layout to print.
+  prepareTemplateDir(config.compositing.templateDir);
 
   // Before anything else touches hardware: verify the external dependencies
   // this agent cannot control (digiCamControl, Hot Folder Print, the printer,
@@ -174,6 +189,7 @@ async function main(): Promise<void> {
   // Reconcile the pieces that can change without a restart when booth.config.json is edited.
   configStore.onChange((next) => {
     cameraManager.setPreference(next.capture.sourcePreference);
+    prepareTemplateDir(next.compositing.templateDir);
   });
 
   const app = buildHttpApp(ctx);

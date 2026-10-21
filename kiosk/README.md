@@ -38,7 +38,7 @@ npm run preview
 
 To start it with Windows, put a shortcut to `powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File <path>\start-kiosk.ps1` in `shell:startup`. At login, the script starts the server if it isn't already running, then opens Chrome in kiosk mode using its own profile. Exit with Alt+F4. After changing `.env` or the code, run `npm run build` again.
 
-Requires booth-agent with element-based layouts (booth-agent PR #42) and the bundled layouts copied into `compositing.templateDir`.
+Requires booth-agent with element-based layouts (booth-agent PR #42). The agent puts the bundled layouts into `compositing.templateDir` itself when that folder is missing or empty.
 
 The fonts are bundled, so the kiosk works offline. The shared secret is baked into the built JS. That is fine because the kiosk is only served on the booth PC; do not host `dist/` anywhere public.
 
