@@ -74,8 +74,8 @@ export default function EventsTab() {
       </div>
       {namesFixedEvent(config.downloadUrlTemplate) && (
         <div className="banner warn fs-24">
-          The download link in .env.local names a fixed event, so after switching, guests' QR codes point at the wrong
-          event. Change VITE_DOWNLOAD_URL to use event={"{eventId}"}&amp;name={"{eventName}"} and rebuild the kiosk.
+          The download link names a fixed event, so after switching, guests' QR codes point at the wrong event. Change
+          kiosk.downloadUrl in booth.config.json to use event={"{eventId}"}&amp;name={"{eventName}"}, then press Ctrl+R.
         </div>
       )}
       {error && <div className="banner error fs-24">{error}</div>}

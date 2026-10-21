@@ -58,6 +58,16 @@ npm run build
 
 **Minimize kiosk** (operator panel) minimizes the full-screen kiosk so you can use the desktop. Tap Chrome in the taskbar to bring it back.
 
+## One installer for the booth (recommended)
+
+`install\build-installer.ps1` (repo root, on Windows with Node and Inno Setup 6) builds `installer\Kachak Booth Setup <version>.exe`. It installs everything the booth PC needs in one go: booth-agent as the BoothAgent Windows service in `C:\BoothAgent\agent`, and this kiosk as an app in `C:\BoothAgent\agent\kiosk`, with "Kachak Kiosk" shortcuts on the desktop and in All Users startup.
+
+On a new booth the installer writes `booth.config.json` with a fresh random `agent.sharedSecret` and opens it in Notepad: fill in the rest (Supabase, printer, camera, and `kiosk.downloadUrl` for the guest QR), save and close. Nothing needs copying between the two programs: the kiosk reads `agent.port`, `agent.sharedSecret` and `kiosk.downloadUrl` from the agent's `booth.config.json` each time it loads, so the installer carries no secret and a changed port, secret or link only needs a reload (Ctrl+R) and, for the port or secret, a restart of the BoothAgent service. `agent.allowedOrigins` must include `http://127.0.0.1:4173`; new configs have it, and the installer warns if an existing one doesn't.
+
+Upgrading: run the newer `Kachak Booth Setup` over the old one. `booth.config.json` is kept. The installer stops the kiosk and the service, removes the standalone "Kachak Kiosk" app if it's installed, and deletes the old `start-kiosk.ps1` startup shortcut. If the Chrome kiosk's `vite preview` is still running, end it (or restart the PC) so port 4173 is free.
+
+In the app, **Slideshow on second screen** opens the album full screen on the other screen directly, and **Export** saves into Downloads. Opening the shortcut while the kiosk runs brings the running one to the front.
+
 ## Installer (Electron)
 
 Instead of the steps above, the kiosk can be installed as a desktop app. With `.env.local` filled in, run `npm run electron:pack` in `kiosk\`. It writes `installer\Kachak Kiosk Setup <version>.exe`. The app serves the build on `http://127.0.0.1:4173` itself (the origin booth-agent already allows), opens it full screen, and starts at login. Before installing, stop the old setup: delete the "Kachak Kiosk" shortcut from `shell:startup` and end the `vite preview` process, otherwise port 4173 is busy and the app says so. The installer contains the shared secret, so don't share it. It is unsigned, so SmartScreen warns on install. `npm run electron:dev` runs the app without installing. Set `KACHAK_KIOSK_PORT` to try it on another port while the old kiosk runs (agent calls then fail CORS).

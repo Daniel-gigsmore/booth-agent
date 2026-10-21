@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import QRCode from "qrcode";
-import { agent, config, localSlideshowUrl } from "./agent";
+import { agent, bridge, config, localSlideshowUrl } from "./agent";
 import { AlbumInfo, albumLink } from "./album";
 import { useHealth } from "./hooks";
 
@@ -10,6 +10,12 @@ type ScreenWindow = Window & { getScreenDetails?: () => Promise<{ screens: Scree
 
 /** Opens the booth's own album, playing, on a screen other than the primary one. Throws a message for the operator. */
 async function openOnSecondScreen(url: string): Promise<void> {
+  // The Electron app places and full-screens the window itself; no browser permission involved.
+  if (bridge?.openSlideshow) {
+    const err = await bridge.openSlideshow(url);
+    if (err) throw new Error(err);
+    return;
+  }
   const w = window as ScreenWindow;
   if (!w.getScreenDetails) throw new Error("This browser can't place windows on other screens - run start-slideshow.ps1 instead.");
   const { screens } = await w.getScreenDetails().catch(() => {
@@ -67,7 +73,7 @@ export default function AlbumTab({ onOpenAlbum }: { onOpenAlbum: () => void }) {
     if (!info) return;
     try {
       await openOnSecondScreen(localSlideshowUrl(info.eventName));
-      setNote("Slideshow opened on the second screen. Click it once to go full screen.");
+      setNote(bridge?.openSlideshow ? "Slideshow opened on the second screen." : "Slideshow opened on the second screen. Click it once to go full screen.");
     } catch (e) {
       setNote((e as Error).message);
     }
@@ -84,7 +90,7 @@ export default function AlbumTab({ onOpenAlbum }: { onOpenAlbum: () => void }) {
           </div>
         )}
         {info?.token && !link && (
-          <div className="banner warn">The guest download page isn't set up (VITE_DOWNLOAD_URL), so there's no album link.</div>
+          <div className="banner warn">The guest download page isn't set up (kiosk.downloadUrl in booth.config.json), so there's no album link.</div>
         )}
         {link && (
           <div className="col gap-20">
