@@ -2,11 +2,13 @@
   "agent": {
     "port": 7070,
     "sharedSecret": "change-me-to-a-long-random-string",
-    "allowedOrigins": []
+    "allowedOrigins": ["http://127.0.0.1:4173"]
   },
   "capture": {
     "sourcePreference": "canon",
     "canon": {
+      "driver": "edsdk",
+      "edsdkDllPath": "C:\\BoothAgent\\edsdk\\EDSDK.dll",
       "digiCamControlExePath": "C:\\Program Files (x86)\\digiCamControl\\CameraControlRemoteCmd.exe",
       "digiCamControlHttpPort": 5513,
       "digiCamControlHttpHost": "127.0.0.1",
@@ -52,6 +54,9 @@
   "event": {
     "id": "your-event-id",
     "name": "Gigsmore Launch"
+  },
+  "kiosk": {
+    "downloadUrl": ""
   },
   "sync": {
     "backlogWarnCount": 50,

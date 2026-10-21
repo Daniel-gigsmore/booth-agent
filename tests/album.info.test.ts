@@ -66,6 +66,11 @@ describe("GET /album-info", () => {
   });
 
   it("reports no token when the album is off", async () => {
+    // An event from before every event got an album: events.json holds it without a token.
+    await writeFile(
+      path.join(dataDir, "events.json"),
+      JSON.stringify({ activeId: "old", events: [{ id: "old", name: "Old", date: "2026-09-01", session: DEFAULT_SESSION }] })
+    );
     await start({});
     expect((await (await fetch(`${base}/album-info`, { headers: auth })).json()).token).toBeNull();
   });

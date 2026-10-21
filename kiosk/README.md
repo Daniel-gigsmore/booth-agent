@@ -38,7 +38,7 @@ npm run preview
 
 To start it with Windows, put a shortcut to `powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File <path>\start-kiosk.ps1` in `shell:startup`. At login, the script starts the server if it isn't already running, then opens Chrome in kiosk mode using its own profile. Exit with Alt+F4. After changing `.env` or the code, run `npm run build` again.
 
-Requires booth-agent with element-based layouts (booth-agent PR #42) and the bundled layouts copied into `compositing.templateDir`.
+Requires booth-agent with element-based layouts (booth-agent PR #42). The agent puts the bundled layouts into `compositing.templateDir` itself when that folder is missing or empty.
 
 The fonts are bundled, so the kiosk works offline. The shared secret is baked into the built JS. That is fine because the kiosk is only served on the booth PC; do not host `dist/` anywhere public.
 
@@ -57,6 +57,18 @@ npm run build
 `/MIR` is only used on `src\`, which holds no secrets. Never mirror the whole folder: it would delete `.env.local`. `vite preview` serves the new `dist\` straight away; reload the kiosk page (Ctrl+R, or Alt+F4 and reopen the "Kachak Kiosk" shortcut). A changed `vite.config.js` only takes effect once the preview server restarts: stop the hidden `node ... vite.js preview` process, then reopen the "Kachak Kiosk" shortcut.
 
 **Minimize kiosk** (operator panel) minimizes the full-screen kiosk so you can use the desktop. Tap Chrome in the taskbar to bring it back.
+
+## One installer for the booth (recommended)
+
+`install\build-installer.ps1` (repo root, on Windows with Node and Inno Setup 6) builds `installer\Kachak Booth Setup <version>.exe`. It installs everything the booth PC needs in one go: booth-agent as the BoothAgent Windows service in `C:\BoothAgent\agent`, and this kiosk as an app in `C:\BoothAgent\agent\kiosk`, with "Kachak Kiosk" shortcuts on the desktop and in All Users startup.
+
+On a new booth the installer writes `booth.config.json` with a fresh random `agent.sharedSecret` and opens it in Notepad: fill in the rest (Supabase, printer, camera, and `kiosk.downloadUrl` for the guest QR), save and close. Nothing needs copying between the two programs: the kiosk reads `agent.port`, `agent.sharedSecret` and `kiosk.downloadUrl` from the agent's `booth.config.json` each time it loads, so the installer carries no secret and a changed port, secret or link only needs a reload (Ctrl+R) and, for the port or secret, a restart of the BoothAgent service. `agent.allowedOrigins` must include `http://127.0.0.1:4173`; new configs have it, and the installer warns if an existing one doesn't.
+
+What else goes in, so a booth PC needs nothing installed by hand: the Canon EDSDK DLLs (taken from the build PC's `C:\BoothAgent\edsdk`; new configs use `capture.canon.driver: "edsdk"`), the bundled layouts (the agent fills an empty `compositing.templateDir` itself), and DNP Hot Folder Print, installed only on booths that don't have it (put DNP's `HotFolderPrint*.msi` in the repo's gitignored `prereqs\` folder before building). Neither the DLLs nor the MSI are in git. `build-installer.ps1` warns when it can't find them, and that installer then leaves them out.
+
+Upgrading: run the newer `Kachak Booth Setup` over the old one. `booth.config.json` is kept, and anything an older one lacks (the kiosk's origin in `allowedOrigins`, `capture.canon.driver: "edsdk"` when the EDSDK is installed, the `kiosk` section) is added automatically, after a backup to `booth.config.json.bak-<date>`. Values you set are never changed. The installer stops the kiosk and the service, removes the standalone "Kachak Kiosk" app if it's installed, and deletes the old `start-kiosk.ps1` startup shortcut. If the Chrome kiosk's `vite preview` is still running, end it (or restart the PC) so port 4173 is free.
+
+In the app, **Slideshow on second screen** opens the album full screen on the other screen directly, and **Export** saves into Downloads. Opening the shortcut while the kiosk runs brings the running one to the front.
 
 ## Installer (Electron)
 

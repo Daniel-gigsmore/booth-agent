@@ -4,12 +4,25 @@ import { templateBody } from "./layout";
 import type { AlbumInfo } from "./album";
 
 const env = import.meta.env;
-const base = env.VITE_AGENT_URL || "http://127.0.0.1:7070";
-const token = env.VITE_AGENT_TOKEN || "";
+
+/** What the Electron app reads from booth-agent's booth.config.json; null or absent in Chrome and the standalone app. */
+export interface RuntimeConfig {
+  agentUrl?: string;
+  token?: string;
+  downloadUrl?: string;
+}
+type KachakBridge = { config?: RuntimeConfig | null; openSlideshow?: (url: string) => Promise<string | null> };
+/** The Electron app's preload bridge, or undefined in a plain browser. */
+export const bridge: KachakBridge | undefined =
+  typeof window !== "undefined" ? (window as { kachak?: KachakBridge }).kachak : undefined;
+const runtime: RuntimeConfig = bridge?.config ?? {};
+
+const base = runtime.agentUrl || env.VITE_AGENT_URL || "http://127.0.0.1:7070";
+const token = runtime.token || env.VITE_AGENT_TOKEN || "";
 
 export const config = {
   /** The guest download page link with its {captureId} (and optional {eventId}/{eventName}) placeholders; "" when not set up. */
-  downloadUrlTemplate: env.VITE_DOWNLOAD_URL || "",
+  downloadUrlTemplate: runtime.downloadUrl || env.VITE_DOWNLOAD_URL || "",
 };
 
 /** For <img src>: images can't send an Authorization header, so the agent also accepts ?token=. */
