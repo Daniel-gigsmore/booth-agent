@@ -57,7 +57,7 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -Command ""$p = '{app}\booth.config.json'; $s = [guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N'); (Get-Content -Raw $p).Replace('change-me-to-a-long-random-string', $s) | Set-Content -NoNewline -Encoding ASCII $p"""; StatusMsg: "Generating the shared secret..."; Check: IsConfigNew; Flags: runhidden waituntilterminated
 Filename: "{win}\notepad.exe"; Parameters: """{app}\booth.config.json"""; StatusMsg: "Fill in booth.config.json, save it and close Notepad to continue..."; Check: IsConfigNew; Flags: waituntilterminated
 ; node-windows registers the service against the node.exe that runs this, i.e. the bundled one.
-Filename: "{app}\node\node.exe"; Parameters: """{app}\dist\service\install.js"""; WorkingDir: "{app}"; StatusMsg: "Installing the BoothAgent service..."; Flags: runhidden waituntilterminated
+Filename: "{app}\node\node.exe"; Parameters: """{app}\dist\service\install.js"""; WorkingDir: "{app}"; StatusMsg: "Installing the BoothAgent service..."; BeforeInstall: WaitForConfigSaved; Flags: runhidden waituntilterminated
 ; On upgrade install.js only reports "already installed", so start the service stopped in PrepareToInstall.
 Filename: "{sys}\sc.exe"; Parameters: "start boothagent.exe"; Flags: runhidden waituntilterminated
 Filename: "{app}\kiosk\Kachak Kiosk.exe"; Description: "Open the kiosk now"; WorkingDir: "{app}\kiosk"; Flags: postinstall nowait skipifsilent runasoriginaluser
@@ -161,6 +161,15 @@ begin
     else
       Exec(ExpandConstant('{sys}\net.exe'), 'stop boothagent.exe', '', SW_HIDE, ewWaitUntilTerminated, Code);
   end;
+end;
+
+{ Windows 11's Notepad can hand the file to an already-open window and return at once,
+  so don't trust waituntilterminated alone: hold the service install until the operator says the config is saved. }
+procedure WaitForConfigSaved;
+begin
+  if ConfigIsNew then
+    SuppressibleMsgBox('Finish filling in booth.config.json in Notepad and save it (Ctrl+S).' + #13#10#13#10 +
+      'Press OK once it is saved to install and start the BoothAgent service.', mbInformation, MB_OK, IDOK);
 end;
 
 { An older booth.config.json may not allow the kiosk's origin yet; without it every kiosk call fails CORS. }
