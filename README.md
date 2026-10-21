@@ -246,6 +246,16 @@ To remove it:
 .\install\uninstall-service.ps1
 ```
 
+### Installer (.exe)
+
+For a booth PC without Node or a checkout, build an installer (needs Node and Inno Setup 6 on the build PC):
+```powershell
+.\install\build-installer.ps1
+```
+It packages the committed `HEAD` only (uncommitted changes are left out), in a temporary `build\` copy, so this checkout's `dist\` and a running service are not touched. The result is `installer\BoothAgent Setup <version>.exe`, with Node bundled.
+
+The installer installs to `C:\BoothAgent\agent` and registers the same `boothagent.exe` service. On a first install it opens `booth.config.json` (from the example) in Notepad and starts the service once Notepad closes. Upgrades keep the config and restart the service. Uninstall removes the service and keeps the config and `storage.dataDir`. It refuses to install if a `boothagent.exe` service already runs from another folder: uninstall that one first. Not included: the Canon EDSDK DLL, digiCamControl, HotFolderPrint and ffmpeg.
+
 ## Configuration reference
 
 See `booth.config.example.json` for the full shape (validated by `src/config/schema.ts` on load and on every edit). Highlights:

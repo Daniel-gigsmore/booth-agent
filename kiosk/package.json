@@ -3,10 +3,13 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "main": "electron/main.cjs",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "tsc --noEmit && vite build",
-    "preview": "vite preview --host 127.0.0.1"
+    "preview": "vite preview --host 127.0.0.1",
+    "electron:dev": "npm run build && electron .",
+    "electron:pack": "npm run build && electron-builder --win"
   },
   "dependencies": {
     "@fontsource-variable/bricolage-grotesque": "^5.1.0",
@@ -19,7 +22,33 @@
     "@types/qrcode": "^1.5.5",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8",
     "typescript": "^5.6.3",
     "vite": "^5.4.10"
+  },
+  "build": {
+    "appId": "com.kachak.kiosk",
+    "productName": "Kachak Kiosk",
+    "directories": {
+      "output": "installer"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": null
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": true,
+      "allowToChangeInstallationDirectory": false
+    }
+  },
+  "allowScripts": {
+    "electron@33.4.11": true,
+    "esbuild@0.21.5": true
   }
 }

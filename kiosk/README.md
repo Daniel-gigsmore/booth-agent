@@ -57,3 +57,7 @@ npm run build
 `/MIR` is only used on `src\`, which holds no secrets. Never mirror the whole folder: it would delete `.env.local`. `vite preview` serves the new `dist\` straight away; reload the kiosk page (Ctrl+R, or Alt+F4 and reopen the "Kachak Kiosk" shortcut). A changed `vite.config.js` only takes effect once the preview server restarts: stop the hidden `node ... vite.js preview` process, then reopen the "Kachak Kiosk" shortcut.
 
 **Minimize kiosk** (operator panel) minimizes the full-screen kiosk so you can use the desktop. Tap Chrome in the taskbar to bring it back.
+
+## Installer (Electron)
+
+Instead of the steps above, the kiosk can be installed as a desktop app. With `.env.local` filled in, run `npm run electron:pack` in `kiosk\`. It writes `installer\Kachak Kiosk Setup <version>.exe`. The app serves the build on `http://127.0.0.1:4173` itself (the origin booth-agent already allows), opens it full screen, and starts at login. Before installing, stop the old setup: delete the "Kachak Kiosk" shortcut from `shell:startup` and end the `vite preview` process, otherwise port 4173 is busy and the app says so. The installer contains the shared secret, so don't share it. It is unsigned, so SmartScreen warns on install. `npm run electron:dev` runs the app without installing. Set `KACHAK_KIOSK_PORT` to try it on another port while the old kiosk runs (agent calls then fail CORS).
