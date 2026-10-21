@@ -10,3 +10,5 @@ data/
 .env
 *.bak
 *.bin
+build/
+installer/
