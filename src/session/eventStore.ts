@@ -89,7 +89,8 @@ export class EventStore {
           id: seed.id,
           name: seed.name || seed.id,
           date: today,
-          ...(seed.albumToken ? { albumToken: seed.albumToken } : {}),
+          // Like any event created in the kiosk, the first one gets an online album; a token the old config had is kept.
+          albumToken: seed.albumToken ?? randomBytes(18).toString("base64url"),
           session: seed.session,
         },
       ],

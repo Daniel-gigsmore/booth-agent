@@ -53,9 +53,13 @@ describe("EventStore", () => {
     expect(await onDisk()).toEqual({ activeId: SEED.id, events: [expected] });
   });
 
-  it("uses the id as the name when the seed has none, and leaves out a missing token", () => {
+  it("uses the id as the name when the seed has none, and gives the first event an album like any new one", () => {
     const store = EventStore.open(dataDir, { id: "evt", session: DEFAULT_SESSION }, "2026-09-30");
-    expect(store.active()).toEqual({ id: "evt", name: "evt", date: "2026-09-30", session: DEFAULT_SESSION });
+    const { albumToken, ...rest } = store.active();
+    expect(rest).toEqual({ id: "evt", name: "evt", date: "2026-09-30", session: DEFAULT_SESSION });
+    expect(albumToken).toMatch(/^[A-Za-z0-9_-]{24}$/);
+    // Written to events.json, so it survives a restart.
+    expect(EventStore.open(dataDir, { id: "evt", session: DEFAULT_SESSION }).active().albumToken).toBe(albumToken);
   });
 
   it("reads an existing file instead of the seed", async () => {
