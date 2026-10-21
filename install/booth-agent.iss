@@ -2,6 +2,8 @@
 ; One installer for the booth: booth-agent (the Windows service) in {app}, the kiosk app in {app}\kiosk.
 ; The kiosk reads the port, shared secret and download link from {app}\booth.config.json at runtime.
 
+#define HfpExe "C:\DNP\HotFolderPrint\HotFolderPrint.exe"
+
 [Setup]
 ; Same AppId as the agent-only installer, so this upgrades a booth that has it.
 AppId={{8B6F3C2E-5D41-4C7A-9E2B-1F0A6D3C7B95}
@@ -36,6 +38,8 @@ Source: "{#Stage}\booth.config.example.json"; DestDir: "{app}"; DestName: "booth
 Source: "{#NodeExe}"; DestDir: "{app}\node"; Flags: ignoreversion
 ; Canon EDSDK (capture.canon.driver "edsdk"), when the build PC had it. Not in git: Canon's licence.
 Source: "{#Stage}\edsdk\*"; DestDir: "C:\BoothAgent\edsdk"; Flags: ignoreversion skipifsourcedoesntexist uninsneveruninstall
+; DNP Hot Folder Print (the printer software), when the build PC had its MSI in prereqs\. Only unpacked on booths without it.
+Source: "{#Stage}\prereqs\HotFolderPrint.msi"; DestDir: "{tmp}"; Flags: nocompression skipifsourcedoesntexist deleteafterinstall; Check: HfpMissing
 ; The kiosk app (electron-builder --dir).
 Source: "{#Stage}\kiosk\installer\win-unpacked\*"; DestDir: "{app}\kiosk"; Flags: recursesubdirs ignoreversion
 
@@ -58,10 +62,14 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 ; A new booth gets its own random shared secret. Nobody needs to copy it anywhere: booth-agent and the kiosk both read it here.
 Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -Command ""$p = '{app}\booth.config.json'; $s = [guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N'); (Get-Content -Raw $p).Replace('change-me-to-a-long-random-string', $s) | Set-Content -NoNewline -Encoding ASCII $p"""; StatusMsg: "Generating the shared secret..."; Check: IsConfigNew; Flags: runhidden waituntilterminated
 Filename: "{win}\notepad.exe"; Parameters: """{app}\booth.config.json"""; StatusMsg: "Fill in booth.config.json, save it and close Notepad to continue..."; Check: IsConfigNew; Flags: waituntilterminated
+Filename: "{sys}\msiexec.exe"; Parameters: "/i ""{tmp}\HotFolderPrint.msi"" /qb /norestart"; StatusMsg: "Installing DNP Hot Folder Print (printer software)..."; Check: HfpInstallReady; Flags: waituntilterminated
+; Adds what an older booth.config.json lacks (kiosk origin, EDSDK driver, kiosk section), with a backup. Never fails the install.
+Filename: "{app}\node\node.exe"; Parameters: """{app}\dist\service\migrateConfig.js"" ""{app}\booth.config.json"""; WorkingDir: "{app}"; StatusMsg: "Updating booth.config.json..."; BeforeInstall: WaitForConfigSaved; Flags: runhidden waituntilterminated
 ; node-windows registers the service against the node.exe that runs this, i.e. the bundled one.
-Filename: "{app}\node\node.exe"; Parameters: """{app}\dist\service\install.js"""; WorkingDir: "{app}"; StatusMsg: "Installing the BoothAgent service..."; BeforeInstall: WaitForConfigSaved; Flags: runhidden waituntilterminated
+Filename: "{app}\node\node.exe"; Parameters: """{app}\dist\service\install.js"""; WorkingDir: "{app}"; StatusMsg: "Installing the BoothAgent service..."; Flags: runhidden waituntilterminated
 ; On upgrade install.js only reports "already installed", so start the service stopped in PrepareToInstall.
 Filename: "{sys}\sc.exe"; Parameters: "start boothagent.exe"; Flags: runhidden waituntilterminated
+Filename: "{#HfpExe}"; Description: "Open DNP Hot Folder Print (needed for printing)"; Flags: postinstall nowait skipifsilent runasoriginaluser skipifdoesntexist
 Filename: "{app}\kiosk\Kachak Kiosk.exe"; Description: "Open the kiosk now"; WorkingDir: "{app}\kiosk"; Flags: postinstall nowait skipifsilent runasoriginaluser
 
 [UninstallRun]
@@ -74,11 +82,21 @@ Type: filesandordirs; Name: "{app}\kiosk"
 
 [Code]
 const
-  KioskOrigin = 'http://127.0.0.1:4173';
   UninstallKey = 'Software\Microsoft\Windows\CurrentVersion\Uninstall';
 
 var
   ConfigIsNew: Boolean;
+
+function HfpMissing: Boolean;
+begin
+  Result := not FileExists('{#HfpExe}');
+end;
+
+{ Only when this installer carried the MSI (the build PC had it) and the booth still lacks Hot Folder Print. }
+function HfpInstallReady: Boolean;
+begin
+  Result := HfpMissing and FileExists(ExpandConstant('{tmp}\HotFolderPrint.msi'));
+end;
 
 function IsConfigNew: Boolean;
 begin
@@ -172,21 +190,4 @@ begin
   if ConfigIsNew then
     SuppressibleMsgBox('Finish filling in booth.config.json in Notepad and save it (Ctrl+S).' + #13#10#13#10 +
       'Press OK once it is saved to install and start the BoothAgent service.', mbInformation, MB_OK, IDOK);
-end;
-
-{ After install: an older booth.config.json may not allow the kiosk's origin yet (every kiosk call
-  would fail CORS), or may still use digiCamControl although the EDSDK the camera needs was just installed. }
-procedure CurStepChanged(CurStep: TSetupStep);
-var
-  Text: AnsiString;
-begin
-  if (CurStep <> ssPostInstall) or not LoadStringFromFile(ConfigPath, Text) then Exit;
-  if Pos(KioskOrigin, Text) = 0 then
-    SuppressibleMsgBox('booth.config.json does not list the kiosk in agent.allowedOrigins yet, so the kiosk cannot talk to booth-agent.' + #13#10#13#10 +
-      'Add "' + KioskOrigin + '" to agent.allowedOrigins in' + #13#10 + ConfigPath + #13#10 +
-      'and restart the BoothAgent service.', mbInformation, MB_OK, IDOK);
-  if FileExists('C:\BoothAgent\edsdk\EDSDK.dll') and (Pos('"edsdk"', Text) = 0) then
-    SuppressibleMsgBox('The Canon camera driver (EDSDK) is installed, but booth.config.json still uses digiCamControl.' + #13#10#13#10 +
-      'To use it, add "driver": "edsdk", under capture.canon in' + #13#10 + ConfigPath + #13#10 +
-      'and restart the BoothAgent service.', mbInformation, MB_OK, IDOK);
 end;

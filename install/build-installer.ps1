@@ -68,6 +68,17 @@ if ((Test-Path "$EdsdkDir\EDSDK.dll") -and (Test-Path "$EdsdkDir\EdsImage.dll"))
     Write-Warning "No EDSDK.dll + EdsImage.dll in $EdsdkDir - this installer will NOT include them; copy them to C:\BoothAgent\edsdk on each booth by hand."
 }
 
+# DNP Hot Folder Print, installed on booths that don't have it yet. Its MSI isn't in git (DNP's, and ~400 MB):
+# put it in this checkout's prereqs\ folder (gitignored) and the newest HotFolderPrint*.msi there is included.
+New-Item -ItemType Directory -Force "$Stage\prereqs" | Out-Null
+$Hfp = Get-ChildItem (Join-Path $Repo "prereqs") -Filter "HotFolderPrint*.msi" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+if ($Hfp) {
+    Copy-Item $Hfp.FullName "$Stage\prereqs\HotFolderPrint.msi"
+    Write-Host "Including DNP Hot Folder Print: $($Hfp.Name)"
+} else {
+    Write-Warning "No prereqs\HotFolderPrint*.msi - this installer will NOT install DNP Hot Folder Print on booths that lack it."
+}
+
 $Version = (Get-Content "$Stage\package.json" -Raw | ConvertFrom-Json).version
 Invoke-Step "ISCC" { & $Iscc "/DAppVersion=$Version" "/DStage=$Stage" "/DNodeExe=$Node" "/DOutDir=$Out" (Join-Path $PSScriptRoot "booth-agent.iss") }
 Remove-Item $Stage -Recurse -Force
