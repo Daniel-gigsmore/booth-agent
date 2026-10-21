@@ -81,6 +81,7 @@ const CompositeRequestSchema = z.object({
   downloadUrl: QrUrlSchema.optional(),
   /** Applied to photo elements only; template overlays stay untouched. */
   filter: PhotoFilterSchema.optional(),
+  filterIntensity: z.number().min(1).max(100).optional(),
 });
 
 /** What a qr element shows in layout previews and test prints: scannable, but no guest's photo. */
@@ -483,7 +484,7 @@ export function buildRouter(ctx: AgentContext): Router {
       res.status(400).json({ error: parsed.error.message });
       return;
     }
-    const { captureId, templateId, aiOutputUrl, downloadUrl, filter } = parsed.data;
+    const { captureId, templateId, aiOutputUrl, downloadUrl, filter, filterIntensity } = parsed.data;
     const captureIds = parsed.data.captureIds ?? [captureId];
     if (captureIds[0] !== captureId) {
       res.status(400).json({ error: "captureIds must start with captureId" });
@@ -515,6 +516,7 @@ export function buildRouter(ctx: AgentContext): Router {
         variables: textVariables(ctx.events.active().name, captureId),
         qrUrl: downloadUrl,
         filter,
+        filterIntensity,
         printSize,
         outputDir: compositesDir(config),
         jpegQuality: config.compositing.jpegQuality,

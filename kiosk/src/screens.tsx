@@ -343,23 +343,45 @@ export function Review({ template, captureId, captureIds, filtersEnabled, onPrin
 }) {
   const [copies, setCopies] = useState(1);
   const [filter, setFilter] = useState<PhotoFilter | "none">("none");
+  const [intensity, setIntensity] = useState(100);
   const [busy, setBusy] = useState(false);
+  // A slider change still waiting to re-composite: Print would otherwise send the old intensity.
+  const [pending, setPending] = useState(false);
   const [imgKey, setImgKey] = useState(0);
   const event = useEvent();
+  const intensityTimer = useRef<ReturnType<typeof setTimeout>>();
+  useEffect(() => () => clearTimeout(intensityTimer.current), []);
 
-  async function pickFilter(id: PhotoFilter | "none") {
-    setFilter(id);
+  async function recomposite(f: PhotoFilter | "none", int: number) {
     setBusy(true);
     try {
       await agent.composite(
         captureIds, template,
         fillDownloadUrl(config.downloadUrlTemplate, captureId, event),
-        id === "none" ? undefined : id,
+        f === "none" ? undefined : f,
+        f === "none" ? undefined : int,
       );
       setImgKey((k) => k + 1);
     } catch { /* keep previous composite */ }
     setBusy(false);
   }
+
+  function pickFilter(id: PhotoFilter | "none") {
+    setFilter(id);
+    setIntensity(100);
+    recomposite(id, 100);
+  }
+
+  function changeIntensity(val: number) {
+    setIntensity(val);
+    setPending(true);
+    clearTimeout(intensityTimer.current);
+    intensityTimer.current = setTimeout(() => {
+      setPending(false);
+      recomposite(filter, val);
+    }, 300);
+  }
+  const locked = busy || pending;
 
   return (
     <div className="stage review">
@@ -370,24 +392,34 @@ export function Review({ template, captureId, captureIds, filtersEnabled, onPrin
       <div className="col gap-24 grow">
         <h2 className="display fs-104">Looking<br />good?</h2>
         {filtersEnabled && (
-          <div className="row gap-10 wrap">
-            {FILTERS.map((f) => (
-              <button key={f.id} type="button" disabled={busy}
-                className={`filter-btn${filter === f.id ? " on" : ""}`}
-                onClick={() => pickFilter(f.id)}>{f.label}</button>
-            ))}
-          </div>
+          <>
+            <div className="row gap-10 wrap">
+              {FILTERS.map((f) => (
+                <button key={f.id} type="button" disabled={locked}
+                  className={`filter-btn${filter === f.id ? " on" : ""}`}
+                  onClick={() => pickFilter(f.id)}>{f.label}</button>
+              ))}
+            </div>
+            {filter !== "none" && (
+              <div className="row gap-12 intensity-row">
+                <span className="fs-24 bold">Intensity</span>
+                <input type="range" min={10} max={100} value={intensity}
+                  disabled={busy} onChange={(e) => changeIntensity(Number(e.target.value))} />
+                <span className="fs-24 bold" style={{ minWidth: 40, textAlign: "right" }}>{intensity}%</span>
+              </div>
+            )}
+          </>
         )}
         <p className="lede fs-32">Choose how many copies to print.</p>
         <div className="row gap-16 copies-row">
-          <button type="button" className="btn outline copies-btn" disabled={copies <= 1 || busy} onClick={() => setCopies(copies - 1)}>-</button>
+          <button type="button" className="btn outline copies-btn" disabled={copies <= 1 || locked} onClick={() => setCopies(copies - 1)}>-</button>
           <span className="fs-48 copies-count">{copies}</span>
-          <button type="button" className="btn outline copies-btn" disabled={copies >= 20 || busy} onClick={() => setCopies(copies + 1)}>+</button>
+          <button type="button" className="btn outline copies-btn" disabled={copies >= 20 || locked} onClick={() => setCopies(copies + 1)}>+</button>
         </div>
         <div className="col gap-24">
-          <button type="button" className="btn primary block" disabled={busy} onClick={() => onPrint(copies)}><CheckIcon size={48} />{busy ? "Applying…" : `Print${copies > 1 ? ` ${copies} copies` : ""}`}</button>
-          <button type="button" className="btn outline block" disabled={busy} onClick={onSkip}>Done without printing</button>
-          <button type="button" className="btn outline block" disabled={busy} onClick={onRetake}><RetakeIcon size={44} />Retake</button>
+          <button type="button" className="btn primary block" disabled={locked} onClick={() => onPrint(copies)}><CheckIcon size={48} />{locked ? "Applying…" : `Print${copies > 1 ? ` ${copies} copies` : ""}`}</button>
+          <button type="button" className="btn outline block" disabled={locked} onClick={onSkip}>Done without printing</button>
+          <button type="button" className="btn outline block" disabled={locked} onClick={onRetake}><RetakeIcon size={44} />Retake</button>
         </div>
       </div>
     </div>
